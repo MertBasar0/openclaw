@@ -155,26 +155,4 @@ struct ReportSectionCard: View {
     }
 }
 
-struct JobContinuationBadge: View {
-    let preview: HandoffPreview?
-    
-    var body: some View {
-        if let preview = preview {
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Available on iPhone", systemImage: "iphone")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.orange)
-                
-                if let first = preview.sectionSnippets.first {
-                    Text(first.content)
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .padding(6)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.1)))
-        }
-    }
-}
+
