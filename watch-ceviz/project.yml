@@ -1,0 +1,33 @@
+name: CevizWatch
+options:
+  bundleIdPrefix: com.mertbasar
+  generateEmptyDirectories: true
+targets:
+  CevizBridge:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: ios-bridge
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0"
+        CODE_SIGNING_ALLOWED: "NO" # Disable for CI build without certs initially
+    dependencies:
+      - target: CevizWatchApp
+        embed: true
+
+  CevizWatchApp:
+    type: watchkit.extension # Using watchOS application
+    platform: watchOS
+    deploymentTarget: "9.0"
+    sources:
+      - path: apple-watch
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0"
+        CODE_SIGNING_ALLOWED: "NO" # Disable for CI build without certs initially
