@@ -20,7 +20,7 @@ targets:
         embed: true
 
   CevizWatchApp:
-    type: watchkit.extension # Using watchOS application
+    type: application # watchOS 9+ uses standard application type
     platform: watchOS
     deploymentTarget: "9.0"
     sources:
