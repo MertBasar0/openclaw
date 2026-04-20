@@ -253,6 +253,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
             jobId: nil,
             phoneReport: nil,
             reportMeta: nil,
+            reportSections: nil,
             previewSections: nil,
             nextActions: nil
         )
