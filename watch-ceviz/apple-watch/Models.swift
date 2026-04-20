@@ -225,7 +225,7 @@ struct HandoffPreview: Equatable {
 struct ActiveJob: Codable, Identifiable {
     let id: String
     let name: String
-    let status: String
+    var status: String
     let elapsedSeconds: Int
     let summaryText: String
     let requiresPhoneHandoff: Bool
