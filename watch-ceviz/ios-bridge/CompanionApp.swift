@@ -1209,7 +1209,7 @@ struct JobDetailView: View {
     }
     
     private func fetchReport() {
-        guard let url = URL(string: "http://127.0.0.1:8080/api/v1/jobs/\(jobId)/report") else {
+        guard let url = URL(string: "http://172.17.169.202:8080/api/v1/jobs/\(jobId)/report") else {
             self.errorMessage = "Invalid URL"
             self.isLoading = false
             return

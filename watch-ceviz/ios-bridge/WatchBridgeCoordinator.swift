@@ -9,7 +9,7 @@ import os
 class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCenterDelegate {
     static let shared = WatchBridgeCoordinator()
     private let logger = Logger(subsystem: "com.openclaw.ceviz.ios", category: "WatchBridge")
-    private let backendURL = URL(string: "http://localhost:8080/api/v1/watch/command")!
+    private let backendURL = URL(string: "http://172.17.169.202:8080/api/v1/watch/command")!
     private let notificationCenter = UNUserNotificationCenter.current()
     private let handoffNotificationPrefix = "watch-ceviz.handoff."
     private let handoffNudgeDefaultsKey = "watch-ceviz.last-handoff-nudge"
@@ -98,7 +98,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
     }
     
     private func performJobAction(jobId: String, actionPath: String, replyHandler: @escaping ([String : Any]) -> Void) {
-        let actionURL = URL(string: "http://localhost:8080/api/v1/jobs/\(jobId)/\(actionPath)")!
+        let actionURL = URL(string: "http://172.17.169.202:8080/api/v1/jobs/\(jobId)/\(actionPath)")!
         var request = URLRequest(url: actionURL)
         request.httpMethod = "POST"
         
@@ -134,7 +134,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
     }
 
     private func fetchActiveJobs(replyHandler: @escaping ([String : Any]) -> Void) {
-        let jobsURL = URL(string: "http://localhost:8080/api/v1/jobs/active")!
+        let jobsURL = URL(string: "http://172.17.169.202:8080/api/v1/jobs/active")!
         var request = URLRequest(url: jobsURL)
         request.httpMethod = "GET"
         
