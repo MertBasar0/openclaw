@@ -48,6 +48,30 @@ jobs:
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGN_IDENTITY="" \
           CONFIGURATION_BUILD_DIR="$(pwd)/build"
+    - name: Inspect Build Output
+      working-directory: watch-ceviz
+      run: |
+        echo "== build tree =="
+        find build -maxdepth 4 -print | sort
+        echo "== app bundle tree =="
+        find build/CevizBridge.app -maxdepth 4 -print | sort
+        echo "== embedded watch bundles =="
+        find build/CevizBridge.app -type d \( -name '*.app' -o -name '*.appex' -o -name 'Watch' \) | sort
+        echo "== plist summary =="
+        /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' build/CevizBridge.app/Info.plist || true
+        /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/CevizBridge.app/Info.plist || true
+        /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/CevizBridge.app/Info.plist || true
+        if [ -f build/CevizBridge.app/Watch/CevizWatchApp.app/Info.plist ]; then
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' build/CevizBridge.app/Watch/CevizWatchApp.app/Info.plist || true
+          /usr/libexec/PlistBuddy -c 'Print :WKCompanionAppBundleIdentifier' build/CevizBridge.app/Watch/CevizWatchApp.app/Info.plist || true
+          /usr/libexec/PlistBuddy -c 'Print :WKRunsIndependently' build/CevizBridge.app/Watch/CevizWatchApp.app/Info.plist || true
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/CevizBridge.app/Watch/CevizWatchApp.app/Info.plist || true
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/CevizBridge.app/Watch/CevizWatchApp.app/Info.plist || true
+        else
+          echo 'Watch companion app bundle not found at expected path'
+        fi
+        echo "== code signing artifacts =="
+        find build/CevizBridge.app -maxdepth 4 \( -name 'embedded.mobileprovision' -o -name '_CodeSignature' \) -print | sort
     - name: Package Unsigned IPA
       working-directory: watch-ceviz
       run: |
