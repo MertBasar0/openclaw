@@ -19,7 +19,6 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "16.0"
-    supportedDestinations: [iPhone]
     sources:
       - path: ios-bridge
     settings:
@@ -44,7 +43,6 @@ targets:
     type: application
     platform: watchOS
     deploymentTarget: "9.0"
-    supportedDestinations: [appleWatch]
     sources:
       - path: apple-watch
     settings:
