@@ -10,7 +10,19 @@ struct ContentView: View {
     var body: some View {
         TabView {
             // Tab 1: PTT Voice Interface
-            VStack(spacing: 16) {
+            VStack(spacing: 8) {
+                // Connection Status Indicator
+                HStack {
+                    Circle()
+                        .fill(sessionManager.isReachable ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(sessionManager.transportStatus)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(sessionManager.isReachable ? .green : .orange)
+                    Spacer()
+                }
+                .padding(.horizontal)
+
                 Text(sessionManager.responseText)
                     .font(.footnote)
                     .multilineTextAlignment(.center)

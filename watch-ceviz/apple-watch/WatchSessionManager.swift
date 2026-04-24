@@ -11,7 +11,7 @@ struct QueuedCommand: Codable, Identifiable {
 } 
 
 
-class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
+class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExtendedRuntimeSessionDelegate {
     @Published var isReachable = false
     @Published var responseText = "Ready"
     @Published var handoffUrl: String? = nil
@@ -22,11 +22,42 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var handoffState: HandoffState = .idle
     @Published var handoffPreview: HandoffPreview? = nil
 
+    private var extendedSession: WKExtendedRuntimeSession?
+
     enum HandoffState: Equatable {
         case idle
         case ready
         case pendingOnPhone
         case openedOnPhone
+    }
+
+    func startExtendedSession() {
+        if extendedSession == nil || extendedSession?.state == .invalid {
+            extendedSession = WKExtendedRuntimeSession()
+            extendedSession?.delegate = self
+            extendedSession?.start()
+            print("Extended runtime session started for data transfer.")
+        }
+    }
+
+    func stopExtendedSession() {
+        extendedSession?.invalidate()
+        extendedSession = nil
+        print("Extended runtime session stopped.")
+    }
+
+    // WKExtendedRuntimeSessionDelegate methods
+    func extendedRuntimeSession(_ extendedRuntimeSession: WKExtendedRuntimeSession, didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason, error: Error?) {
+        print("Extended session invalidated: \(reason)")
+        extendedSession = nil
+    }
+
+    func extendedRuntimeSessionDidStart(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
+        print("Extended session did start")
+    }
+
+    func extendedRuntimeSessionWillExpire(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
+        print("Extended session will expire")
     }
 
     func handoffTitle(for handoffUrl: String? = nil) -> String {
@@ -284,6 +315,9 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             return 
         } 
 
+        // Start extended session to keep watch awake during transfer
+        self.startExtendedSession()
+
         DispatchQueue.main.async {
             self.responseText = "Sending..."
             self.handoffUrl = nil
@@ -293,6 +327,9 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         }
 
         WCSession.default.sendMessageData(data, replyHandler: { replyData in
+            // Stop extended session on success
+            self.stopExtendedSession()
+            
             guard let response = try? JSONDecoder().decode(WatchCommandResponse.self, from: replyData) else {
                 DispatchQueue.main.async {
                     self.responseText = "Invalid Response"
@@ -328,6 +365,9 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                 }
             }
         }, errorHandler: { error in
+            // Stop extended session on error
+            self.stopExtendedSession()
+            
             DispatchQueue.main.async {
                 self.handoffJobId = nil
                 self.handoffState = .idle
@@ -340,6 +380,9 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     }
     
     private func queueCommand(audioBase64: String) { 
+        // Ensure session is stopped if we fallback to queue
+        self.stopExtendedSession()
+        
         let newCommand = QueuedCommand( 
             id: UUID().uuidString, 
             audioData: audioBase64, 
@@ -365,10 +408,28 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             self.responseText = "Processing queued commands..." 
         } 
         
-        for var command in commandsToProcess { 
-            command.retryCount += 1 
-            self.sendAudioCommand(audioBase64: command.audioData) 
-        } 
+        // Process sequentially to avoid session flooding
+        func sendNext(index: Int) {
+            guard index < commandsToProcess.count else {
+                DispatchQueue.main.async {
+                    self.fetchJobs()
+                }
+                return
+            }
+            
+            var command = commandsToProcess[index]
+            command.retryCount += 1
+            
+            // Note: Since sendAudioCommand is async, we'd ideally wait for completion.
+            // For now, we'll trigger them with a small delay to respect the radio.
+            self.sendAudioCommand(audioBase64: command.audioData)
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                sendNext(index: index + 1)
+            }
+        }
+        
+        sendNext(index: 0)
     } 
 
     func updateJobStatus(jobId: String, newStatus: String) {

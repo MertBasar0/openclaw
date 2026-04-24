@@ -39,6 +39,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.openclaw.ceviz.watchkitapp
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.openclaw.ceviz
         INFOPLIST_KEY_WKRunsIndependently: YES
+        INFOPLIST_KEY_WKBackgroundModes:
+          - self-care
         CODE_SIGNING_ALLOWED: "YES"
         INFOPLIST_KEY_NSAppTransportSecurity:
           NSAllowsArbitraryLoads: YES
