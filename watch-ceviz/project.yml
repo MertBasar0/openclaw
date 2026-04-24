@@ -51,21 +51,11 @@ targets:
       - path: apple-watch
     settings:
       base:
-        GENERATE_INFOPLIST_FILE: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: apple-watch/Info.plist
         CURRENT_PROJECT_VERSION: $(APP_PROJECT_VERSION)
         MARKETING_VERSION: $(APP_MARKETING_VERSION)
         PRODUCT_BUNDLE_IDENTIFIER: $(WATCH_BUNDLE_ID)
         PRODUCT_NAME: CevizWatchApp
         TARGETED_DEVICE_FAMILY: "4"
-        INFOPLIST_KEY_CFBundleDisplayName: Ceviz
-        INFOPLIST_KEY_CFBundleName: CevizWatch
-        INFOPLIST_KEY_CFBundleShortVersionString: $(APP_MARKETING_VERSION)
-        INFOPLIST_KEY_CFBundleVersion: $(APP_PROJECT_VERSION)
-        # This MUST point to the phone app bundle ID
-        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: $(IOS_BUNDLE_ID)
-        INFOPLIST_KEY_WKRunsIndependently: NO
-        INFOPLIST_KEY_WKBackgroundModes:
-          - self-care
         CODE_SIGNING_ALLOWED: "YES"
-        INFOPLIST_KEY_NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: YES
