@@ -21,6 +21,8 @@ targets:
               - ceviz
         INFOPLIST_KEY_NSAppTransportSecurity:
           NSAllowsArbitraryLoads: YES
+        # Explicit link for Watch Connectivity and Installation
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.openclaw.ceviz
     dependencies:
       - target: CevizWatchApp
         embed: true
@@ -37,6 +39,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "1.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.openclaw.ceviz.watchkitapp
+        # This MUST point to the phone app bundle ID
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.openclaw.ceviz
         INFOPLIST_KEY_WKRunsIndependently: YES
         INFOPLIST_KEY_WKBackgroundModes:
