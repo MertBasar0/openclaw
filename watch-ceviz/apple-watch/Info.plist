@@ -35,5 +35,9 @@
   <string>$(IOS_BUNDLE_ID)</string>
   <key>WKRunsIndependently</key>
   <false/>
+  <key>WKWatchKitApp</key>
+  <true/>
+  <key>WKApplication</key>
+  <true/>
 </dict>
 </plist>
