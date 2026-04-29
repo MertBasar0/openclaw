@@ -801,6 +801,15 @@ export async function runHeartbeatOnce(opts: {
     return { status: "skipped", reason: HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT };
   }
 
+  // Phase 2: Stronger heartbeat deferral. 
+  // If the session was updated very recently (e.g., within the last 30 seconds),
+  // defer the heartbeat to avoid interrupting potential follow-up user turns or final delivery.
+  const { entry } = resolveHeartbeatSession(cfg, agentId, heartbeat, opts.sessionKey);
+  const HEARTBEAT_DEFER_WINDOW_MS = 30_000;
+  if (entry?.updatedAt && startedAt - entry.updatedAt < HEARTBEAT_DEFER_WINDOW_MS) {
+    return { status: "skipped", reason: HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT }; // Reuse the retry-triggering reason
+  }
+
   if (hasActiveCronJobs() || hasQueuedWorkInLanes(HEARTBEAT_ALWAYS_BUSY_LANES, getSize)) {
     emitHeartbeatEvent({
       status: "skipped",
