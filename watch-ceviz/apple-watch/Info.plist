@@ -34,7 +34,7 @@
   <key>WKCompanionAppBundleIdentifier</key>
   <string>$(IOS_BUNDLE_ID)</string>
   <key>WKRunsIndependently</key>
-  <true/>
+  <false/>
   <key>WKApplication</key>
   <true/>
 </dict>

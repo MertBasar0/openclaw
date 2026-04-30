@@ -8,7 +8,7 @@ import os
 /// and the OpenClaw Backend (URLSession).
 class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCenterDelegate {
     static let shared = WatchBridgeCoordinator()
-    private let logger = Logger(subsystem: "com.mertbasar.CevizBridge.ios", category: "WatchBridge")
+    private let logger = Logger(subsystem: "com.openclaw.ceviz.ios", category: "WatchBridge")
     private let backendURL = URL(string: "http://172.17.169.202:8080/api/v1/watch/command")!
     private let notificationCenter = UNUserNotificationCenter.current()
     private let handoffNotificationPrefix = "watch-ceviz.handoff."
