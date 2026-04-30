@@ -1,6 +1,6 @@
 name: CevizWatch
 options:
-  bundleIdPrefix: com.openclaw
+  bundleIdPrefix: com.mertbasar
   generateEmptyDirectories: true
   deploymentTarget:
     iOS: "16.0"
@@ -11,8 +11,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     APP_MARKETING_VERSION: "1.1"
     APP_PROJECT_VERSION: "2"
-    IOS_BUNDLE_ID: com.openclaw.ceviz
-    WATCH_BUNDLE_ID: com.openclaw.ceviz.watchkitapp
+    IOS_BUNDLE_ID: com.mertbasar.ceviz
+    WATCH_BUNDLE_ID: com.mertbasar.ceviz.watchkitapp
 
 targets:
   CevizBridge:
