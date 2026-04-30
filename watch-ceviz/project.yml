@@ -10,9 +10,9 @@ settings:
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     APP_MARKETING_VERSION: "1.1"
-    APP_PROJECT_VERSION: "2"
-    IOS_BUNDLE_ID: com.mertbasar.ceviz
-    WATCH_BUNDLE_ID: com.mertbasar.ceviz.watchkitapp
+    APP_PROJECT_VERSION: "3"
+    IOS_BUNDLE_ID: com.mertbasar.CevizBridge
+    WATCH_BUNDLE_ID: com.mertbasar.CevizBridge.watchkitapp
 
 targets:
   CevizBridge:
