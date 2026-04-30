@@ -1,6 +1,6 @@
 name: CevizWatch
 options:
-  bundleIdPrefix: com.openclaw
+  bundleIdPrefix: com.mertbasar
   generateEmptyDirectories: true
   deploymentTarget:
     iOS: "16.0"
@@ -10,9 +10,9 @@ settings:
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     APP_MARKETING_VERSION: "1.1"
-    APP_PROJECT_VERSION: "4"
-    IOS_BUNDLE_ID: com.openclaw.ceviz
-    WATCH_BUNDLE_ID: com.openclaw.ceviz.watchkitapp
+    APP_PROJECT_VERSION: "5"
+    IOS_BUNDLE_ID: com.mertbasar.ceviz
+    WATCH_BUNDLE_ID: com.mertbasar.ceviz.watchkitapp
 
 targets:
   CevizBridge:
@@ -55,7 +55,7 @@ targets:
         INFOPLIST_FILE: apple-watch/Info.plist
         CURRENT_PROJECT_VERSION: $(APP_PROJECT_VERSION)
         MARKETING_VERSION: $(APP_MARKETING_VERSION)
-        PRODUCT_BUNDLE_IDENTIFIER: $(IOS_BUNDLE_ID).watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: $(WATCH_BUNDLE_ID)
         PRODUCT_NAME: CevizWatchApp
         TARGETED_DEVICE_FAMILY: "4"
         CODE_SIGNING_ALLOWED: "YES"

@@ -9,7 +9,7 @@
   <key>CFBundleExecutable</key>
   <string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleIdentifier</key>
-  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <string>com.mertbasar.ceviz.watchkitapp</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
@@ -26,13 +26,13 @@
     <true/>
   </dict>
   <key>WKAppBundleIdentifier</key>
-  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <string>com.mertbasar.ceviz.watchkitapp</string>
   <key>WKBackgroundModes</key>
   <array>
     <string>self-care</string>
   </array>
   <key>WKCompanionAppBundleIdentifier</key>
-  <string>$(IOS_BUNDLE_ID)</string>
+  <string>com.mertbasar.ceviz</string>
   <key>WKRunsIndependently</key>
   <false/>
   <key>WKApplication</key>
