@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import sys
 import time
+from urllib.parse import parse_qs, urlparse
 import uuid
 
 logging.basicConfig(level=logging.INFO)
@@ -644,9 +645,183 @@ def sync_job_status(job: dict) -> None:
     )
 
 
+def create_openclaw_job(
+    *,
+    transcript: str,
+    source: str,
+    client_timestamp: str | None = None,
+    stt_error: str = "",
+) -> dict:
+    effective_transcript = transcript.strip()
+    invocation_payload = {
+        "audio_data": "",
+        "format": source,
+        "client_timestamp": client_timestamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "transcript": effective_transcript,
+        "_stt_source": source,
+        "_stt_error": stt_error,
+    }
+    invocation = openclaw_client.invoke_watch_command(invocation_payload)
+    new_job_id = f"job-{uuid.uuid4().hex[:8]}"
+    initial_requires_phone_handoff = not bool(effective_transcript)
+    summary_text = build_processing_summary(source, effective_transcript, stt_error)
+    phone_report = (
+        "OpenClaw çağrısı başlatıldı."
+        if effective_transcript
+        else "OpenClaw çağrısı başlatıldı ancak transkript üretilemedi. Telefonda hata notu ve yeniden deneme önerisi gösterilecek."
+    )
+
+    job = {
+        "id": new_job_id,
+        "name": effective_transcript or client_timestamp or "Shortcut Command",
+        "status": "running",
+        "created_at": time.time(),
+        "elapsed_seconds": 0,
+        "category": "OpenClaw Asistan",
+        "canned_result": "OpenClaw çağrısı başlatıldı, sonuç bekleniyor.",
+        "watch_summary": summary_text,
+        "requires_phone_handoff": initial_requires_phone_handoff,
+        "phone_report": phone_report,
+        "transcript": effective_transcript,
+        "stt_source": source,
+        "stt_error": stt_error,
+        "next_action": None,
+        "invocation": {
+            "process": invocation.process,
+            "log_path": invocation.log_path,
+            "prompt": invocation.prompt,
+            "command": invocation.command,
+            "started_at": invocation.started_at,
+        },
+    }
+    jobs_db[new_job_id] = job
+    return job
+
+
+def build_watch_command_response(job: dict) -> dict:
+    structured_fields = build_structured_report_fields(job)
+    requires_phone_handoff = derive_job_handoff(job)
+    resp_payload = {
+        "status": "processing",
+        "transcript": (job.get("transcript") or "").strip(),
+        "summary_text": build_job_watch_summary(job),
+        "tts_audio_data": "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
+        "tts_format": "aac",
+        "requires_phone_handoff": requires_phone_handoff,
+        "handoff_reason": build_handoff_reason(job),
+        "job_id": job["id"],
+        "phone_report": job.get("phone_report") or "",
+        "next_actions": build_next_actions(job),
+        **structured_fields,
+    }
+    if requires_phone_handoff:
+        deep_link = build_handoff_deep_link(job["id"])
+        resp_payload["deep_link"] = deep_link
+        resp_payload["handoff_url"] = deep_link
+    return resp_payload
+
+
+def build_shortcut_response(job: dict) -> dict:
+    sync_job_status(job)
+    summary = build_job_watch_summary(job)
+    job_id = job["id"]
+    return {
+        "status": job.get("status", "unknown"),
+        "done": job.get("status") in {"completed", "failed"},
+        "job_id": job_id,
+        "transcript": (job.get("transcript") or "").strip(),
+        "summary": summary,
+        "shortcut_text": summary,
+        "requires_phone_handoff": derive_job_handoff(job),
+        "handoff_reason": build_handoff_reason(job),
+        "phone_report": job.get("phone_report") or "",
+        "next_action": job.get("next_action") or None,
+        "poll_url": f"/api/v1/shortcuts/jobs/{job_id}",
+        "report_url": f"/api/v1/jobs/{job_id}/report",
+    }
+
+
+def parse_shortcut_text(payload: dict | str) -> tuple[str, str | None]:
+    if isinstance(payload, str):
+        return payload.strip(), None
+
+    for key in ("text", "prompt", "transcript", "command"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip(), payload.get("client_timestamp")
+
+    return "", payload.get("client_timestamp")
+
+
+def parse_wait_seconds(payload: dict | str, query: dict[str, list[str]]) -> float:
+    raw_value = None
+    if isinstance(payload, dict):
+        raw_value = payload.get("wait_seconds")
+    if raw_value is None and "wait" in query:
+        raw_value = query["wait"][0]
+    if raw_value is None and "wait_seconds" in query:
+        raw_value = query["wait_seconds"][0]
+
+    try:
+        wait_seconds = float(raw_value)
+    except (TypeError, ValueError):
+        return 0
+
+    return max(0, min(wait_seconds, 45))
+
+
+def wait_for_job_completion(job: dict, timeout_seconds: float, poll_interval: float = 1.0) -> None:
+    if timeout_seconds <= 0:
+        return
+
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        sync_job_status(job)
+        if job.get("status") in {"completed", "failed"}:
+            return
+        time.sleep(poll_interval)
+
+    sync_job_status(job)
+
+
 class WatchCevizHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == "/api/v1/jobs/active":
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
+        if path in {"/", "/shortcuts", "/api/v1/shortcuts/command"}:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"""<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Watch Ceviz Shortcuts</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 32px; line-height: 1.45; max-width: 760px; }
+    code, pre { background: #f4f4f5; border-radius: 6px; }
+    code { padding: 2px 5px; }
+    pre { padding: 14px; overflow-x: auto; }
+    .ok { color: #166534; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>Watch Ceviz Shortcuts backend</h1>
+  <p class="ok">Backend calisiyor.</p>
+  <p>Bu sayfa sadece durum ve kurulum icin. Shortcut komutlari tarayicidan GET ile degil, POST istegiyle gonderilir.</p>
+  <h2>Shortcut URL</h2>
+  <pre>POST /api/v1/shortcuts/command
+Content-Type: application/json
+
+{"text":"bugunku isleri ozetle","wait_seconds":25}</pre>
+  <h2>Poll URL</h2>
+  <pre>GET /api/v1/shortcuts/jobs/&lt;job_id&gt;</pre>
+  <h2>Health</h2>
+  <p><a href="/api/v1/jobs/active">/api/v1/jobs/active</a></p>
+</body>
+</html>""")
+        elif path == "/api/v1/jobs/active":
             active_jobs = []
             for jid, job in list(jobs_db.items()):
                 sync_job_status(job)
@@ -682,8 +857,8 @@ class WatchCevizHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(resp_payload).encode("utf-8"))
-        elif self.path.startswith("/api/v1/jobs/") and self.path.endswith("/report"):
-            job_id = self.path.split("/")[4]
+        elif path.startswith("/api/v1/jobs/") and path.endswith("/report"):
+            job_id = path.split("/")[4]
             now = time.time()
 
             job = jobs_db.get(job_id)
@@ -738,6 +913,24 @@ class WatchCevizHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(resp_payload).encode("utf-8"))
+        elif path.startswith("/api/v1/shortcuts/jobs/"):
+            job_id = path.split("/")[5]
+            job = jobs_db.get(job_id)
+            if not job:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "error": "Job not found",
+                    "job_id": job_id,
+                    "shortcut_text": f"Job {job_id} bulunamadı.",
+                }).encode("utf-8"))
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(build_shortcut_response(job)).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
@@ -753,8 +946,11 @@ class WatchCevizHandler(BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
     def _do_POST_impl(self):
-        if self.path.startswith("/api/v1/jobs/") and self.path.endswith("/cancel"):
-            job_id = self.path.split("/")[4]
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
+        query = parse_qs(parsed_url.query)
+        if path.startswith("/api/v1/jobs/") and path.endswith("/cancel"):
+            job_id = path.split("/")[4]
             job = jobs_db.get(job_id)
             if job:
                 sync_job_status(job)
@@ -769,8 +965,8 @@ class WatchCevizHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"status": "cancelled", "job_id": job_id}).encode("utf-8"))
             return
-        elif self.path.startswith("/api/v1/jobs/") and self.path.endswith("/summarize"):
-            job_id = self.path.split("/")[4]
+        elif path.startswith("/api/v1/jobs/") and path.endswith("/summarize"):
+            job_id = path.split("/")[4]
             job = jobs_db.get(job_id)
             if not job:
                 summary = f"Job {job_id} bulunamadı."
@@ -833,7 +1029,46 @@ class WatchCevizHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(response_payload).encode("utf-8"))
             return
-        elif self.path == "/api/v1/watch/command":
+        elif path == "/api/v1/shortcuts/command":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            content_type = self.headers.get("Content-Type", "")
+
+            if "application/json" in content_type:
+                try:
+                    payload = json.loads(body)
+                except json.JSONDecodeError:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b'{"error": "Invalid JSON"}')
+                    return
+            else:
+                payload = body.decode("utf-8", errors="replace")
+
+            transcript, client_timestamp = parse_shortcut_text(payload)
+            if not transcript:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "error": "Missing shortcut text",
+                    "shortcut_text": "Komut metni boş. Kısayolda dikte veya metin alanını backend'e gönder.",
+                }).encode("utf-8"))
+                return
+
+            job = create_openclaw_job(
+                transcript=transcript,
+                source="shortcut",
+                client_timestamp=client_timestamp,
+            )
+            wait_for_job_completion(job, parse_wait_seconds(payload, query))
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(build_shortcut_response(job)).encode("utf-8"))
+            return
+        elif path == "/api/v1/watch/command":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
 
@@ -856,67 +1091,13 @@ class WatchCevizHandler(BaseHTTPRequestHandler):
             stt_result = stt_client.transcribe_watch_payload(payload)
             effective_transcript = stt_result.transcript.strip()
 
-            new_job_id = f"job-{uuid.uuid4().hex[:8]}"
-            task_name = (effective_transcript or payload.get("client_timestamp") or "Watch Audio Command").strip()
-            if not task_name:
-                task_name = "Watch Audio Command"
-
-            invocation_payload = dict(payload)
-            invocation_payload["transcript"] = effective_transcript
-            invocation_payload["_stt_source"] = stt_result.source
-            invocation_payload["_stt_error"] = stt_result.error or ""
-
-            invocation = openclaw_client.invoke_watch_command(invocation_payload)
-            initial_requires_phone_handoff = not bool(effective_transcript)
-            summary_text = build_processing_summary(stt_result.source, effective_transcript, stt_result.error)
-            phone_report = (
-                "OpenClaw çağrısı başlatıldı."
-                if effective_transcript
-                else "OpenClaw çağrısı başlatıldı ancak transkript üretilemedi. Telefonda hata notu ve yeniden deneme önerisi gösterilecek."
+            job = create_openclaw_job(
+                transcript=effective_transcript,
+                source=stt_result.source,
+                client_timestamp=payload.get("client_timestamp"),
+                stt_error=stt_result.error or "",
             )
-
-            jobs_db[new_job_id] = {
-                "id": new_job_id,
-                "name": task_name,
-                "status": "running",
-                "created_at": time.time(),
-                "elapsed_seconds": 0,
-                "category": "OpenClaw Asistan",
-                "canned_result": "OpenClaw çağrısı başlatıldı, sonuç bekleniyor.",
-                "watch_summary": summary_text,
-                "requires_phone_handoff": initial_requires_phone_handoff,
-                "phone_report": phone_report,
-                "transcript": effective_transcript,
-                "stt_source": stt_result.source,
-                "stt_error": stt_result.error or "",
-                "next_action": None,
-                "invocation": {
-                    "process": invocation.process,
-                    "log_path": invocation.log_path,
-                    "prompt": invocation.prompt,
-                    "command": invocation.command,
-                    "started_at": invocation.started_at,
-                }
-            }
-
-            structured_fields = build_structured_report_fields(jobs_db[new_job_id])
-            resp_payload = {
-                "status": "processing",
-                "transcript": effective_transcript,
-                "summary_text": summary_text,
-                "tts_audio_data": "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
-                "tts_format": "aac",
-                "requires_phone_handoff": initial_requires_phone_handoff,
-                "handoff_reason": "needs_clarification" if initial_requires_phone_handoff else None,
-                "job_id": new_job_id,
-                "phone_report": phone_report,
-                "next_actions": build_next_actions(jobs_db[new_job_id]),
-                **structured_fields,
-            }
-            if initial_requires_phone_handoff:
-                deep_link = build_handoff_deep_link(new_job_id)
-                resp_payload["deep_link"] = deep_link
-                resp_payload["handoff_url"] = deep_link
+            resp_payload = build_watch_command_response(job)
 
             resp_schema = load_contract("watch-command-response.schema.json")
             resp_errors = validate_payload(resp_payload, resp_schema)

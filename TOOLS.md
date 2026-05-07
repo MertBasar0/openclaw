@@ -90,3 +90,20 @@ Add whatever helps you do your job. This is your cheat sheet.
   `python3 /home/mertb/isaac-live-control/send_command.py create-cube --path /World/OpenClawCube --size 0.5 --translate 0 0 1`
   `python3 /home/mertb/isaac-live-control/send_command.py set-translate --path /World/OpenClawCube --translate 2 0 1.5`
   `python3 /home/mertb/isaac-live-control/send_command.py delete-prim --path /World/OpenClawCube`
+
+### Windows Bridge Queue
+
+- Canonical capability descriptor:
+  `capabilities/windows-bridge-graph-mail.md`
+- Capability index:
+  `capabilities/index.md`
+- Bridge root:
+  `/home/mertb/.openclaw/workspace/windows-bridge-bootstrap`
+- Before saying a Windows, queue-driven, or Microsoft Graph mail task is impossible, inspect the capability index and descriptor first.
+- Do not delete queue/output files, start broad scans, mutate mailbox state, or affect OpenClaw gateway operation unless Mert explicitly asks.
+
+### Microsoft Graph Mail
+
+- Graph mail access is handled through the Windows Bridge capability, not by guessing that direct mail tools exist.
+- Use `capabilities/windows-bridge-graph-mail.md` for supported request kinds, read-only checks, safety boundaries, and fallback rules.
+- Existing result files may be stale, shallow, partial, or superseded; verify `status`, `pageCount`, `totalScanned`, `matchedCount`, and timestamps before summarizing.

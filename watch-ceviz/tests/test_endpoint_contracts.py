@@ -337,6 +337,98 @@ class EndpointContractTests(unittest.TestCase):
             "suggested-next-action",
         ])
 
+    def test_shortcut_command_accepts_text_and_returns_pollable_shape(self) -> None:
+        fake_invocation = SimpleNamespace(
+            process=mock.Mock(),
+            log_path="/tmp/fake-shortcut-job.log",
+            prompt="shortcut prompt",
+            command=["openclaw", "agent"],
+            started_at=123.0,
+        )
+        fake_invocation.process.poll.return_value = None
+
+        with mock.patch.object(
+            main.openclaw_client,
+            "invoke_watch_command",
+            return_value=fake_invocation,
+        ):
+            status, payload = self._post_json(
+                "/api/v1/shortcuts/command",
+                {
+                    "text": "bugünkü işleri özetle",
+                    "client_timestamp": "2026-05-01T10:00:00Z",
+                },
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "running")
+        self.assertFalse(payload["done"])
+        self.assertEqual(payload["transcript"], "bugünkü işleri özetle")
+        self.assertEqual(payload["summary"], payload["shortcut_text"])
+        self.assertEqual(payload["poll_url"], f"/api/v1/shortcuts/jobs/{payload['job_id']}")
+        self.assertEqual(payload["report_url"], f"/api/v1/jobs/{payload['job_id']}/report")
+
+        status, poll_payload = self._get_json(payload["poll_url"])
+
+        self.assertEqual(status, 200)
+        self.assertEqual(poll_payload["job_id"], payload["job_id"])
+        self.assertEqual(poll_payload["shortcut_text"], payload["shortcut_text"])
+
+    def test_shortcut_command_can_wait_for_completed_result(self) -> None:
+        fake_invocation = SimpleNamespace(
+            process=mock.Mock(),
+            log_path="/tmp/fake-shortcut-job.log",
+            prompt="shortcut prompt",
+            command=["openclaw", "agent"],
+            started_at=123.0,
+        )
+        fake_invocation.process.poll.side_effect = [0]
+        fake_result = SimpleNamespace(
+            category="Günlük Plan",
+            canned_result="Bugünün öncelikleri çıkarıldı.",
+            watch_summary="Bugünün üç önceliği hazır.",
+            requires_phone_handoff=False,
+            phone_report="Bugünün öncelikleri çıkarıldı.",
+            next_action="İlk öncelikten başla.",
+        )
+
+        with mock.patch.object(
+            main.openclaw_client,
+            "invoke_watch_command",
+            return_value=fake_invocation,
+        ), mock.patch.object(
+            main.openclaw_client,
+            "extract_result",
+            return_value=fake_result,
+        ), mock.patch.object(main.time, "sleep"):
+            status, payload = self._post_json(
+                "/api/v1/shortcuts/command?wait=5",
+                {
+                    "text": "bugünkü işleri özetle",
+                    "client_timestamp": "2026-05-01T10:00:00Z",
+                },
+            )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["done"])
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(payload["shortcut_text"], "Bugünün üç önceliği hazır.")
+        self.assertEqual(payload["phone_report"], "Bugünün öncelikleri çıkarıldı.")
+        self.assertEqual(payload["next_action"], "İlk öncelikten başla.")
+
+    def test_shortcut_command_rejects_empty_text(self) -> None:
+        req = request.Request(
+            f"{self.base_url}/api/v1/shortcuts/command",
+            data=json.dumps({"text": "   "}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with self.assertRaises(request.HTTPError) as ctx:
+            request.urlopen(req)
+
+        self.assertEqual(ctx.exception.code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

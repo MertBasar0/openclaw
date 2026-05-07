@@ -12,8 +12,12 @@ Before doing anything else:
 
 1. Read `SOUL.md` — this is who you are
 2. Read `USER.md` — this is who you're helping
-3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
+3. Read `AGENT-HIERARCHY.md` — this is your operational hierarchy and delegation law
+4. Read `TOOLS.md` — this is the local machine capability map
+5. Read `capabilities/index.md` if it exists — this is the durable capability discovery index
+6. Read the specific `capabilities/*.md` descriptor for any capability relevant to the user's task
+7. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
+8. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
 
 Don't ask permission. Just do it.
 
@@ -42,6 +46,7 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 - "Mental notes" don't survive session restarts. Files do.
 - When someone says "remember this" → update `memory/YYYY-MM-DD.md` or relevant file
 - When you learn a lesson → update AGENTS.md, TOOLS.md, or the relevant skill
+- When you add or discover a durable local capability → document it in `capabilities/*.md`, add it to `capabilities/index.md`, and summarize only the access pointer in `TOOLS.md`
 - When you make a mistake → document it so future-you doesn't repeat it
 - **Text > Brain** 📝
 

@@ -1,0 +1,11 @@
+# Sensitive personal memory files
+MEMORY.md
+memory/
+
+# Ignore problematic submodules/nested repos
+codex/
+backups/
+gemini/
+openclaw-src-2026.3.24/
+openclaw-src/
+openclaw-staging-latest/
