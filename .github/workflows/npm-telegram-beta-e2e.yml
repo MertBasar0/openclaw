@@ -89,7 +89,7 @@ env:
 jobs:
   run_package_telegram_e2e:
     name: Run package Telegram E2E
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'openclaw/openclaw' && 'blacksmith-32vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     environment: qa-live-shared
     permissions:
@@ -105,12 +105,17 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Blacksmith Docker Builder
+        if: github.repository == 'openclaw/openclaw'
         uses: useblacksmith/setup-docker-builder@ac083cc84672d01c60d5e8561d0a939b697de542 # v1
         with:
           max-cache-size-mb: 800000
 
+      - name: Set up Docker Buildx
+        if: github.repository != 'openclaw/openclaw'
+        uses: docker/setup-buildx-action@v3
+
       - name: Build Docker E2E image
-        uses: useblacksmith/build-push-action@cbd1f60d194a98cb3be5523b15134501eaf0fbf3 # v2
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./scripts/e2e/Dockerfile

@@ -30,7 +30,7 @@ jobs:
   critical-security:
     name: Critical Security (${{ matrix.category }})
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.profile == 'all' || inputs.profile == 'security' }}
-    runs-on: ${{ matrix.runs_on }}
+    runs-on: ${{ github.repository == 'openclaw/openclaw' && matrix.runs_on || 'ubuntu-24.04' }}
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false

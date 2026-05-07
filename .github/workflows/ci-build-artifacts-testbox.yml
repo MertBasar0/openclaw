@@ -22,7 +22,7 @@ jobs:
     permissions:
       contents: read
     name: "build-artifacts"
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'openclaw/openclaw' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 35
     steps:
       - name: Begin Testbox
