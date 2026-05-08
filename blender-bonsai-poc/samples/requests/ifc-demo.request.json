@@ -1,0 +1,20 @@
+{
+  "kind": "blender-bonsai-request",
+  "contractVersion": "0.1.0",
+  "requestId": "blender-bonsai-ifc-demo-001",
+  "action": "ifc-demo",
+  "readOnly": true,
+  "sourceKind": "manual-sample",
+  "artifacts": {
+    "responsePath": "samples/responses/ifc-demo.result.json",
+    "ifcPath": "out/request_ifc_demo.ifc",
+    "ifcSnapshotPath": "out/request_ifc_property_snapshot.json",
+    "ifcTakeoffPath": "samples/reports/ifc-demo.takeoff.json",
+    "modelReportJsonPath": "samples/reports/ifc-demo.model-report.json",
+    "modelReportMarkdownPath": "samples/reports/ifc-demo.model-report.md"
+  },
+  "options": {
+    "reuseExistingArtifactsIfPresent": true,
+    "notes": "Create a minimal IFC, extract Ceviz property sets, and generate a deterministic takeoff report."
+  }
+}

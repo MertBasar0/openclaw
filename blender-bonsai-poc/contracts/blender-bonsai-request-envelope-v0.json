@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw.local/contracts/blender-bonsai-request-envelope-v0.json",
+  "title": "Blender Bonsai PoC request envelope v0",
+  "type": "object",
+  "required": ["kind", "contractVersion", "requestId", "action", "readOnly", "artifacts"],
+  "properties": {
+    "kind": { "const": "blender-bonsai-request" },
+    "contractVersion": { "const": "0.1.0" },
+    "requestId": { "type": "string", "minLength": 1 },
+    "action": {
+      "type": "string",
+      "enum": ["create-ifc-sample", "extract-ifc-properties", "ifc-demo", "ifc-geometry-demo", "scene-demo"]
+    },
+    "readOnly": { "const": true },
+    "sourceKind": { "type": "string" },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "ifcPath": { "type": "string" },
+        "blendPath": { "type": "string" },
+        "generateIfMissing": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "responsePath": { "type": "string" },
+        "ifcPath": { "type": "string" },
+        "ifcSnapshotPath": { "type": "string" },
+        "ifcTakeoffPath": { "type": "string" },
+        "blendPath": { "type": "string" },
+        "sceneSnapshotPath": { "type": "string" },
+        "sceneReportPath": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "options": {
+      "type": "object",
+      "properties": {
+        "withGeometry": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

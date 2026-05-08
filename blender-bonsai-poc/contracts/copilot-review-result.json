@@ -1,0 +1,6 @@
+{
+  "summary": "string",
+  "risk_points": ["string"],
+  "missing_metadata": ["string"],
+  "next_steps": ["string"]
+}

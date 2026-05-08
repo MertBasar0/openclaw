@@ -1,0 +1,91 @@
+{
+  "kind": "ifc-model-report",
+  "contractVersion": "0.1.0",
+  "generatedAtUtc": "2026-05-03T19:01:26Z",
+  "requestId": "blender-bonsai-ifc-demo-001",
+  "action": "ifc-demo",
+  "source": {
+    "snapshot": {
+      "tool": "IfcOpenShell",
+      "version": "0.8.5-post1",
+      "file": "\\\\wsl.localhost\\Ubuntu\\home\\mertb\\.openclaw\\workspace\\blender-bonsai-poc\\out\\request_ifc_demo.ifc",
+      "schema": "IFC4"
+    },
+    "takeoff": {
+      "tool": "IfcOpenShell",
+      "version": "0.8.5-post1",
+      "file": "\\\\wsl.localhost\\Ubuntu\\home\\mertb\\.openclaw\\workspace\\blender-bonsai-poc\\out\\request_ifc_demo.ifc",
+      "schema": "IFC4"
+    },
+    "resultEnvelope": null
+  },
+  "status": "metadata-takeoff-poc-ready",
+  "modelSummary": {
+    "quantifiedElementCount": 8,
+    "extractedEntityCount": 12,
+    "categoryCounts": {
+      "door": 1,
+      "furniture": 1,
+      "slab": 1,
+      "wall": 4,
+      "window": 1
+    },
+    "classCounts": {
+      "IfcDoor": 1,
+      "IfcFurniture": 1,
+      "IfcSlab": 1,
+      "IfcWall": 4,
+      "IfcWindow": 1
+    },
+    "materialCounts": {
+      "light_wood": 2,
+      "soft_glass": 1,
+      "warm_concrete": 5
+    }
+  },
+  "quantityHighlights": {
+    "slabAreaM2": 24.0,
+    "wallFaceAreaM2": 58.0,
+    "openingAreaM2": 3.6,
+    "totalBoundingBoxVolumeM3": 10.548,
+    "modelExtentsM": {
+      "min": {
+        "x": -3.06,
+        "y": -2.1,
+        "z": -0.1
+      },
+      "max": {
+        "x": 3.06,
+        "y": 2.09,
+        "z": 2.9
+      },
+      "size": {
+        "x": 6.12,
+        "y": 4.19,
+        "z": 3.0
+      }
+    }
+  },
+  "geometryReadiness": {
+    "hasRealShapeRepresentations": false,
+    "elementsWithRepresentation": 0,
+    "elementsWithBodyRepresentation": 0,
+    "elementsWithAxisRepresentation": 0,
+    "representationContexts": {},
+    "geometryLevel": "metadata-only"
+  },
+  "caveats": [
+    "Quantities are deterministic PoC outputs derived from curated IFC dimensions/placements, not production BIM validation.",
+    "Opening hosting, void relationships, and clash-aware wall/window/door semantics are not modeled in this slice.",
+    "Representation coverage only confirms the presence of basic IFC shape representations; it does not certify authoring correctness or downstream viewer compatibility.",
+    "This action is metadata-only: no IFC body or axis shape representations were detected."
+  ],
+  "recommendedNextActions": [
+    "Use ifc-geometry-demo as the next controlled upgrade path when downstream agents need representation-aware BIM review.",
+    "Keep the current deterministic takeoff as the baseline contract and compare it against future geometry-derived quantities.",
+    "Expose model-report readiness flags in the queue/orchestrator so follow-up agents can branch without re-parsing raw JSON.",
+    "Expand the sample set beyond the single-room layout to cover multi-room or multi-storey cases before broadening the copilot surface."
+  ],
+  "naturalLanguageAssessment": "This PoC IFC model contains 8 quantified elements across 5 categories, 5 IFC classes, and 3 material hints. It reports 24.0 m2 slab area, 58.0 m2 wall face area, 3.6 m2 opening area, and 10.548 m3 total bbox volume within overall extents of 6.12 x 4.19 x 3.0 m. No IFC body or axis shape representations were detected; this remains a metadata-only model. Diagnostics are currently empty.",
+  "diagnostics": []
+}

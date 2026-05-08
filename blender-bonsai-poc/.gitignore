@@ -1,0 +1,7 @@
+out/
+__pycache__/
+*.pyc
+
+# Vendored Bonsai extension is too large for git; download manually from
+# https://extensions.blender.org/add-ons/bonsai/ (Windows x64 build).
+vendor/

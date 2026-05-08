@@ -1,0 +1,277 @@
+{
+  "kind": "blender-bonsai-result",
+  "contractVersion": "0.1.0",
+  "requestId": "blender-bonsai-ifc-geometry-demo-001",
+  "action": "ifc-geometry-demo",
+  "ok": true,
+  "readOnly": true,
+  "generatedAtUtc": "2026-05-03T19:01:26Z",
+  "execution": {
+    "mode": "local-headless-blender",
+    "durationMs": 55,
+    "blenderPath": "/mnt/c/Program Files/Blender Foundation/Blender 4.5/blender.exe",
+    "ifcAuthoringRoute": "IfcOpenShell pure Python API",
+    "ifcTakeoffRoute": "Snapshot-derived deterministic quantity report",
+    "geometryLevel": "real-ifc-shape-representations"
+  },
+  "artifacts": {
+    "requestPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/samples/requests/ifc-geometry-demo.request.json",
+    "responsePath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/samples/responses/ifc-geometry-demo.result.json",
+    "ifcPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/request_ifc_geometry_demo.ifc",
+    "ifcSnapshotPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/request_ifc_geometry_property_snapshot.json",
+    "ifcTakeoffPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/samples/reports/ifc-geometry-demo.takeoff.json",
+    "modelReportJsonPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/samples/reports/ifc-geometry-demo.model-report.json",
+    "modelReportMarkdownPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/samples/reports/ifc-geometry-demo.model-report.md",
+    "blendPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/sample_room.blend",
+    "sceneSnapshotPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/scene_snapshot.json",
+    "sceneReportPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/scene_report.md"
+  },
+  "result": {
+    "ifc": {
+      "snapshotKind": "ifc-entity-property-snapshot",
+      "summary": {
+        "entityCount": 292,
+        "extractedEntityCount": 12,
+        "classCounts": {
+          "IfcBuilding": 1,
+          "IfcBuildingStorey": 1,
+          "IfcDoor": 1,
+          "IfcFurniture": 1,
+          "IfcProject": 1,
+          "IfcSite": 1,
+          "IfcSlab": 1,
+          "IfcWall": 4,
+          "IfcWindow": 1
+        },
+        "categoryCounts": {
+          "door": 1,
+          "furniture": 1,
+          "slab": 1,
+          "wall": 4,
+          "window": 1
+        },
+        "geometry": {
+          "elementsWithRepresentation": 8,
+          "elementsWithBodyRepresentation": 8,
+          "elementsWithAxisRepresentation": 4,
+          "representationContexts": {
+            "Model/Body/MODEL_VIEW": 8,
+            "Plan/Axis/GRAPH_VIEW": 4
+          }
+        }
+      },
+      "diagnostics": []
+    },
+    "takeoff": {
+      "reportKind": "ifc-takeoff-report",
+      "summary": {
+        "elementCount": 8,
+        "categoryCounts": {
+          "door": 1,
+          "furniture": 1,
+          "slab": 1,
+          "wall": 4,
+          "window": 1
+        },
+        "classCounts": {
+          "IfcDoor": 1,
+          "IfcFurniture": 1,
+          "IfcSlab": 1,
+          "IfcWall": 4,
+          "IfcWindow": 1
+        },
+        "materialCounts": {
+          "light_wood": 2,
+          "soft_glass": 1,
+          "warm_concrete": 5
+        },
+        "geometry": {
+          "elementsWithRepresentation": 8,
+          "elementsWithBodyRepresentation": 8,
+          "elementsWithAxisRepresentation": 4,
+          "representationContexts": {
+            "Model/Body/MODEL_VIEW": 8,
+            "Plan/Axis/GRAPH_VIEW": 4
+          }
+        },
+        "totals": {
+          "count": 8,
+          "boundingBoxVolumeM3": 10.548,
+          "footprintAreaM2": 27.646,
+          "surfaceAreaM2": 187.556,
+          "horizontalSpanM": 30.1,
+          "wallFaceAreaM2": 58.0,
+          "slabAreaM2": 24.0,
+          "openingAreaM2": 3.6
+        },
+        "byCategory": {
+          "door": {
+            "count": 1,
+            "boundingBoxVolumeM3": 0.108,
+            "footprintAreaM2": 0.054,
+            "surfaceAreaM2": 3.948,
+            "horizontalSpanM": 0.9,
+            "wallFaceAreaM2": 0.0,
+            "slabAreaM2": 0.0,
+            "openingAreaM2": 1.8
+          },
+          "furniture": {
+            "count": 1,
+            "boundingBoxVolumeM3": 1.008,
+            "footprintAreaM2": 1.12,
+            "surfaceAreaM2": 6.2,
+            "horizontalSpanM": 1.4,
+            "wallFaceAreaM2": 0.0,
+            "slabAreaM2": 0.0,
+            "openingAreaM2": 0.0
+          },
+          "slab": {
+            "count": 1,
+            "boundingBoxVolumeM3": 2.4,
+            "footprintAreaM2": 24.0,
+            "surfaceAreaM2": 50.0,
+            "horizontalSpanM": 6.0,
+            "wallFaceAreaM2": 0.0,
+            "slabAreaM2": 24.0,
+            "openingAreaM2": 0.0
+          },
+          "wall": {
+            "count": 4,
+            "boundingBoxVolumeM3": 6.96,
+            "footprintAreaM2": 2.4,
+            "surfaceAreaM2": 123.584,
+            "horizontalSpanM": 20.0,
+            "wallFaceAreaM2": 58.0,
+            "slabAreaM2": 0.0,
+            "openingAreaM2": 0.0
+          },
+          "window": {
+            "count": 1,
+            "boundingBoxVolumeM3": 0.072,
+            "footprintAreaM2": 0.072,
+            "surfaceAreaM2": 3.824,
+            "horizontalSpanM": 1.8,
+            "wallFaceAreaM2": 0.0,
+            "slabAreaM2": 0.0,
+            "openingAreaM2": 1.8
+          }
+        },
+        "modelExtentsM": {
+          "min": {
+            "x": -3.06,
+            "y": -2.1,
+            "z": -0.1
+          },
+          "max": {
+            "x": 3.06,
+            "y": 2.09,
+            "z": 2.9
+          },
+          "size": {
+            "x": 6.12,
+            "y": 4.19,
+            "z": 3.0
+          }
+        }
+      },
+      "diagnostics": []
+    },
+    "modelReport": {
+      "kind": "ifc-model-report",
+      "contractVersion": "0.1.0",
+      "generatedAtUtc": "2026-05-03T19:01:26Z",
+      "requestId": "blender-bonsai-ifc-geometry-demo-001",
+      "action": "ifc-geometry-demo",
+      "source": {
+        "snapshot": {
+          "tool": "IfcOpenShell",
+          "version": "0.8.5-post1",
+          "file": "\\\\wsl.localhost\\Ubuntu\\home\\mertb\\.openclaw\\workspace\\blender-bonsai-poc\\out\\request_ifc_geometry_demo.ifc",
+          "schema": "IFC4"
+        },
+        "takeoff": {
+          "tool": "IfcOpenShell",
+          "version": "0.8.5-post1",
+          "file": "\\\\wsl.localhost\\Ubuntu\\home\\mertb\\.openclaw\\workspace\\blender-bonsai-poc\\out\\request_ifc_geometry_demo.ifc",
+          "schema": "IFC4"
+        },
+        "resultEnvelope": null
+      },
+      "status": "geometry-aware-poc-ready",
+      "modelSummary": {
+        "quantifiedElementCount": 8,
+        "extractedEntityCount": 12,
+        "categoryCounts": {
+          "door": 1,
+          "furniture": 1,
+          "slab": 1,
+          "wall": 4,
+          "window": 1
+        },
+        "classCounts": {
+          "IfcDoor": 1,
+          "IfcFurniture": 1,
+          "IfcSlab": 1,
+          "IfcWall": 4,
+          "IfcWindow": 1
+        },
+        "materialCounts": {
+          "light_wood": 2,
+          "soft_glass": 1,
+          "warm_concrete": 5
+        }
+      },
+      "quantityHighlights": {
+        "slabAreaM2": 24.0,
+        "wallFaceAreaM2": 58.0,
+        "openingAreaM2": 3.6,
+        "totalBoundingBoxVolumeM3": 10.548,
+        "modelExtentsM": {
+          "min": {
+            "x": -3.06,
+            "y": -2.1,
+            "z": -0.1
+          },
+          "max": {
+            "x": 3.06,
+            "y": 2.09,
+            "z": 2.9
+          },
+          "size": {
+            "x": 6.12,
+            "y": 4.19,
+            "z": 3.0
+          }
+        }
+      },
+      "geometryReadiness": {
+        "hasRealShapeRepresentations": true,
+        "elementsWithRepresentation": 8,
+        "elementsWithBodyRepresentation": 8,
+        "elementsWithAxisRepresentation": 4,
+        "representationContexts": {
+          "Model/Body/MODEL_VIEW": 8,
+          "Plan/Axis/GRAPH_VIEW": 4
+        },
+        "geometryLevel": "real-ifc-shape-representations"
+      },
+      "caveats": [
+        "Quantities are deterministic PoC outputs derived from curated IFC dimensions/placements, not production BIM validation.",
+        "Opening hosting, void relationships, and clash-aware wall/window/door semantics are not modeled in this slice.",
+        "Representation coverage only confirms the presence of basic IFC shape representations; it does not certify authoring correctness or downstream viewer compatibility."
+      ],
+      "recommendedNextActions": [
+        "Model hosted openings explicitly with IfcOpeningElement and wall void relationships.",
+        "Cross-check deterministic takeoff totals against geometry-derived quantities or native QTO extraction.",
+        "Expose model-report readiness flags in the queue/orchestrator so follow-up agents can branch without re-parsing raw JSON.",
+        "Expand the sample set beyond the single-room layout to cover multi-room or multi-storey cases before broadening the copilot surface."
+      ],
+      "naturalLanguageAssessment": "This PoC IFC model contains 8 quantified elements across 5 categories, 5 IFC classes, and 3 material hints. It reports 24.0 m2 slab area, 58.0 m2 wall face area, 3.6 m2 opening area, and 10.548 m3 total bbox volume within overall extents of 6.12 x 4.19 x 3.0 m. Real IFC shape coverage is present on 8 elements (8 body, 4 axis). Diagnostics are currently empty.",
+      "diagnostics": []
+    }
+  },
+  "warnings": [
+    "Reused existing IFC snapshot/takeoff artifacts because reuseExistingArtifactsIfPresent=true."
+  ],
+  "errors": []
+}

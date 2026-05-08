@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw.local/contracts/blender-bonsai-result-envelope-v0.json",
+  "title": "Blender Bonsai PoC result envelope v0",
+  "type": "object",
+  "required": ["kind", "contractVersion", "requestId", "action", "ok", "readOnly", "execution", "artifacts", "warnings", "errors"],
+  "properties": {
+    "kind": { "const": "blender-bonsai-result" },
+    "contractVersion": { "const": "0.1.0" },
+    "requestId": { "type": "string" },
+    "action": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "readOnly": { "const": true },
+    "execution": { "type": "object", "additionalProperties": true },
+    "artifacts": { "type": "object", "additionalProperties": true },
+    "result": { "type": ["object", "null"], "additionalProperties": true },
+    "warnings": { "type": "array" },
+    "errors": { "type": "array" }
+  },
+  "additionalProperties": true
+}
