@@ -31,6 +31,11 @@ import {
   type SubagentAttachmentReceiptFile,
 } from "./subagent-attachments.js";
 import { resolveSubagentCapabilities } from "./subagent-capabilities.js";
+import {
+  completionOwnerNeedsRequesterFinal,
+  resolveSubagentCompletionOwner,
+  type SubagentCompletionOwner,
+} from "./subagent-completion-owner.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
 import { buildSubagentInitialUserMessage } from "./subagent-initial-user-message.js";
 import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
@@ -140,6 +145,7 @@ export type SpawnSubagentParams = {
   context?: SpawnSubagentContextMode;
   lightContext?: boolean;
   expectsCompletionMessage?: boolean;
+  completionOwner?: SubagentCompletionOwner;
   attachments?: Array<{
     name: string;
     content: string;
@@ -1142,11 +1148,29 @@ export async function spawnSubagentDirect(
 
   const childIdem = crypto.randomUUID();
   let childRunId: string = childIdem;
-  const deliverInitialChildRunDirectly =
+  const canDeliverInitialChildRunDirectly =
     requestThreadBinding && spawnMode === "session" && hasBoundThreadDeliveryOrigin;
-  const shouldAnnounceCompletion = deliverInitialChildRunDirectly
-    ? false
-    : expectsCompletionMessage;
+  const completionOwner = resolveSubagentCompletionOwner({
+    requestedOwner: params.completionOwner,
+    expectsCompletionMessage,
+    threadBoundDirectDelivery: canDeliverInitialChildRunDirectly,
+  });
+  if (completionOwner === "work-thread-final" && !canDeliverInitialChildRunDirectly) {
+    await cleanupFailedSpawnBeforeAgentStart({
+      childSessionKey,
+      attachmentAbsDir,
+      emitLifecycleHooks: threadBindingReady,
+      deleteTranscript: true,
+    });
+    return {
+      status: "error",
+      error:
+        'completionOwner="work-thread-final" requires a thread-bound session with a routable delivery origin.',
+      childSessionKey,
+    };
+  }
+  const deliverInitialChildRunDirectly = completionOwner === "work-thread-final";
+  const shouldAnnounceCompletion = completionOwnerNeedsRequesterFinal(completionOwner);
   try {
     const {
       spawnedBy: _spawnedBy,
@@ -1267,6 +1291,7 @@ export async function spawnSubagentDirect(
       workspaceDir: spawnedMetadata.workspaceDir,
       runTimeoutSeconds,
       expectsCompletionMessage: shouldAnnounceCompletion,
+      completionOwner,
       spawnMode,
       attachmentsDir: attachmentAbsDir,
       attachmentsRootDir: attachmentRootDir,
