@@ -11,6 +11,7 @@ import {
   ensureAuthProfileStore,
 } from "./auth-profiles/store.js";
 import type { OAuthCredential } from "./auth-profiles/types.js";
+import { resolveInlineProviderApiKeyUsageId } from "./auth-profiles/usage.js";
 import type { ClaudeCliCredential } from "./cli-credentials.js";
 import {
   getApiKeyForModel,
@@ -886,6 +887,37 @@ describe("getApiKeyForModel", () => {
     expect(resolved.apiKey).toBe("config-demo-key");
     expect(resolved.source).toBe("models.json");
     expect(resolved.profileId).toBeUndefined();
+  });
+
+  it("blocks explicit configured apiKey while its inline provider cooldown is active", async () => {
+    const usageId = resolveInlineProviderApiKeyUsageId("demo-local");
+    await expect(
+      resolveApiKeyForProvider({
+        provider: "demo-local",
+        store: {
+          version: 1,
+          profiles: {},
+          usageStats: {
+            [usageId]: {
+              disabledUntil: Date.now() + 60_000,
+              disabledReason: "billing",
+            },
+          },
+        },
+        cfg: {
+          models: {
+            providers: {
+              "demo-local": {
+                baseUrl: "http://localhost:11434",
+                api: "openai-completions",
+                apiKey: "config-demo-key",
+                models: [],
+              },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(/Inline API key for provider "demo-local" is temporarily disabled/);
   });
 
   it("falls back to the stored synthetic local profile when no real auth exists", async () => {

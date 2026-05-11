@@ -29,6 +29,7 @@ import {
   resolveApiKeyForProfile,
   resolveAuthProfileOrder,
   resolveAuthStorePathForDisplay,
+  resolveInlineProviderApiKeyUnusableUntil,
 } from "./auth-profiles.js";
 import * as cliCredentials from "./cli-credentials.js";
 import { resolveEnvApiKey, type EnvApiKeyResult } from "./model-auth-env.js";
@@ -216,6 +217,32 @@ export function shouldPreferExplicitConfigApiKeyAuth(
     resolveProviderAuthOverride(cfg, provider) === "api-key" &&
     providerConfig !== undefined &&
     hasExplicitProviderApiKeyConfig(providerConfig)
+  );
+}
+
+export function isInlineProviderApiKeyAuth(auth: ResolvedProviderAuth | null | undefined): boolean {
+  if (!auth || auth.mode !== "api-key") {
+    return false;
+  }
+  return (
+    auth.source === "models.json" ||
+    auth.source.endsWith(" (models.json secretref)") ||
+    auth.source.endsWith(" (models.json marker)")
+  );
+}
+
+function assertInlineProviderApiKeyUsable(params: {
+  store: AuthProfileStore;
+  provider: string;
+}): void {
+  const unusableUntil = resolveInlineProviderApiKeyUnusableUntil(params.store, params.provider);
+  if (typeof unusableUntil !== "number" || unusableUntil <= Date.now()) {
+    return;
+  }
+  const waitMs = Math.max(0, unusableUntil - Date.now());
+  const waitMinutes = Math.max(1, Math.ceil(waitMs / 60_000));
+  throw new Error(
+    `Inline API key for provider "${params.provider}" is temporarily disabled after a provider auth/billing failure. Retry after about ${waitMinutes} minute${waitMinutes === 1 ? "" : "s"}, or switch to a different auth profile/API key.`,
   );
 }
 
@@ -627,6 +654,13 @@ export async function resolveApiKeyForProvider(params: {
   if (shouldPreferExplicitConfigApiKeyAuth(cfg, provider)) {
     const customKey = resolveUsableCustomProviderApiKey({ cfg, provider });
     if (customKey) {
+      scopedStore ??= resolveScopedAuthProfileStore({
+        agentDir: params.agentDir,
+        cfg,
+        provider,
+        preferredProfile,
+      });
+      assertInlineProviderApiKeyUsable({ store: scopedStore, provider });
       return {
         apiKey: customKey.apiKey,
         source: customKey.source,
@@ -744,6 +778,7 @@ export async function resolveApiKeyForProvider(params: {
 
   const customKey = resolveUsableCustomProviderApiKey({ cfg, provider });
   if (customKey) {
+    assertInlineProviderApiKeyUsable({ store, provider });
     const result = { apiKey: customKey.apiKey, source: customKey.source, mode: "api-key" as const };
     return result;
   }
@@ -884,16 +919,6 @@ export async function hasAvailableAuthForProvider(params: {
   if (resolveConfigAwareEnvApiKey(cfg, provider, params.workspaceDir)) {
     return true;
   }
-  if (resolveUsableCustomProviderApiKey({ cfg, provider })) {
-    return true;
-  }
-  if (resolveSyntheticLocalProviderAuth({ cfg, provider })) {
-    return true;
-  }
-  if (authOverride === undefined && normalizeProviderId(provider) === "amazon-bedrock") {
-    return true;
-  }
-
   const store =
     params.store ??
     resolveScopedAuthProfileStore({
@@ -902,6 +927,19 @@ export async function hasAvailableAuthForProvider(params: {
       provider,
       preferredProfile,
     });
+  const inlineUnusableUntil = resolveInlineProviderApiKeyUnusableUntil(store, provider);
+  if (
+    resolveUsableCustomProviderApiKey({ cfg, provider }) &&
+    (typeof inlineUnusableUntil !== "number" || inlineUnusableUntil <= Date.now())
+  ) {
+    return true;
+  }
+  if (resolveSyntheticLocalProviderAuth({ cfg, provider })) {
+    return true;
+  }
+  if (authOverride === undefined && normalizeProviderId(provider) === "amazon-bedrock") {
+    return true;
+  }
   const order = resolveAuthProfileOrder({
     cfg,
     store,

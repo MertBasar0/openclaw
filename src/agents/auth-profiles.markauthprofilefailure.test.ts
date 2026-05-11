@@ -17,7 +17,12 @@ import {
   clearRuntimeAuthProfileStoreSnapshots,
   ensureAuthProfileStore,
 } from "./auth-profiles/store.js";
-import { calculateAuthProfileCooldownMs, markAuthProfileFailure } from "./auth-profiles/usage.js";
+import {
+  calculateAuthProfileCooldownMs,
+  markAuthProfileFailure,
+  markInlineProviderApiKeyFailure,
+  resolveInlineProviderApiKeyUsageId,
+} from "./auth-profiles/usage.js";
 
 type AuthProfileStore = ReturnType<typeof ensureAuthProfileStore>;
 
@@ -155,6 +160,26 @@ describe("markAuthProfileFailure", () => {
       expectCooldownInRange(remainingMs, 4.5 * 60 * 60 * 1000, 5.5 * 60 * 60 * 1000);
     });
   });
+  it("records billing backoff for inline provider api keys without creating an auth profile", async () => {
+    await withAuthProfileStore(async ({ agentDir, store }) => {
+      const startedAt = Date.now();
+      await markInlineProviderApiKeyFailure({
+        store,
+        provider: "anthropic",
+        reason: "billing",
+        agentDir,
+      });
+
+      const usageId = resolveInlineProviderApiKeyUsageId("anthropic");
+      const stats = store.usageStats?.[usageId];
+      expect(store.profiles[usageId]).toBeUndefined();
+      expect(stats?.disabledReason).toBe("billing");
+      expect(typeof stats?.disabledUntil).toBe("number");
+      const remainingMs = (stats?.disabledUntil as number) - startedAt;
+      expectCooldownInRange(remainingMs, 4.5 * 60 * 60 * 1000, 5.5 * 60 * 60 * 1000);
+    });
+  });
+
   it("honors per-provider billing backoff overrides", async () => {
     await withAuthProfileStore(async ({ agentDir, store }) => {
       const startedAt = Date.now();

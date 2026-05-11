@@ -33,6 +33,7 @@ import {
   type AuthProfileStore,
   markAuthProfileFailure,
   markAuthProfileSuccess,
+  markInlineProviderApiKeyFailure,
   resolveAuthProfileEligibility,
 } from "../auth-profiles.js";
 import { listActiveProcessSessionReferences } from "../bash-process-references.js";
@@ -56,6 +57,7 @@ import {
   applyAuthHeaderOverride,
   applyLocalNoAuthHeaderOverride,
   ensureAuthProfileStoreWithoutExternalProfiles,
+  isInlineProviderApiKeyAuth,
   type ResolvedProviderAuth,
   resolveAuthProfileOrder,
   shouldPreferExplicitConfigApiKeyAuth,
@@ -955,12 +957,27 @@ export async function runEmbeddedPiAgent(
         modelId?: string;
       }) => {
         const { profileId, reason } = failure;
-        if (!profileId || !reason || reason === "timeout") {
+        if (!reason || reason === "timeout") {
           return;
         }
-        await markAuthProfileFailure({
+        if (profileId) {
+          await markAuthProfileFailure({
+            store: authStore,
+            profileId,
+            reason,
+            cfg: params.config,
+            agentDir,
+            runId: params.runId,
+            modelId: failure.modelId,
+          });
+          return;
+        }
+        if (!isInlineProviderApiKeyAuth(apiKeyInfo)) {
+          return;
+        }
+        await markInlineProviderApiKeyFailure({
           store: authStore,
-          profileId,
+          provider,
           reason,
           cfg: params.config,
           agentDir,
