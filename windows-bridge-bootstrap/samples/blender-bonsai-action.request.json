@@ -1,0 +1,20 @@
+{
+  "requestId": "blender-bonsai-action-sample-001",
+  "kind": "blender-bonsai-action",
+  "createdAtUtc": "2026-05-03T00:00:00Z",
+  "status": "pending",
+  "payload": {
+    "action": "ifc-demo",
+    "readOnly": true,
+    "sourceKind": "windows-bridge-sample",
+    "artifacts": {
+      "responsePath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/bridge/blender-bonsai-action-sample.result.json",
+      "ifcPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/bridge/blender-bonsai-action-sample.ifc",
+      "ifcSnapshotPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/bridge/blender-bonsai-action-sample.ifc-snapshot.json",
+      "ifcTakeoffPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/bridge/blender-bonsai-action-sample.ifc-takeoff.json"
+    },
+    "options": {
+      "notes": "Queue sample equivalent of blender-bonsai-action.payload.json"
+    }
+  }
+}

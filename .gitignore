@@ -2,10 +2,42 @@
 MEMORY.md
 memory/
 
+# Runtime/cache artifacts
+**/__pycache__/
+*.pyc
+*.log
+openclaw_logs.txt
+.venv*/
+*-env/
+.pytest_cache/
+**/tmp/
+**/dist/
+node_modules/
+
+# Local OpenClaw runtime state
+.codex
+.openclaw-staging-latest/
+.openclaw/codex-queue/
+.openclaw/job-supervisor/state/
+state/
+
 # Ignore problematic submodules/nested repos
 codex/
 backups/
 gemini/
+openclaw-pr-*/
 openclaw-src-2026.3.24/
 openclaw-src/
 openclaw-staging-latest/
+
+# Temporary local probes
+*.tmp
+tmp-*.ps1
+
+# Local auth/cache and queue results
+windows-bridge-bootstrap/graph-cache/
+windows-bridge-bootstrap/queue/archive/
+windows-bridge-bootstrap/queue/outbound/
+windows-bridge-bootstrap/artifacts/mail-pr-issue-scan-*.json
+**/queue/inbound/
+*.tsbuildinfo

@@ -1,0 +1,14 @@
+{
+  "action": "ifc-demo",
+  "readOnly": true,
+  "sourceKind": "windows-bridge-sample",
+  "artifacts": {
+    "responsePath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/bridge/blender-bonsai-action-sample.result.json",
+    "ifcPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/bridge/blender-bonsai-action-sample.ifc",
+    "ifcSnapshotPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/bridge/blender-bonsai-action-sample.ifc-snapshot.json",
+    "ifcTakeoffPath": "/home/mertb/.openclaw/workspace/blender-bonsai-poc/out/bridge/blender-bonsai-action-sample.ifc-takeoff.json"
+  },
+  "options": {
+    "notes": "Bridge sample that creates the deterministic IFC demo and returns the normalized Blender+Bonsai result envelope."
+  }
+}
