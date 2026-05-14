@@ -1,7 +1,7 @@
-import type { StreamFn } from "@mariozechner/pi-agent-core";
-import type { SimpleStreamOptions } from "@mariozechner/pi-ai";
-import { streamSimple } from "@mariozechner/pi-ai";
-import type { SettingsManager } from "@mariozechner/pi-coding-agent";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai";
+import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createDeepSeekV4OpenAICompatibleThinkingWrapper } from "../../plugin-sdk/provider-stream-shared.js";
@@ -133,6 +133,7 @@ export function resolveExtraParams(params: {
 type CacheRetentionStreamOptions = Partial<SimpleStreamOptions> & {
   cacheRetention?: "none" | "short" | "long";
   cachedContent?: string;
+  topP?: number;
 };
 export type SupportedTransport = AgentRuntimeTransport;
 
@@ -378,6 +379,9 @@ function createStreamFnWithExtraParams(
   const streamParams: CacheRetentionStreamOptions = {};
   if (typeof extraParams.temperature === "number") {
     streamParams.temperature = extraParams.temperature;
+  }
+  if (typeof extraParams.topP === "number") {
+    streamParams.topP = extraParams.topP;
   }
   if (typeof extraParams.maxTokens === "number") {
     streamParams.maxTokens = extraParams.maxTokens;

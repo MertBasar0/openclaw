@@ -1,9 +1,11 @@
+import { normalizeConfiguredProviderCatalogModelId } from "../agents/model-ref-shared.js";
 import { normalizeProviderId } from "../agents/model-selection.js";
 import {
   normalizeAgentModelMapForConfig,
   normalizeAgentModelRefForConfig,
 } from "../config/model-input.js";
 import { normalizeProviderConfigForConfigDefaults } from "../config/provider-policy.js";
+import type { AgentModelConfig } from "../config/types.agents-shared.js";
 import type { ModelProviderConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -121,29 +123,12 @@ function normalizeAgentModelMapForWrite(value: unknown): unknown {
   return normalizeAgentModelMapForConfig(value);
 }
 
-const GOOGLE_CONFIG_MODEL_PROVIDERS = new Set(["google", "google-gemini-cli", "google-vertex"]);
-
 function normalizeProviderCatalogModelIdForWrite(provider: string, modelId: string): string {
   const trimmed = modelId.trim();
   if (!trimmed) {
     return trimmed;
   }
-
-  const slash = trimmed.indexOf("/");
-  if (slash > 0 && slash < trimmed.length - 1) {
-    return normalizeAgentModelRefForConfig(trimmed);
-  }
-
-  const providerId = normalizeProviderId(provider);
-  if (!GOOGLE_CONFIG_MODEL_PROVIDERS.has(providerId)) {
-    return trimmed;
-  }
-
-  const normalizedQualified = normalizeAgentModelRefForConfig(`${providerId}/${trimmed}`);
-  const prefix = `${providerId}/`;
-  return normalizedQualified.startsWith(prefix)
-    ? normalizedQualified.slice(prefix.length)
-    : normalizedQualified;
+  return normalizeConfiguredProviderCatalogModelId(normalizeProviderId(provider), trimmed);
 }
 
 function normalizeProviderCatalogModelIdsForWrite(
@@ -204,28 +189,69 @@ function normalizeModelProviderConfigsForWrite(cfg: OpenClawConfig): OpenClawCon
   };
 }
 
+function normalizeAgentListForWrite(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  let mutated = false;
+  const next = value.map((agent) => {
+    if (!isPlainRecord(agent)) {
+      return agent;
+    }
+
+    let nextAgent = agent;
+    if (Object.prototype.hasOwnProperty.call(agent, "model")) {
+      const normalizedModel = normalizeAgentModelConfigForWrite(agent.model);
+      if (normalizedModel !== agent.model) {
+        nextAgent = { ...nextAgent, model: normalizedModel };
+        mutated = true;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(agent, "models")) {
+      const normalizedModels = normalizeAgentModelMapForWrite(agent.models);
+      if (normalizedModels !== agent.models) {
+        nextAgent = { ...nextAgent, models: normalizedModels };
+        mutated = true;
+      }
+    }
+    return nextAgent;
+  });
+
+  return mutated ? next : value;
+}
+
 function normalizeConfigModelRefsForWrite(cfg: OpenClawConfig): OpenClawConfig {
   const providerNormalized = normalizeModelProviderConfigsForWrite(cfg);
   const defaults = providerNormalized.agents?.defaults;
-  if (!defaults) {
-    return providerNormalized;
+  const agentsList = providerNormalized.agents?.list;
+
+  let nextDefaults = defaults;
+  if (defaults) {
+    nextDefaults = { ...defaults };
+    if (defaults.model !== undefined) {
+      nextDefaults.model = normalizeAgentModelConfigForWrite(
+        defaults.model,
+      ) as typeof defaults.model;
+    }
+    if (defaults.models !== undefined) {
+      nextDefaults.models = normalizeAgentModelMapForWrite(
+        defaults.models,
+      ) as typeof defaults.models;
+    }
   }
 
-  const nextDefaults: NonNullable<NonNullable<OpenClawConfig["agents"]>["defaults"]> = {
-    ...defaults,
-  };
-  if (defaults.model !== undefined) {
-    nextDefaults.model = normalizeAgentModelConfigForWrite(defaults.model) as typeof defaults.model;
-  }
-  if (defaults.models !== undefined) {
-    nextDefaults.models = normalizeAgentModelMapForWrite(defaults.models) as typeof defaults.models;
+  const nextAgentsList = normalizeAgentListForWrite(agentsList);
+  if (nextDefaults === defaults && nextAgentsList === agentsList) {
+    return providerNormalized;
   }
 
   return {
     ...providerNormalized,
     agents: {
       ...providerNormalized.agents,
-      defaults: nextDefaults,
+      ...(nextDefaults ? { defaults: nextDefaults } : {}),
+      ...(nextAgentsList !== undefined ? { list: nextAgentsList as typeof agentsList } : {}),
     },
   };
 }
@@ -259,6 +285,30 @@ export function applyProviderAuthConfigPatch(
       },
     },
   });
+}
+
+/**
+ * Restore `agents.defaults.model` after a provider auth config merge when the user did not pass
+ * `--set-default`, so `applyConfig` patches cannot replace the primary without an explicit opt-in.
+ */
+export function restorePriorAgentsDefaultsModelUnlessOptIn(params: {
+  cfg: OpenClawConfig;
+  priorAgentsDefaultsModel?: AgentModelConfig;
+  setDefault?: boolean;
+}): OpenClawConfig {
+  if (params.setDefault || params.priorAgentsDefaultsModel === undefined) {
+    return params.cfg;
+  }
+  return {
+    ...params.cfg,
+    agents: {
+      ...params.cfg.agents,
+      defaults: {
+        ...params.cfg.agents?.defaults,
+        model: params.priorAgentsDefaultsModel,
+      },
+    },
+  };
 }
 
 export function applyDefaultModel(

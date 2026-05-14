@@ -16,7 +16,10 @@ import {
   evaluateSupplementalContextVisibility,
   resolveChannelContextVisibilityMode,
 } from "openclaw/plugin-sdk/context-visibility-runtime";
+import { isDangerousNameMatchingEnabled } from "openclaw/plugin-sdk/dangerous-name-runtime";
 import { hasFinalInboundReplyDispatch } from "openclaw/plugin-sdk/inbound-reply-dispatch";
+import type { ChannelBotLoopProtectionFacts } from "openclaw/plugin-sdk/inbound-reply-dispatch";
+import { mergePairLoopGuardConfig } from "openclaw/plugin-sdk/pair-loop-guard-runtime";
 import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
 import { resolvePinnedMainDmOwnerFromAllowlist } from "openclaw/plugin-sdk/security-runtime";
 import {
@@ -31,7 +34,10 @@ import type {
   MatrixStreamingMode,
   ReplyToMode,
 } from "../../types.js";
-import { resolveMatrixAccountAllowlistConfig } from "../account-config.js";
+import {
+  resolveMatrixAccountAllowlistConfig,
+  resolveMatrixAccountConfig,
+} from "../account-config.js";
 import { formatMatrixErrorMessage } from "../errors.js";
 import { isMatrixMediaSizeLimitError } from "../media-errors.js";
 import {
@@ -391,6 +397,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
     core,
     cfg,
     accountId,
+    accountConfig,
     runtime,
     logger,
     logVerboseMessage,
@@ -437,11 +444,17 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
   const resolveCachedLiveAllowlist = async (params: {
     cfg: CoreConfig;
     entries?: ReadonlyArray<string | number>;
+    failClosedOnUnresolved?: boolean;
     startupResolvedEntries?: readonly MatrixResolvedAllowlistEntry[];
     cache: LiveAllowlistCacheEntry | null;
     updateCache: (next: LiveAllowlistCacheEntry) => void;
   }): Promise<string[]> => {
-    const signature = JSON.stringify((params.entries ?? []).map((entry) => String(entry).trim()));
+    const accountConfig = resolveMatrixAccountConfig({ cfg: params.cfg, accountId });
+    const signature = JSON.stringify({
+      entries: (params.entries ?? []).map((entry) => String(entry).trim()),
+      failClosedOnUnresolved: params.failClosedOnUnresolved === true,
+      dangerouslyAllowNameMatching: isDangerousNameMatchingEnabled(accountConfig),
+    });
     if (params.cache?.signature === signature) {
       return params.cache.entries;
     }
@@ -449,6 +462,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
       cfg: params.cfg,
       accountId,
       entries: params.entries,
+      failClosedOnUnresolved: params.failClosedOnUnresolved,
       startupResolvedEntries: params.startupResolvedEntries,
       runtime,
     });
@@ -679,6 +693,22 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
           await commitInboundEventIfClaimed();
           return undefined;
         }
+        const botLoopProtection: ChannelBotLoopProtectionFacts | undefined =
+          isConfiguredBotSender && senderId !== selfUserId
+            ? {
+                scopeId: accountId,
+                conversationId: roomId,
+                senderId,
+                receiverId: selfUserId,
+                config: mergePairLoopGuardConfig(
+                  accountConfig?.botLoopProtection,
+                  roomConfig?.botLoopProtection,
+                ),
+                defaultsConfig: cfg.channels?.defaults?.botLoopProtection,
+                defaultEnabled: true,
+                nowMs: eventTs ?? undefined,
+              }
+            : undefined;
 
         if (isRoom && roomConfig && !roomConfigInfo?.allowed) {
           logVerboseMessage(`matrix: room disabled room=${roomId} (${roomMatchMeta})`);
@@ -725,6 +755,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
         const liveGroupAllowFrom = await resolveCachedLiveAllowlist({
           cfg: liveCfg,
           entries: liveAccountAllowlists.groupAllowFrom,
+          failClosedOnUnresolved: true,
           startupResolvedEntries: groupAllowFromResolvedEntries,
           cache: liveGroupAllowlistCache,
           updateCache: (next) => {
@@ -1126,6 +1157,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
           triggerSnapshot,
           threadRootId,
           thread,
+          botLoopProtection,
           effectiveGroupAllowFrom,
           effectiveRoomUsers,
         };
@@ -1180,6 +1212,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
         triggerSnapshot,
         threadRootId,
         thread,
+        botLoopProtection,
         effectiveGroupAllowFrom,
         effectiveRoomUsers,
       } = resolvedIngressResult;
@@ -2001,6 +2034,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
             storePath,
             ctxPayload,
             recordInboundSession: core.channel.session.recordInboundSession,
+            botLoopProtection,
             record: {
               updateLastRoute: isDirectMessage
                 ? {
@@ -2121,6 +2155,12 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
         },
       });
       if (!turnResult.dispatched) {
+        if (
+          turnResult.admission.kind === "drop" &&
+          turnResult.admission.reason === "bot-loop-protection"
+        ) {
+          await commitInboundEventIfClaimed();
+        }
         return;
       }
       const { dispatchResult } = turnResult;

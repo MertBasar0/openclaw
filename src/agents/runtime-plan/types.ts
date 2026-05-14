@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { TSchema } from "typebox";
 
 export type AgentRuntimeTransport = "sse" | "websocket" | "auto";
@@ -267,6 +267,7 @@ export type AgentRuntimeAuthPlan = {
   authProfileProviderForAuth: string;
   harnessAuthProvider?: string;
   forwardedAuthProfileId?: string;
+  forwardedAuthProfileCandidateIds?: string[];
 };
 
 export type AgentRuntimePromptPlan = {
@@ -313,7 +314,10 @@ export type AgentRuntimeToolPlan = {
 
 export type AgentRuntimeDeliveryPlan = {
   isSilentPayload(
-    payload: Pick<AgentRuntimeReplyPayload, "text" | "mediaUrl" | "mediaUrls">,
+    payload: Pick<
+      AgentRuntimeReplyPayload,
+      "text" | "mediaUrl" | "mediaUrls" | "presentation" | "interactive" | "channelData"
+    >,
   ): boolean;
   resolveFollowupRoute(params: {
     payload: AgentRuntimeReplyPayload;
@@ -389,7 +393,9 @@ export type BuildAgentRuntimePlanParams = {
   harnessRuntime?: string;
   allowHarnessAuthProfileForwarding?: boolean;
   authProfileProvider?: string;
+  authProfileMode?: string;
   sessionAuthProfileId?: string;
+  sessionAuthProfileCandidateIds?: string[];
   agentId?: string;
   thinkingLevel?: AgentRuntimeThinkLevel;
   extraParamsOverride?: Record<string, unknown>;

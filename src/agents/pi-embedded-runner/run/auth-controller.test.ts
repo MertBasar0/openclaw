@@ -1,4 +1,4 @@
-import type { Api, Model } from "@mariozechner/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { AuthProfileStore } from "../../auth-profiles.js";
 import type { RuntimeAuthState } from "./helpers.js";
@@ -179,7 +179,7 @@ describe("createEmbeddedRunAuthController", () => {
 
     await controller.initializeAuthProfile();
 
-    const apiKeyParams = mocks.getApiKeyForModel.mock.calls[0]?.[0] as
+    const apiKeyParams = mocks.getApiKeyForModel.mock.calls.at(0)?.[0] as
       | { agentDir?: string; workspaceDir?: string }
       | undefined;
     expect(apiKeyParams?.agentDir).toBe("/tmp/agent");

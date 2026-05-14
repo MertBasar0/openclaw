@@ -250,6 +250,17 @@ number is available. This lane is transcript-visual rather than logged-in
 Telegram Web proof: the Telegram Bot API gives stable live message evidence, but
 Telegram Web login state is not required for normal Mantis automation.
 
+`Mantis Telegram Desktop Proof` is the agentic native Telegram Desktop
+before/after wrapper. A maintainer can trigger it from a PR comment with
+`@Mantis telegram desktop proof`, from the Actions UI with freeform
+instructions, or through the generic `Mantis Scenario` dispatcher. The workflow
+hands the PR, baseline ref, candidate ref, and maintainer instructions to Codex.
+The agent reads the PR, decides what Telegram-visible behavior proves the
+change, runs the real-user Crabbox Telegram Desktop proof lane for baseline and
+candidate, iterates until the native GIFs are useful, writes paired
+`motionPreview` artifacts into `mantis-evidence.json`, uploads the bundle, and
+posts a 2-column PR evidence table when a PR number is available.
+
 For human-in-the-loop Telegram desktop setup, use the scenario builder:
 
 ```bash
@@ -307,7 +318,8 @@ This schema is the handoff between scenario code and GitHub comments:
 ```
 
 Artifact `path` values are relative to the manifest directory. `targetPath`
-values are relative paths under the `qa-artifacts` branch publish directory.
+values are relative paths inside the uploaded Actions artifact bundle. Mantis
+must not publish evidence to Git branches; Git history is not artifact storage.
 The publisher rejects path traversal and skips entries marked
 `"required": false` when optional previews or videos are unavailable.
 
@@ -322,11 +334,11 @@ Supported artifact kinds:
 - `report`: Markdown report.
 
 The reusable publisher is `scripts/mantis/publish-pr-evidence.mjs`. Workflows
-call it with the manifest, target PR, `qa-artifacts` target root, comment marker,
-Actions artifact URL, run URL, and request source. It copies declared artifacts
-to the `qa-artifacts` branch, builds a summary-first PR comment with inline
-images/previews and linked videos, then updates the existing marker comment or
-creates one.
+call it with the manifest, target PR, artifact root, comment marker, Actions
+artifact URL, run URL, and request source. The workflow uploads the declared
+files through `actions/upload-artifact`; the publisher builds a summary-first PR
+comment that links to that artifact and lists the bundled file names. It never
+commits or pushes evidence files.
 
 You can also trigger the status-reactions run directly from a PR comment:
 
@@ -616,10 +628,11 @@ after the new secret has been stored.
 
 Mantis workflows should upload the full evidence bundle as a short-lived Actions
 artifact. When the workflow is run for a bug report or fix PR, it should also
-publish the redacted PNG screenshots to the `qa-artifacts` branch and upsert a
-comment on that bug or fix PR with inline before/after screenshots. Do not post
-the primary proof only on a generic QA automation PR. Raw logs, observed
-messages, and other bulky evidence stay in the Actions artifact.
+upsert a comment on that bug or fix PR with a short summary and a link to the
+Actions artifact. Do not post the primary proof only on a generic QA automation
+PR. Do not use Git branches, tags, or commits as Mantis artifact storage. Raw
+logs, screenshots, recordings, observed messages, and other bulky evidence stay
+in the Actions artifact.
 
 Production workflows should post those comments with the Mantis GitHub App, not
 with `github-actions[bot]`. Store the app id and private key as

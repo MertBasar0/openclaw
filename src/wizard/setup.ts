@@ -178,9 +178,10 @@ async function requireRiskAcknowledgement(params: {
 
 export async function runSetupWizard(
   opts: OnboardOptions,
-  runtime: RuntimeEnv = defaultRuntime,
+  runtime: RuntimeEnv | undefined,
   prompter: WizardPrompter,
 ) {
+  runtime ??= defaultRuntime;
   const onboardHelpers = await import("../commands/onboard-helpers.js");
   onboardHelpers.printWizardHeader(runtime);
   await prompter.intro("OpenClaw setup");
@@ -654,7 +655,7 @@ export async function runSetupWizard(
       runtime,
       setDefaultModel: true,
       opts: {
-        tokenProvider: opts.tokenProvider,
+        ...opts,
         token: opts.authChoice === "apiKey" && opts.token ? opts.token : undefined,
       },
     });
@@ -779,9 +780,11 @@ export async function runSetupWizard(
     });
   }
 
-  // Setup hooks (session memory on /new)
-  const { setupInternalHooks } = await import("../commands/onboard-hooks.js");
-  nextConfig = await setupInternalHooks(nextConfig, runtime, prompter);
+  if (!opts.skipHooks) {
+    // Setup hooks (session memory on /new)
+    const { setupInternalHooks } = await import("../commands/onboard-hooks.js");
+    nextConfig = await setupInternalHooks(nextConfig, runtime, prompter);
+  }
 
   nextConfig = onboardHelpers.applyWizardMetadata(nextConfig, { command: "onboard", mode });
   nextConfig = await writeWizardConfigFile(nextConfig);

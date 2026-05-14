@@ -27,7 +27,9 @@ function pluginIds(plugins: ReturnType<typeof listReadOnlyChannelPluginsForConfi
 }
 
 function expectRecordFields(record: unknown, expected: Record<string, unknown>) {
-  expect(record).toBeDefined();
+  if (!record || typeof record !== "object") {
+    throw new Error("Expected record");
+  }
   const actual = record as Record<string, unknown>;
   for (const [key, value] of Object.entries(expected)) {
     expect(actual[key]).toEqual(value);
@@ -664,7 +666,16 @@ describe("listReadOnlyChannelPluginsForConfig", () => {
     );
 
     const plugin = plugins.find((entry) => entry.id === "external-chat");
-    expect(plugin).toBeUndefined();
+    expect(plugin?.meta.label).toBe("@example/openclaw-external-chat");
+    expect(plugin?.meta.blurb).toBe("");
+    expect(plugin?.configSchema).toBeUndefined();
+    expect(
+      plugin?.config.listAccountIds({
+        channels: {
+          "external-chat": { token: "configured" },
+        },
+      } as never),
+    ).toEqual(["default"]);
     expect(fs.existsSync(setupMarker)).toBe(false);
     expect(fs.existsSync(fullMarker)).toBe(false);
   });

@@ -74,13 +74,19 @@ describe("telegramOutbound", () => {
       deps: { sendTelegram: sendMessageTelegramMock },
     });
 
-    const options = callOptionsAt(sendMessageTelegramMock, 0, "12345", "hello");
-    expect(options.mediaUrl).toBe("/tmp/image.png");
-    expect(options.mediaLocalRoots).toEqual(["/tmp/agent-root"]);
-    expect(options.accountId).toBe("ops");
-    expect(options.replyToMessageId).toBe(900);
-    expect(options.messageThreadId).toBe(12);
-    expect(options.textMode).toBe("html");
+    expect(sendMessageTelegramMock).toHaveBeenCalledWith("12345", "hello", {
+      cfg: {},
+      verbose: false,
+      messageThreadId: 12,
+      replyToMessageId: 900,
+      accountId: "ops",
+      silent: undefined,
+      gatewayClientScopes: undefined,
+      mediaUrl: "/tmp/image.png",
+      mediaLocalRoots: ["/tmp/agent-root"],
+      mediaReadFile: undefined,
+      forceDocument: false,
+    });
     expect(result).toEqual({ channel: "telegram", messageId: "tg-media" });
   });
 
@@ -144,6 +150,44 @@ describe("telegramOutbound", () => {
     expect(result).toEqual({ channel: "telegram", messageId: "tg-buttons", chatId: "12345" });
   });
 
+  it("renders presentation web app buttons for payload sends", async () => {
+    sendMessageTelegramMock.mockResolvedValueOnce({ messageId: "tg-web-app", chatId: "12345" });
+    const presentation = {
+      blocks: [
+        {
+          type: "buttons" as const,
+          buttons: [{ label: "Launch", webApp: { url: "https://example.com/app" } }],
+        },
+      ],
+    };
+    const rendered = await telegramOutbound.renderPresentation?.({
+      payload: { text: "Open app:" },
+      presentation,
+      ctx: {} as never,
+    });
+    if (!rendered) {
+      throw new Error("expected rendered Telegram presentation");
+    }
+
+    await telegramOutbound.sendPayload!({
+      cfg: {} as never,
+      to: "12345",
+      text: "",
+      payload: rendered,
+      deps: { sendTelegram: sendMessageTelegramMock },
+    });
+
+    const options = callOptionsAt(
+      sendMessageTelegramMock,
+      0,
+      "12345",
+      "Open app:\n\n- Launch: https://example.com/app",
+    );
+    expect(options.buttons).toEqual([
+      [{ text: "Launch", web_app: { url: "https://example.com/app" } }],
+    ]);
+  });
+
   it("forwards silent delivery options to Telegram sends", async () => {
     sendMessageTelegramMock.mockResolvedValueOnce({ messageId: "tg-silent", chatId: "12345" });
 
@@ -159,6 +203,25 @@ describe("telegramOutbound", () => {
     const options = callOptionsAt(sendMessageTelegramMock, 0, "12345", "quiet");
     expect(options.silent).toBe(true);
     expect(result).toEqual({ channel: "telegram", messageId: "tg-silent", chatId: "12345" });
+  });
+
+  it("does not plain-text sanitize Telegram HTML before durable delivery", async () => {
+    sendMessageTelegramMock.mockResolvedValueOnce({ messageId: "tg-html", chatId: "12345" });
+
+    await telegramOutbound.sendText!({
+      cfg: {} as never,
+      to: "12345",
+      text: "<b>Morning</b> <code>oauth2</code>",
+      deps: { sendTelegram: sendMessageTelegramMock },
+    });
+
+    const options = callOptionsAt(
+      sendMessageTelegramMock,
+      0,
+      "12345",
+      "<b>Morning</b> <code>oauth2</code>",
+    );
+    expect(options.textMode).toBeUndefined();
   });
 
   it("forwards audioAsVoice payload media to Telegram voice sends", async () => {
@@ -189,6 +252,7 @@ describe("telegramOutbound", () => {
         cfg: {} as never,
         to: "12345",
         text: "hello",
+        formatting: { parseMode: "HTML" },
         deps: { sendTelegram: sendMessageTelegramMock },
       });
       const options = lastCallOptions(sendMessageTelegramMock, "12345", "hello");

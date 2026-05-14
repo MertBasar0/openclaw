@@ -118,6 +118,29 @@ describe("handleAssistantFailover", () => {
       expect(outcome.action).toBe("retry");
       expect(warn).not.toHaveBeenCalled();
     });
+
+    it("marks classified failures even when inline auth has no profile id", async () => {
+      const maybeMarkAuthProfileFailure = vi.fn(async () => {});
+      const outcome = await handleAssistantFailover(
+        makeParams({
+          initialDecision: { action: "rotate_profile", reason: "billing" },
+          failoverReason: "billing",
+          assistantProfileFailureReason: "billing",
+          lastProfileId: undefined,
+          maybeMarkAuthProfileFailure,
+          advanceAuthProfile: vi.fn(async () => true),
+        }),
+      );
+
+      expect(outcome.action).toBe("retry");
+      await vi.waitFor(() =>
+        expect(maybeMarkAuthProfileFailure).toHaveBeenCalledWith({
+          profileId: undefined,
+          reason: "billing",
+          modelId: "claude-haiku-4-5-20251001",
+        }),
+      );
+    });
   });
 
   describe("surface_error branch (openclaw#70124)", () => {

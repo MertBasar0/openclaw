@@ -111,7 +111,11 @@ function makeLeaseStore() {
 function readFirstEnsureSessionInput(ensure: {
   mock: { calls: Array<Array<unknown>> };
 }): Parameters<AcpRuntime["ensureSession"]>[0] {
-  const input = ensure.mock.calls[0]?.[0];
+  const [call] = ensure.mock.calls;
+  if (!call) {
+    throw new Error("Expected ensureSession to be called");
+  }
+  const [input] = call;
   if (typeof input !== "object" || input === null) {
     throw new Error("Expected ensureSession to be called with an input object");
   }
@@ -471,7 +475,7 @@ describe("AcpxRuntime fresh reset wrapper", () => {
     expect(setConfigOption).not.toHaveBeenCalled();
   });
 
-  it("forwards timeout config controls for non-Codex ACP agents", async () => {
+  it("ignores unsupported claude-agent-acp timeout config controls", async () => {
     const baseStore: TestSessionStore = {
       load: vi.fn(async () => ({
         acpxRecordId: "agent:claude:acp:test",
@@ -493,13 +497,68 @@ describe("AcpxRuntime fresh reset wrapper", () => {
       key: "timeout",
       value: "60",
     });
+    await runtime.setConfigOption({
+      handle,
+      key: "Timeout_Seconds",
+      value: "60",
+    });
+
+    expect(setConfigOption).not.toHaveBeenCalled();
+  });
+
+  it("still forwards non-timeout config controls for claude-agent-acp", async () => {
+    const baseStore: TestSessionStore = {
+      load: vi.fn(async () => ({
+        acpxRecordId: "agent:claude:acp:test",
+        agentCommand: "npx @agentclientprotocol/claude-agent-acp",
+      })),
+      save: vi.fn(async () => {}),
+    };
+    const { runtime, delegate } = makeRuntime(baseStore);
+    const setConfigOption = vi.spyOn(delegate, "setConfigOption").mockResolvedValue(undefined);
+    const handle: Parameters<NonNullable<AcpRuntime["setConfigOption"]>>[0]["handle"] = {
+      sessionKey: "agent:claude:acp:test",
+      backend: "acpx",
+      runtimeSessionName: "agent:claude:acp:test",
+      acpxRecordId: "agent:claude:acp:test",
+    };
+
+    await runtime.setConfigOption({
+      handle,
+      key: "model",
+      value: "claude-sonnet-4.6",
+    });
 
     expect(setConfigOption).toHaveBeenCalledOnce();
     expect(setConfigOption).toHaveBeenCalledWith({
       handle,
-      key: "timeout",
-      value: "60",
+      key: "model",
+      value: "claude-sonnet-4.6",
     });
+  });
+
+  it("recognizes claude-agent-acp commands", () => {
+    expect(__testing.isClaudeAcpCommand("npx @agentclientprotocol/claude-agent-acp")).toBe(true);
+    expect(
+      __testing.isClaudeAcpCommand("npx -y @agentclientprotocol/claude-agent-acp@0.33.1"),
+    ).toBe(true);
+    expect(__testing.isClaudeAcpCommand("claude-agent-acp")).toBe(true);
+    expect(__testing.isClaudeAcpCommand("claude-agent-acp.exe")).toBe(true);
+    expect(
+      __testing.isClaudeAcpCommand(`node "/tmp/openclaw/acpx/claude-agent-acp-wrapper.mjs"`),
+    ).toBe(true);
+    expect(
+      __testing.isClaudeAcpCommand(
+        `node.exe "C:/Users/runner/AppData/Local/Temp/openclaw/acpx/claude-agent-acp-wrapper.mjs"`,
+      ),
+    ).toBe(true);
+    expect(
+      __testing.isClaudeAcpCommand(
+        `Node.EXE "C:/Users/runner/AppData/Local/Temp/openclaw/acpx/claude-agent-acp-wrapper.mjs"`,
+      ),
+    ).toBe(true);
+    expect(__testing.isClaudeAcpCommand("openclaw acp")).toBe(false);
+    expect(__testing.isClaudeAcpCommand("npx @zed-industries/codex-acp")).toBe(false);
   });
 
   it("keeps stale persistent loads hidden until a fresh record is saved", async () => {
@@ -667,20 +726,17 @@ describe("AcpxRuntime fresh reset wrapper", () => {
     expect(leaseStore.store.save).toHaveBeenCalledTimes(2);
     const leases = Array.from(leaseStore.leases.values());
     expect(leases).toHaveLength(1);
-    expect(leases[0]).toMatchObject({
-      gatewayInstanceId: "gateway-test",
-      sessionKey: "agent:codex:acp:binding:test",
-      rootPid: 777,
-      state: "open",
-      wrapperPath: "/tmp/openclaw/acpx/codex-acp-wrapper.mjs",
-    });
+    const lease = leases[0];
+    expect(lease?.gatewayInstanceId).toBe("gateway-test");
+    expect(lease?.sessionKey).toBe("agent:codex:acp:binding:test");
+    expect(lease?.rootPid).toBe(777);
+    expect(lease?.state).toBe("open");
+    expect(lease?.wrapperPath).toBe("/tmp/openclaw/acpx/codex-acp-wrapper.mjs");
     expect(launchCommands[0]).toContain("OPENCLAW_ACPX_LEASE_ID=");
     expect(launchCommands[0]).toContain("OPENCLAW_GATEWAY_INSTANCE_ID=gateway-test");
     expect(savedRecords[0]?.agentCommand).toBe(CODEX_ACP_WRAPPER_COMMAND);
-    expect(savedRecords[0]).toMatchObject({
-      openclawGatewayInstanceId: "gateway-test",
-      openclawLeaseId: leases[0]?.leaseId,
-    });
+    expect(savedRecords[0]?.openclawGatewayInstanceId).toBe("gateway-test");
+    expect(savedRecords[0]?.openclawLeaseId).toBe(lease?.leaseId);
   });
 
   it("keeps reusable persistent ACP launch commands stable across ensures", async () => {
@@ -757,10 +813,9 @@ describe("AcpxRuntime fresh reset wrapper", () => {
       openclawWrapperRoot: "/tmp/openclaw/acpx",
     });
 
-    await expect(wrappedStore.load("agent:codex:acp:binding:test")).resolves.toMatchObject({
-      openclawGatewayInstanceId: "gateway-test",
-      openclawLeaseId: "lease-loaded",
-    });
+    const loadedRecord = await wrappedStore.load("agent:codex:acp:binding:test");
+    expect(loadedRecord?.openclawGatewayInstanceId).toBe("gateway-test");
+    expect(loadedRecord?.openclawLeaseId).toBe("lease-loaded");
   });
 
   it("merges the lease for the current ACPX session process when old leases exist", async () => {
@@ -801,10 +856,9 @@ describe("AcpxRuntime fresh reset wrapper", () => {
       openclawWrapperRoot: "/tmp/openclaw/acpx",
     });
 
-    await expect(wrappedStore.load("agent:codex:acp:binding:test")).resolves.toMatchObject({
-      openclawGatewayInstanceId: "gateway-test",
-      openclawLeaseId: "lease-current",
-    });
+    const loadedRecord = await wrappedStore.load("agent:codex:acp:binding:test");
+    expect(loadedRecord?.openclawGatewayInstanceId).toBe("gateway-test");
+    expect(loadedRecord?.openclawLeaseId).toBe("lease-current");
   });
 
   it("uses matching leases before legacy pid cleanup on close", async () => {

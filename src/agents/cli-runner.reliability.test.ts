@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CURRENT_SESSION_VERSION } from "@mariozechner/pi-coding-agent";
+import { CURRENT_SESSION_VERSION } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   __testing as replyRunTesting,
@@ -158,8 +158,9 @@ function buildPreparedContext(params?: {
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  expect(value, label).toBeTypeOf("object");
-  expect(value, label).not.toBeNull();
+  if (!value || typeof value !== "object") {
+    throw new Error(`expected ${label}`);
+  }
   return value as Record<string, unknown>;
 }
 
@@ -174,9 +175,22 @@ function callArg(
   argIndex: number,
   label: string,
 ) {
-  const call = mock.mock.calls.at(callIndex);
-  expect(call, label).toBeDefined();
-  return call?.[argIndex];
+  const call = mock.mock.calls[callIndex];
+  if (!call) {
+    throw new Error(`Expected mock call: ${label}`);
+  }
+  if (argIndex >= call.length) {
+    throw new Error(`Expected mock call argument ${argIndex}: ${label}`);
+  }
+  return call[argIndex];
+}
+
+function firstSystemEventCall(): Array<unknown> {
+  const call = enqueueSystemEventMock.mock.calls[0];
+  if (!call) {
+    throw new Error("expected system event call");
+  }
+  return call;
 }
 
 async function expectFailoverAttribution(
@@ -284,7 +298,7 @@ describe("runCliAgent reliability", () => {
     ).rejects.toThrow("produced no output");
 
     expect(enqueueSystemEventMock).toHaveBeenCalledTimes(1);
-    const [notice, opts] = enqueueSystemEventMock.mock.calls[0] ?? [];
+    const [notice, opts] = firstSystemEventCall();
     expect(String(notice)).toContain("produced no output");
     expect(String(notice)).toContain("interactive input or an approval prompt");
     expect(requireRecord(opts, "system event options").sessionKey).toBe("agent:main:main");

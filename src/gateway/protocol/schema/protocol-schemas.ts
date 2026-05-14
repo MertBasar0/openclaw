@@ -116,6 +116,7 @@ import {
 } from "./config.js";
 import {
   CronAddParamsSchema,
+  CronGetParamsSchema,
   CronJobSchema,
   CronListParamsSchema,
   CronRemoveParamsSchema,
@@ -165,8 +166,12 @@ import {
   TickEventSchema,
 } from "./frames.js";
 import {
+  ChatAbortedEventSchema,
   ChatAbortParamsSchema,
+  ChatDeltaEventSchema,
+  ChatErrorEventSchema,
   ChatEventSchema,
+  ChatFinalEventSchema,
   ChatHistoryParamsSchema,
   ChatInjectParamsSchema,
   ChatSendParamsSchema,
@@ -202,6 +207,10 @@ import {
 } from "./plugin-approvals.js";
 import {
   PluginControlUiDescriptorSchema,
+  PluginsSessionActionFailureResultSchema,
+  PluginsSessionActionParamsSchema,
+  PluginsSessionActionResultSchema,
+  PluginsSessionActionSuccessResultSchema,
   PluginsUiDescriptorsParamsSchema,
   PluginsUiDescriptorsResultSchema,
 } from "./plugins.js";
@@ -450,6 +459,7 @@ export const ProtocolSchemas = {
   CronJob: CronJobSchema,
   CronListParams: CronListParamsSchema,
   CronStatusParams: CronStatusParamsSchema,
+  CronGetParams: CronGetParamsSchema,
   CronAddParams: CronAddParamsSchema,
   CronUpdateParams: CronUpdateParamsSchema,
   CronRemoveParams: CronRemoveParamsSchema,
@@ -469,6 +479,10 @@ export const ProtocolSchemas = {
   PluginApprovalRequestParams: PluginApprovalRequestParamsSchema,
   PluginApprovalResolveParams: PluginApprovalResolveParamsSchema,
   PluginControlUiDescriptor: PluginControlUiDescriptorSchema,
+  PluginsSessionActionFailureResult: PluginsSessionActionFailureResultSchema,
+  PluginsSessionActionParams: PluginsSessionActionParamsSchema,
+  PluginsSessionActionResult: PluginsSessionActionResultSchema,
+  PluginsSessionActionSuccessResult: PluginsSessionActionSuccessResultSchema,
   PluginsUiDescriptorsParams: PluginsUiDescriptorsParamsSchema,
   PluginsUiDescriptorsResult: PluginsUiDescriptorsResultSchema,
   DevicePairListParams: DevicePairListParamsSchema,
@@ -483,6 +497,10 @@ export const ProtocolSchemas = {
   ChatSendParams: ChatSendParamsSchema,
   ChatAbortParams: ChatAbortParamsSchema,
   ChatInjectParams: ChatInjectParamsSchema,
+  ChatDeltaEvent: ChatDeltaEventSchema,
+  ChatFinalEvent: ChatFinalEventSchema,
+  ChatAbortedEvent: ChatAbortedEventSchema,
+  ChatErrorEvent: ChatErrorEventSchema,
   ChatEvent: ChatEventSchema,
   UpdateStatusParams: UpdateStatusParamsSchema,
   UpdateRunParams: UpdateRunParamsSchema,

@@ -1,11 +1,14 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { redactIdentifier } from "../logging/redact-identifier.js";
-import type { AuthProfileFailureReason } from "./auth-profiles.js";
+import {
+  resolveInlineProviderApiKeyUsageId,
+  type AuthProfileFailureReason,
+} from "./auth-profiles.js";
 import { buildAttemptReplayMetadata } from "./pi-embedded-runner/run/incomplete-turn.js";
 import type { EmbeddedRunAttemptResult } from "./pi-embedded-runner/run/types.js";
 import {
@@ -1222,7 +1225,7 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
 
       expect(runEmbeddedAttemptMock).toHaveBeenCalledTimes(1);
       const attemptParams = requireRecord(
-        runEmbeddedAttemptMock.mock.calls[0]?.[0],
+        runEmbeddedAttemptMock.mock.calls.at(0)?.[0],
         "embedded attempt params",
       );
       expect(attemptParams.authProfileId).toBe("openai-codex:work");
@@ -1603,6 +1606,44 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
       expect(errorRecord.model).toBe("mock-rotated");
       expect(thrown).toBeInstanceOf(Error);
       expect((thrown as Error).message).toContain("openai (mock-rotated) returned a billing error");
+      expect(runEmbeddedAttemptMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("records inline api key billing failures from the runner path without a profile id", async () => {
+    await withAgentWorkspace(async ({ agentDir, workspaceDir }) => {
+      mockSingleErrorAttempt({
+        errorMessage: "insufficient credits",
+        provider: "openai",
+        model: "mock-1",
+      });
+
+      let thrown: unknown;
+      try {
+        await runEmbeddedPiAgentInline({
+          sessionId: "session:test",
+          sessionKey: "agent:test:inline-billing-cooldown",
+          sessionFile: path.join(workspaceDir, "session.jsonl"),
+          workspaceDir,
+          agentDir,
+          config: makeConfig({ apiKey: "sk-inline" }),
+          prompt: "hello",
+          provider: "openai",
+          model: "mock-1",
+          authProfileIdSource: "auto",
+          timeoutMs: 5_000,
+          runId: "run:inline-billing-cooldown",
+        });
+      } catch (err) {
+        thrown = err;
+      }
+
+      const errorRecord = requireRecord(thrown, "inline billing failover error");
+      expect(errorRecord.reason).toBe("billing");
+      const usageStats = await readUsageStats(agentDir);
+      const inlineUsageId = resolveInlineProviderApiKeyUsageId("openai");
+      expect(usageStats[inlineUsageId]?.disabledReason).toBe("billing");
+      expect(typeof usageStats[inlineUsageId]?.disabledUntil).toBe("number");
       expect(runEmbeddedAttemptMock).toHaveBeenCalledTimes(1);
     });
   });
