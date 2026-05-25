@@ -5,6 +5,7 @@ import { resolveStateDir } from "../config/paths.js";
 import { loadJsonFile, saveJsonFile } from "../infra/json-file.js";
 import { readStringValue } from "../shared/string-coerce.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.shared.js";
+import { normalizeSubagentCompletionOwner } from "./subagent-completion-owner.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
 type PersistedSubagentRegistryV1 = {
@@ -134,6 +135,16 @@ export function loadSubagentRegistryFromDisk(): Map<string, SubagentRunRecord> {
         accountId: readStringValue(typed.requesterAccountId),
       },
     );
+    const completionOwner = normalizeSubagentCompletionOwner(typed.completionOwner);
+    const pendingFinalDeliveryPayload =
+      typed.pendingFinalDeliveryPayload && typeof typed.pendingFinalDeliveryPayload === "object"
+        ? {
+            ...typed.pendingFinalDeliveryPayload,
+            completionOwner: normalizeSubagentCompletionOwner(
+              typed.pendingFinalDeliveryPayload.completionOwner,
+            ),
+          }
+        : typed.pendingFinalDeliveryPayload;
     const childSessionKey = readStringValue(typed.childSessionKey)?.trim() ?? "";
     const requesterSessionKey = readStringValue(typed.requesterSessionKey)?.trim() ?? "";
     const controllerSessionKey =
@@ -156,6 +167,8 @@ export function loadSubagentRegistryFromDisk(): Map<string, SubagentRunRecord> {
       requesterOrigin,
       cleanupCompletedAt,
       cleanupHandled,
+      completionOwner,
+      pendingFinalDeliveryPayload,
       spawnMode: typed.spawnMode === "session" ? "session" : "run",
     });
     if (isLegacy) {
