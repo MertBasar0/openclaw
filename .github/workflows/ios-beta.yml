@@ -1,0 +1,120 @@
+name: iOS Beta (TestFlight)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "Explicit build number (leave empty for auto-increment)"
+        required: false
+        type: string
+
+concurrency:
+  group: ios-beta
+  cancel-in-progress: false
+
+jobs:
+  beta:
+    name: Build & Upload to TestFlight
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm & dependencies
+        working-directory: .
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Install Fastlane
+        run: gem install fastlane --no-document
+
+      - name: Import signing certificate
+        env:
+          P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          echo "$P12_BASE64" | base64 --decode > $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 \
+            -P "$P12_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          # Allow codesign access
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+      - name: Write local signing config
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cat > .local-signing.xcconfig << EOF
+          OPENCLAW_CODE_SIGN_STYLE = Automatic
+          OPENCLAW_DEVELOPMENT_TEAM = ${TEAM_ID}
+          OPENCLAW_APP_BUNDLE_ID = com.openclaw.ceviz
+          OPENCLAW_SHARE_BUNDLE_ID = com.openclaw.ceviz.share
+          OPENCLAW_WATCH_APP_BUNDLE_ID = com.openclaw.ceviz.watchkitapp
+          OPENCLAW_WATCH_EXTENSION_BUNDLE_ID = com.openclaw.ceviz.watchkitapp.extension
+          OPENCLAW_ACTIVITY_WIDGET_BUNDLE_ID = com.openclaw.ceviz.activitywidget
+          OPENCLAW_APP_PROFILE =
+          OPENCLAW_SHARE_PROFILE =
+          OPENCLAW_WATCH_APP_PROFILE =
+          OPENCLAW_WATCH_EXTENSION_PROFILE =
+          EOF
+
+      - name: Write ASC key file
+        env:
+          ASC_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+      - name: Run Fastlane beta
+        env:
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          ASC_KEY_PATH: ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+          IOS_BETA_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: bundle exec fastlane ios beta || fastlane ios beta
+
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ceviz-beta-ipa
+          path: apps/ios/build/beta/*.ipa
+          retention-days: 30
+
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db 2>/dev/null || true
