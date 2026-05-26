@@ -1,9 +1,6 @@
 name: iOS Beta (TestFlight)
 
 on:
-  push:
-    branches:
-      - ci/ios-beta-workflow
   workflow_dispatch:
     inputs:
       build_number:
