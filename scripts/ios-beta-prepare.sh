@@ -154,11 +154,11 @@ write_generated_file "${BETA_XCCONFIG}" <<EOF
 OPENCLAW_CODE_SIGN_STYLE = Automatic
 OPENCLAW_DEVELOPMENT_TEAM = ${TEAM_ID}
 OPENCLAW_IOS_SELECTED_TEAM = ${TEAM_ID}
-OPENCLAW_APP_BUNDLE_ID = ai.openclaw.client
-OPENCLAW_SHARE_BUNDLE_ID = ai.openclaw.client.share
-OPENCLAW_ACTIVITY_WIDGET_BUNDLE_ID = ai.openclaw.client.activitywidget
-OPENCLAW_WATCH_APP_BUNDLE_ID = ai.openclaw.client.watchkitapp
-OPENCLAW_WATCH_EXTENSION_BUNDLE_ID = ai.openclaw.client.watchkitapp.extension
+OPENCLAW_APP_BUNDLE_ID = com.mertbasar.ceviz
+OPENCLAW_SHARE_BUNDLE_ID = com.mertbasar.ceviz.share
+OPENCLAW_ACTIVITY_WIDGET_BUNDLE_ID = com.mertbasar.ceviz.activitywidget
+OPENCLAW_WATCH_APP_BUNDLE_ID = com.mertbasar.ceviz.watchkitapp
+OPENCLAW_WATCH_EXTENSION_BUNDLE_ID = com.mertbasar.ceviz.watchkitapp.extension
 OPENCLAW_APP_PROFILE =
 OPENCLAW_SHARE_PROFILE =
 OPENCLAW_PUSH_TRANSPORT = relay
