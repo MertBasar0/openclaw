@@ -1,0 +1,79 @@
+name: ASC Ceviz Setup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: Ensure Ceviz App Store Connect records
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Install Fastlane
+        run: gem install fastlane --no-document
+
+      - name: Ensure Ceviz app and bundle IDs
+        env:
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/asc"
+          key_path="$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s' "$ASC_KEY_P8" > "$key_path"
+
+          ruby <<'RUBY'
+          require "spaceship"
+
+          token = Spaceship::ConnectAPI::Token.create(
+            key_id: ENV.fetch("ASC_KEY_ID"),
+            issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+            filepath: File.join(ENV.fetch("RUNNER_TEMP"), "asc", "AuthKey_#{ENV.fetch("ASC_KEY_ID")}.p8")
+          )
+          Spaceship::ConnectAPI.token = token
+
+          platform = Spaceship::ConnectAPI::Platform::IOS
+          bundle_ids = {
+            "com.mertbasar.ceviz" => "Ceviz",
+            "com.mertbasar.ceviz.share" => "Ceviz Share Extension",
+            "com.mertbasar.ceviz.activitywidget" => "Ceviz Activity Widget",
+            "com.mertbasar.ceviz.watchkitapp" => "Ceviz Watch App",
+            "com.mertbasar.ceviz.watchkitapp.extension" => "Ceviz Watch Extension"
+          }
+
+          bundle_ids.each do |identifier, name|
+            existing = Spaceship::ConnectAPI::BundleId.find(identifier)
+            if existing
+              puts "Bundle ID exists: #{identifier}"
+              next
+            end
+
+            Spaceship::ConnectAPI::BundleId.create(
+              name: name,
+              platform: platform,
+              identifier: identifier
+            )
+            puts "Created Bundle ID: #{identifier}"
+          end
+
+          app_identifier = "com.mertbasar.ceviz"
+          app = Spaceship::ConnectAPI::App.find(app_identifier)
+          if app
+            puts "App Store Connect app exists: #{app_identifier}"
+          else
+            Spaceship::ConnectAPI::App.create(
+              name: "Ceviz",
+              version_string: "1.0",
+              sku: "ceviz-ios",
+              primary_locale: "en-US",
+              bundle_id: app_identifier,
+              platforms: [platform]
+            )
+            puts "Created App Store Connect app: #{app_identifier}"
+          end
+          RUBY
