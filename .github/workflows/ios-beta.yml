@@ -80,11 +80,11 @@ jobs:
           cat > .local-signing.xcconfig << EOF
           OPENCLAW_CODE_SIGN_STYLE = Automatic
           OPENCLAW_DEVELOPMENT_TEAM = ${TEAM_ID}
-          OPENCLAW_APP_BUNDLE_ID = com.openclaw.ceviz
-          OPENCLAW_SHARE_BUNDLE_ID = com.openclaw.ceviz.share
-          OPENCLAW_WATCH_APP_BUNDLE_ID = com.openclaw.ceviz.watchkitapp
-          OPENCLAW_WATCH_EXTENSION_BUNDLE_ID = com.openclaw.ceviz.watchkitapp.extension
-          OPENCLAW_ACTIVITY_WIDGET_BUNDLE_ID = com.openclaw.ceviz.activitywidget
+          OPENCLAW_APP_BUNDLE_ID = com.mertbasar.ceviz
+          OPENCLAW_SHARE_BUNDLE_ID = com.mertbasar.ceviz.share
+          OPENCLAW_WATCH_APP_BUNDLE_ID = com.mertbasar.ceviz.watchkitapp
+          OPENCLAW_WATCH_EXTENSION_BUNDLE_ID = com.mertbasar.ceviz.watchkitapp.extension
+          OPENCLAW_ACTIVITY_WIDGET_BUNDLE_ID = com.mertbasar.ceviz.activitywidget
           OPENCLAW_APP_PROFILE =
           OPENCLAW_SHARE_PROFILE =
           OPENCLAW_WATCH_APP_PROFILE =
@@ -104,8 +104,9 @@ jobs:
           ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
           ASC_KEY_PATH: ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+          IOS_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
           IOS_BETA_BUILD_NUMBER: ${{ inputs.build_number }}
-        run: bundle exec fastlane ios beta || fastlane ios beta
+        run: fastlane ios beta
 
       - name: Upload IPA artifact
         if: always()
