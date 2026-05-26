@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Install Fastlane
-        run: gem install fastlane --no-document
+        run: sudo gem install fastlane --no-document
 
       - name: Ensure Ceviz app and bundle IDs
         env:
