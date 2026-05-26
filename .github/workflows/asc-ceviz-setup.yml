@@ -39,11 +39,11 @@ jobs:
 
           platform = Spaceship::ConnectAPI::Platform::IOS
           bundle_ids = {
-            "com.mertbasar.ceviz" => "Ceviz",
-            "com.mertbasar.ceviz.share" => "Ceviz Share Extension",
-            "com.mertbasar.ceviz.activitywidget" => "Ceviz Activity Widget",
-            "com.mertbasar.ceviz.watchkitapp" => "Ceviz Watch App",
-            "com.mertbasar.ceviz.watchkitapp.extension" => "Ceviz Watch Extension"
+            "io.github.mertbasar0.ceviz" => "Ceviz",
+            "io.github.mertbasar0.ceviz.share" => "Ceviz Share Extension",
+            "io.github.mertbasar0.ceviz.activitywidget" => "Ceviz Activity Widget",
+            "io.github.mertbasar0.ceviz.watchkitapp" => "Ceviz Watch App",
+            "io.github.mertbasar0.ceviz.watchkitapp.extension" => "Ceviz Watch Extension"
           }
 
           bundle_ids.each do |identifier, name|
@@ -61,7 +61,7 @@ jobs:
             puts "Created Bundle ID: #{identifier}"
           end
 
-          app_identifier = "com.mertbasar.ceviz"
+          app_identifier = "io.github.mertbasar0.ceviz"
           app = Spaceship::ConnectAPI::App.find(app_identifier)
           if app
             puts "App Store Connect app exists: #{app_identifier}"

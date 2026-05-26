@@ -1,4 +1,4 @@
-app_identifier("com.mertbasar.ceviz")
+app_identifier("io.github.mertbasar0.ceviz")
 
 # Auth is expected via App Store Connect API key.
 # Provide either:
