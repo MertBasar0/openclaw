@@ -218,7 +218,6 @@ def build_beta_release(context)
   version = context[:version]
   output_directory = File.join("build", "beta")
   archive_path = File.join(output_directory, "OpenClaw-#{version}.xcarchive")
-  provisioning_args = xcodebuild_provisioning_args
   archive_xcargs = shell_join(xcodebuild_archive_arg_parts)
 
   build_app(
@@ -233,7 +232,6 @@ def build_beta_release(context)
     output_directory: output_directory,
     output_name: "OpenClaw-#{version}.ipa",
     xcargs: archive_xcargs,
-    export_xcargs: provisioning_args,
     export_options: {
       signingStyle: "automatic"
     }
