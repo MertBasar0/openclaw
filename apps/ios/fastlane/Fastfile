@@ -260,6 +260,41 @@ def testflight_public_link_limit
   raw.to_i
 end
 
+def testflight_beta_description
+  description = ENV["IOS_TESTFLIGHT_BETA_DESCRIPTION"]
+  return description.strip if env_present?(description)
+
+  "Ceviz brings OpenClaw approvals, triage, and status updates to iPhone and Apple Watch for private beta testing."
+end
+
+def ensure_testflight_beta_app_description!(app:)
+  locale = ENV["IOS_TESTFLIGHT_BETA_LOCALE"]
+  locale = "en-US" unless env_present?(locale)
+
+  attributes = {
+    description: testflight_beta_description
+  }
+  feedback_email = ENV["IOS_TESTFLIGHT_FEEDBACK_EMAIL"]
+  attributes[:feedbackEmail] = feedback_email.strip if env_present?(feedback_email)
+
+  localization = app.get_beta_app_localizations.find { |entry| entry.locale == locale }
+  if localization.nil?
+    UI.message("Creating TestFlight beta app description for #{locale}.")
+    Spaceship::ConnectAPI.post_beta_app_localizations(
+      app_id: app.id,
+      attributes: attributes.merge(locale: locale)
+    )
+  elsif !env_present?(localization.description)
+    UI.message("Updating TestFlight beta app description for #{locale}.")
+    Spaceship::ConnectAPI.patch_beta_app_localizations(
+      localization_id: localization.id,
+      attributes: attributes
+    )
+  else
+    UI.message("TestFlight beta app description already exists for #{locale}.")
+  end
+end
+
 def ensure_testflight_public_group!(app:, group_name:, link_limit:)
   group = app.get_beta_groups.find { |candidate| candidate.name == group_name }
 
@@ -319,6 +354,8 @@ def ensure_testflight_public_invite!
 
   app = Spaceship::ConnectAPI::App.find(BETA_APP_IDENTIFIER)
   UI.user_error!("App Store Connect app not found for #{BETA_APP_IDENTIFIER}.") if app.nil?
+
+  ensure_testflight_beta_app_description!(app: app)
 
   group_name = testflight_public_group_name
   group = ensure_testflight_public_group!(
