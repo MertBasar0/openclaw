@@ -38,8 +38,8 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install XcodeGen / SwiftLint / SwiftFormat
+        run: brew install xcodegen swiftlint swiftformat
 
       - name: Generate Xcode project
         run: xcodegen generate
