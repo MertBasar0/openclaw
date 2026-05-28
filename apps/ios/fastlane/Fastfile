@@ -148,6 +148,28 @@ def shell_join(parts)
   Shellwords.join(parts.compact)
 end
 
+def xcodebuild_provisioning_arg_parts
+  args = ["-allowProvisioningUpdates"]
+  key_path = ENV["ASC_KEY_PATH"]
+  key_id = ENV["ASC_KEY_ID"]
+  issuer_id = ENV["ASC_ISSUER_ID"]
+  return args if [key_path, key_id, issuer_id].any? { |v| !env_present?(v) }
+
+  args.concat([
+    "-authenticationKeyPath",
+    File.expand_path(key_path),
+    "-authenticationKeyID",
+    key_id,
+    "-authenticationKeyIssuerID",
+    issuer_id
+  ])
+end
+
+def xcodebuild_provisioning_args
+  args = xcodebuild_provisioning_arg_parts
+  shell_join(args)
+end
+
 def resolve_beta_build_number(api_key:, short_version:)
   explicit = ENV["IOS_BETA_BUILD_NUMBER"]
   if env_present?(explicit)
@@ -188,6 +210,12 @@ def build_beta_release(context)
   version = context[:version]
   output_directory = File.join("build", "beta")
   archive_path = File.join(output_directory, "OpenClaw-#{version}.xcarchive")
+  provisioning_arg_parts = xcodebuild_provisioning_arg_parts
+  provisioning_args = shell_join(provisioning_arg_parts)
+  archive_xcargs = shell_join(provisioning_arg_parts + [
+    "CODE_SIGN_IDENTITY=Apple Distribution",
+    "OPENCLAW_CODE_SIGN_IDENTITY=Apple Distribution"
+  ])
 
   build_app(
     project: "OpenClaw.xcodeproj",
@@ -200,8 +228,8 @@ def build_beta_release(context)
     archive_path: archive_path,
     output_directory: output_directory,
     output_name: "OpenClaw-#{version}.ipa",
-    xcargs: "-allowProvisioningUpdates",
-    export_xcargs: "-allowProvisioningUpdates",
+    xcargs: archive_xcargs,
+    export_xcargs: provisioning_args,
     export_options: {
       signingStyle: "automatic"
     }
