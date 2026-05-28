@@ -346,7 +346,16 @@ def submit_testflight_beta_review_if_ready!(build:)
   return unless external_state == "READY_FOR_BETA_SUBMISSION"
 
   UI.message("Submitting TestFlight build #{build.app_version} (#{build.version}) for external beta review.")
-  build.post_beta_app_review_submission
+  begin
+    build.post_beta_app_review_submission
+  rescue Spaceship::UnexpectedResponse => e
+    if e.message.include?("Beta Contract") || e.message.include?("contract")
+      UI.important("Beta review submission failed: #{e.message}")
+      UI.important("Accept the pending agreement at https://appstoreconnect.apple.com/agreements then retry.")
+    else
+      raise
+    end
+  end
 end
 
 def ensure_testflight_public_invite!
