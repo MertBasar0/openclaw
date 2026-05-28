@@ -109,12 +109,28 @@ jobs:
           OPENCLAW_PUSH_RELAY_BASE_URL: ${{ secrets.OPENCLAW_PUSH_RELAY_BASE_URL }}
         run: fastlane ios beta
 
+      - name: Create TestFlight invite
+        env:
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          ASC_KEY_PATH: ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+          IOS_TESTFLIGHT_INVITE_OUTPUT: build/testflight-invite.json
+        run: fastlane ios testflight_invite
+
       - name: Upload IPA artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ceviz-beta-ipa
           path: apps/ios/build/beta/*.ipa
+          retention-days: 30
+
+      - name: Upload invite artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ceviz-testflight-invite
+          path: apps/ios/build/testflight-invite.json
           retention-days: 30
 
       - name: Cleanup keychain

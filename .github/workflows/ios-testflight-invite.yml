@@ -1,0 +1,60 @@
+name: iOS TestFlight Invite
+
+on:
+  workflow_dispatch:
+    inputs:
+      group_name:
+        description: "External TestFlight group name"
+        required: false
+        default: "Ceviz Public Beta"
+        type: string
+      public_link_limit:
+        description: "Public invite link tester limit"
+        required: false
+        default: "10000"
+        type: string
+
+concurrency:
+  group: ios-testflight-invite
+  cancel-in-progress: false
+
+jobs:
+  invite:
+    name: Create TestFlight Public Invite
+    runs-on: macos-26
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Fastlane
+        run: gem install fastlane --no-document
+
+      - name: Write ASC key file
+        env:
+          ASC_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+      - name: Create TestFlight invite
+        env:
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          ASC_KEY_PATH: ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+          IOS_TESTFLIGHT_PUBLIC_GROUP_NAME: ${{ inputs.group_name }}
+          IOS_TESTFLIGHT_PUBLIC_LINK_LIMIT: ${{ inputs.public_link_limit }}
+          IOS_TESTFLIGHT_INVITE_OUTPUT: build/testflight-invite.json
+        run: fastlane ios testflight_invite
+
+      - name: Upload invite artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ceviz-testflight-invite
+          path: apps/ios/build/testflight-invite.json
+          retention-days: 30

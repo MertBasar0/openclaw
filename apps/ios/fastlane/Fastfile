@@ -1,6 +1,7 @@
 require "shellwords"
 require "open3"
 require "json"
+require "fileutils"
 
 default_platform(:ios)
 
@@ -244,6 +245,125 @@ def provision_all_targets(api_key:)
   profiles
 end
 
+def testflight_public_group_name
+  name = ENV["IOS_TESTFLIGHT_PUBLIC_GROUP_NAME"]
+  return name.strip if env_present?(name)
+
+  "Ceviz Public Beta"
+end
+
+def testflight_public_link_limit
+  raw = ENV["IOS_TESTFLIGHT_PUBLIC_LINK_LIMIT"]
+  return 10_000 unless env_present?(raw)
+
+  UI.user_error!("Invalid IOS_TESTFLIGHT_PUBLIC_LINK_LIMIT '#{raw}'. Expected digits only.") unless raw.match?(/\A\d+\z/)
+  raw.to_i
+end
+
+def ensure_testflight_public_group!(app:, group_name:, link_limit:)
+  group = app.get_beta_groups.find { |candidate| candidate.name == group_name }
+
+  if group.nil?
+    UI.message("Creating TestFlight public beta group '#{group_name}'.")
+    group = app.create_beta_group(
+      group_name: group_name,
+      public_link_enabled: true,
+      public_link_limit: link_limit,
+      public_link_limit_enabled: true
+    )
+  else
+    UI.message("Using existing TestFlight public beta group '#{group_name}'.")
+    group = group.update(
+      attributes: {
+        public_link_enabled: true,
+        public_link_limit: link_limit,
+        public_link_limit_enabled: true
+      }
+    ) || group
+  end
+
+  group
+end
+
+def latest_attachable_testflight_build(app:)
+  builds = app.get_builds(
+    includes: Spaceship::ConnectAPI::Build::ESSENTIAL_INCLUDES,
+    sort: "-uploadedDate",
+    limit: 20
+  )
+
+  builds.find do |build|
+    !build.expired &&
+      build.processing_state == "VALID" &&
+      build.build_beta_detail &&
+      build.build_beta_detail.external_build_state != "PROCESSING"
+  end
+end
+
+def refresh_testflight_group(app:, group_id:)
+  app.get_beta_groups.find { |candidate| candidate.id == group_id }
+end
+
+def ensure_testflight_public_invite!
+  asc_api_key
+
+  app = Spaceship::ConnectAPI::App.find(BETA_APP_IDENTIFIER)
+  UI.user_error!("App Store Connect app not found for #{BETA_APP_IDENTIFIER}.") if app.nil?
+
+  group_name = testflight_public_group_name
+  group = ensure_testflight_public_group!(
+    app: app,
+    group_name: group_name,
+    link_limit: testflight_public_link_limit
+  )
+
+  build = latest_attachable_testflight_build(app: app)
+  if build.nil?
+    UI.important("No processed TestFlight build is ready to attach to '#{group_name}' yet.")
+  else
+    UI.message(
+      "Attaching latest TestFlight build #{build.app_version} (#{build.version}); externalState=#{build.build_beta_detail.external_build_state}."
+    )
+    build.add_beta_groups(beta_groups: [group])
+  end
+
+  group = refresh_testflight_group(app: app, group_id: group.id) || group
+  public_link = group.public_link
+  public_link_id = group.public_link_id
+
+  UI.success("TestFlight public group: #{group.name}")
+  UI.success("TestFlight public link: #{public_link}") if env_present?(public_link)
+  UI.success("TestFlight public link id: #{public_link_id}") if env_present?(public_link_id)
+
+  output_path = ENV["IOS_TESTFLIGHT_INVITE_OUTPUT"]
+  if env_present?(output_path)
+    FileUtils.mkdir_p(File.dirname(output_path))
+    File.write(
+      output_path,
+      JSON.pretty_generate(
+        {
+          appIdentifier: BETA_APP_IDENTIFIER,
+          groupId: group.id,
+          groupName: group.name,
+          publicLink: public_link,
+          publicLinkId: public_link_id,
+          attachedBuildId: build&.id,
+          attachedBuildVersion: build&.app_version,
+          attachedBuildNumber: build&.version,
+          externalBuildState: build&.build_beta_detail&.external_build_state
+        }
+      )
+    )
+  end
+
+  UI.user_error!("TestFlight public invite code was not returned by App Store Connect yet.") unless env_present?(public_link_id)
+
+  {
+    public_link: public_link,
+    public_link_id: public_link_id
+  }
+end
+
 def build_beta_release(context)
   version = context[:version]
   output_directory = File.join("build", "beta")
@@ -374,6 +494,11 @@ platform :ios do
     UI.success("Uploaded iOS beta: version=#{build[:version]} short=#{build[:short_version]} build=#{build[:build_number]}")
   ensure
     ENV.delete("XCODE_XCCONFIG_FILE")
+  end
+
+  desc "Create or refresh the Ceviz TestFlight public invite link"
+  lane :testflight_invite do
+    ensure_testflight_public_invite!
   end
 
   desc "Upload App Store metadata (and optionally screenshots)"
