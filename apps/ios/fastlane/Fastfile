@@ -337,6 +337,7 @@ def ensure_testflight_public_invite!
 
   output_path = ENV["IOS_TESTFLIGHT_INVITE_OUTPUT"]
   if env_present?(output_path)
+    output_path = File.expand_path(output_path, ios_root) unless output_path.start_with?("/")
     FileUtils.mkdir_p(File.dirname(output_path))
     File.write(
       output_path,
