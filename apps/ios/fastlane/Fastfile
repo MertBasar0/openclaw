@@ -304,6 +304,16 @@ def refresh_testflight_group(app:, group_id:)
   app.get_beta_groups.find { |candidate| candidate.id == group_id }
 end
 
+def submit_testflight_beta_review_if_ready!(build:)
+  return if build.nil? || build.build_beta_detail.nil?
+
+  external_state = build.build_beta_detail.external_build_state
+  return unless external_state == "READY_FOR_BETA_SUBMISSION"
+
+  UI.message("Submitting TestFlight build #{build.app_version} (#{build.version}) for external beta review.")
+  build.post_beta_app_review_submission
+end
+
 def ensure_testflight_public_invite!
   asc_api_key
 
@@ -325,6 +335,7 @@ def ensure_testflight_public_invite!
       "Attaching latest TestFlight build #{build.app_version} (#{build.version}); externalState=#{build.build_beta_detail.external_build_state}."
     )
     build.add_beta_groups(beta_groups: [group])
+    submit_testflight_beta_review_if_ready!(build: build)
   end
 
   group = refresh_testflight_group(app: app, group_id: group.id) || group
