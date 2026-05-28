@@ -214,14 +214,11 @@ def prepare_beta_release!(version:, build_number:)
   beta_xcconfig
 end
 
-def fetch_or_create_profile(api_key:, app_id:, type: "appstore")
+def fetch_or_create_profile(api_key:, app_id:)
   get_provisioning_profile(
     api_key: api_key,
     app_identifier: app_id,
-    adhoc: false,
-    development: false,
     readonly: false,
-    force: false,
     output_path: "build/profiles"
   )
   lane_context[SharedValues::SIGH_PROFILE_PATH]
