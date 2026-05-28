@@ -14,7 +14,6 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/steipete/Commander.git", exact: "0.2.2"),
-        .package(url: "https://github.com/apple/swift-testing", from: "6.3.1"),
     ],
     targets: [
         .target(
@@ -39,7 +38,6 @@ let package = Package(
             name: "SwabbleKitTests",
             dependencies: [
                 "SwabbleKit",
-                .product(name: "Testing", package: "swift-testing"),
             ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
@@ -48,7 +46,6 @@ let package = Package(
             name: "swabbleTests",
             dependencies: [
                 "Swabble",
-                .product(name: "Testing", package: "swift-testing"),
             ]),
     ],
     swiftLanguageModes: [.v6])
