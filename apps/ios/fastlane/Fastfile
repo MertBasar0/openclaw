@@ -214,11 +214,47 @@ def prepare_beta_release!(version:, build_number:)
   beta_xcconfig
 end
 
+def fetch_or_create_profile(api_key:, app_id:, type: "appstore")
+  get_provisioning_profile(
+    api_key: api_key,
+    app_identifier: app_id,
+    adhoc: false,
+    development: false,
+    readonly: false,
+    force: false,
+    output_path: "build/profiles"
+  )
+  lane_context[SharedValues::SIGH_PROFILE_PATH]
+end
+
+def provision_all_targets(api_key:)
+  bundle_ids = {
+    "com.mertbasar.ceviz" => nil,
+    "com.mertbasar.ceviz.share" => nil,
+    "com.mertbasar.ceviz.watchkitapp" => nil,
+    "com.mertbasar.ceviz.watchkitapp.extension" => nil,
+    "com.mertbasar.ceviz.activitywidget" => nil
+  }
+
+  profiles = {}
+  bundle_ids.each_key do |bid|
+    UI.message("Provisioning #{bid}...")
+    fetch_or_create_profile(api_key: api_key, app_id: bid)
+    name = lane_context[SharedValues::SIGH_NAME]
+    profiles[bid] = name
+    UI.success("Profile for #{bid}: #{name}")
+  end
+  profiles
+end
+
 def build_beta_release(context)
   version = context[:version]
   output_directory = File.join("build", "beta")
   archive_path = File.join(output_directory, "OpenClaw-#{version}.xcarchive")
   archive_xcargs = shell_join(xcodebuild_archive_arg_parts)
+
+  # Fetch/create provisioning profiles for all targets
+  profiles = provision_all_targets(api_key: context[:api_key])
 
   build_app(
     project: "OpenClaw.xcodeproj",
@@ -233,8 +269,9 @@ def build_beta_release(context)
     output_name: "OpenClaw-#{version}.ipa",
     xcargs: archive_xcargs,
     export_options: {
-      signingStyle: "automatic",
-      teamID: ENV["IOS_DEVELOPMENT_TEAM"]
+      signingStyle: "manual",
+      teamID: ENV["IOS_DEVELOPMENT_TEAM"],
+      provisioningProfiles: profiles
     }
   )
 
