@@ -233,7 +233,8 @@ def build_beta_release(context)
     output_name: "OpenClaw-#{version}.ipa",
     xcargs: archive_xcargs,
     export_options: {
-      signingStyle: "automatic"
+      signingStyle: "automatic",
+      teamID: ENV["IOS_DEVELOPMENT_TEAM"]
     }
   )
 
