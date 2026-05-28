@@ -170,6 +170,14 @@ def xcodebuild_provisioning_args
   shell_join(args)
 end
 
+def xcodebuild_archive_arg_parts
+  args = xcodebuild_provisioning_arg_parts
+  team_id = ENV["IOS_DEVELOPMENT_TEAM"]
+  return args unless env_present?(team_id)
+
+  args + ["DEVELOPMENT_TEAM=#{team_id}", "OPENCLAW_DEVELOPMENT_TEAM=#{team_id}"]
+end
+
 def resolve_beta_build_number(api_key:, short_version:)
   explicit = ENV["IOS_BETA_BUILD_NUMBER"]
   if env_present?(explicit)
@@ -210,12 +218,8 @@ def build_beta_release(context)
   version = context[:version]
   output_directory = File.join("build", "beta")
   archive_path = File.join(output_directory, "OpenClaw-#{version}.xcarchive")
-  provisioning_arg_parts = xcodebuild_provisioning_arg_parts
-  provisioning_args = shell_join(provisioning_arg_parts)
-  archive_xcargs = shell_join(provisioning_arg_parts + [
-    "CODE_SIGN_IDENTITY=Apple Distribution",
-    "OPENCLAW_CODE_SIGN_IDENTITY=Apple Distribution"
-  ])
+  provisioning_args = xcodebuild_provisioning_args
+  archive_xcargs = shell_join(xcodebuild_archive_arg_parts)
 
   build_app(
     project: "OpenClaw.xcodeproj",
