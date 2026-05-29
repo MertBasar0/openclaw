@@ -8,7 +8,6 @@ Skills own workflows; root owns hard policy and routing.
 - Repo: `https://github.com/openclaw/openclaw`
 - Replies: repo-root refs only: `extensions/telegram/src/index.ts:80`. No absolute paths, no `~/`.
 - Docs/user-visible work: `pnpm docs:list`, then read relevant docs only.
-- Capability Discovery: Check `capabilities/index.md` for local workspace integrations (Bridge, Mail, CAD, etc.) before concluding a task is unsupported.
 - Fix/triage answers need source, tests, current/shipped behavior, and dependency contract proof.
 - Reviews/answers: high confidence required. Default to exhaustive relevant codebase search/read, including owners, callers, siblings, tests, docs, and upstream/dependency contracts before verdict. Diff-only review is insufficient.
 - Dependency-touching work: direct dependency inspection is mandatory when feasible; do not rely on assumptions, wrappers, or memory. Most dependencies are OSS, so read their source/docs/types. Codex-related work: before any verdict, comment, approval, merge recommendation, or `proof sufficient` claim, inspect sibling `../codex` source for the exact protocol/runtime behavior involved; if missing, clone `https://github.com/openai/codex.git` there first. Do not rely on PR text, OpenClaw wrappers, generated schemas, memory, or prior bot reviews as a substitute. Cite Codex files/lines checked in final/review/comment.
