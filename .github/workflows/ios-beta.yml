@@ -12,6 +12,20 @@ on:
         required: false
         default: false
         type: boolean
+      internal_only:
+        description: "Only set up internal TestFlight group/tester/build; skip build upload and external invite"
+        required: false
+        default: false
+        type: boolean
+      tester_email:
+        description: "Internal tester email (used when internal_only is true)"
+        required: false
+        type: string
+      group_name:
+        description: "Internal group name (used when internal_only is true)"
+        required: false
+        default: "Internal"
+        type: string
 
 concurrency:
   group: ios-beta
@@ -30,35 +44,35 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
-        if: ${{ !inputs.invite_only }}
+        if: ${{ !inputs.invite_only && !inputs.internal_only }}
         run: sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
 
       - name: Setup Node
-        if: ${{ !inputs.invite_only }}
+        if: ${{ !inputs.invite_only && !inputs.internal_only }}
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Install pnpm & dependencies
-        if: ${{ !inputs.invite_only }}
+        if: ${{ !inputs.invite_only && !inputs.internal_only }}
         working-directory: .
         run: |
           corepack enable
           pnpm install --frozen-lockfile
 
       - name: Install XcodeGen / SwiftLint / SwiftFormat
-        if: ${{ !inputs.invite_only }}
+        if: ${{ !inputs.invite_only && !inputs.internal_only }}
         run: brew install xcodegen swiftlint swiftformat
 
       - name: Generate Xcode project
-        if: ${{ !inputs.invite_only }}
+        if: ${{ !inputs.invite_only && !inputs.internal_only }}
         run: xcodegen generate
 
       - name: Install Fastlane
         run: gem install fastlane --no-document
 
       - name: Import signing certificate
-        if: ${{ !inputs.invite_only }}
+        if: ${{ !inputs.invite_only && !inputs.internal_only }}
         env:
           P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           P12_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -85,7 +99,7 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
 
       - name: Write local signing config
-        if: ${{ !inputs.invite_only }}
+        if: ${{ !inputs.invite_only && !inputs.internal_only }}
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
@@ -112,7 +126,7 @@ jobs:
           echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
 
       - name: Run Fastlane beta
-        if: ${{ !inputs.invite_only }}
+        if: ${{ !inputs.invite_only && !inputs.internal_only }}
         env:
           ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
@@ -123,6 +137,7 @@ jobs:
         run: fastlane ios beta
 
       - name: Create TestFlight invite
+        if: ${{ !inputs.internal_only }}
         env:
           ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
@@ -130,8 +145,18 @@ jobs:
           IOS_TESTFLIGHT_INVITE_OUTPUT: build/testflight-invite.json
         run: fastlane ios testflight_invite
 
+      - name: Internal test setup
+        if: ${{ inputs.internal_only }}
+        env:
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          ASC_KEY_PATH: ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+          IOS_INTERNAL_TESTER_EMAIL: ${{ inputs.tester_email }}
+          IOS_INTERNAL_GROUP_NAME: ${{ inputs.group_name }}
+        run: fastlane ios internal_test
+
       - name: Upload IPA artifact
-        if: ${{ always() && !inputs.invite_only }}
+        if: ${{ always() && !inputs.invite_only && !inputs.internal_only }}
         uses: actions/upload-artifact@v4
         with:
           name: ceviz-beta-ipa
@@ -139,7 +164,7 @@ jobs:
           retention-days: 30
 
       - name: Upload invite artifact
-        if: always()
+        if: ${{ always() && !inputs.internal_only }}
         uses: actions/upload-artifact@v4
         with:
           name: ceviz-testflight-invite
@@ -147,5 +172,5 @@ jobs:
           retention-days: 30
 
       - name: Cleanup keychain
-        if: ${{ always() && !inputs.invite_only }}
+        if: ${{ always() && !inputs.invite_only && !inputs.internal_only }}
         run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db 2>/dev/null || true
