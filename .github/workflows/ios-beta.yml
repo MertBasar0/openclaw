@@ -26,6 +26,10 @@ on:
         required: false
         default: "Internal"
         type: string
+      revoke_cert_ids:
+        description: "Comma-separated certificate IDs to revoke (used when internal_only is true); empty = audit only"
+        required: false
+        type: string
 
 concurrency:
   group: ios-beta
@@ -153,6 +157,7 @@ jobs:
           ASC_KEY_PATH: ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
           IOS_INTERNAL_TESTER_EMAIL: ${{ inputs.tester_email }}
           IOS_INTERNAL_GROUP_NAME: ${{ inputs.group_name }}
+          IOS_REVOKE_CERT_IDS: ${{ inputs.revoke_cert_ids }}
         run: fastlane ios internal_test
 
       - name: Upload IPA artifact

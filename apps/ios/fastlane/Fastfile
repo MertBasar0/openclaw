@@ -682,5 +682,37 @@ platform :ios do
     UI.success("group=#{final.name} id=#{final.id} internal=#{final.is_internal_group.inspect}")
     UI.success("testers=#{final_testers.map { |t| (t.email rescue nil) }.compact.inspect}")
     UI.success("attachedBuild=#{build&.app_version} (#{build&.version})")
+
+    # --- Certificate audit / revoke (to free the signing certificate cap) ---
+    begin
+      certs = Spaceship::ConnectAPI::Certificate.all
+      UI.success("=== Certificates (#{certs.size}) ===")
+      certs.each do |c|
+        UI.success("  - id=#{c.id} type=#{(c.certificate_type rescue '?')} name=#{(c.display_name rescue (c.name rescue '?')).inspect} serial=#{(c.serial_number rescue '?')} expires=#{(c.expiration_date rescue '?')}")
+      end
+
+      revoke_ids = (ENV["IOS_REVOKE_CERT_IDS"] || "").split(",").map(&:strip).reject(&:empty?)
+      unless revoke_ids.empty?
+        UI.important("Revoking cert ids: #{revoke_ids.inspect}")
+        revoke_ids.each do |rid|
+          target = certs.find { |c| c.id == rid }
+          if target.nil?
+            UI.important("  cert #{rid} not found; skipping")
+            next
+          end
+          begin
+            target.delete!
+            UI.success("  revoked #{rid} (#{(target.certificate_type rescue '?')})")
+          rescue => e
+            UI.important("  revoke #{rid} failed: #{e.class} #{e.message}")
+          end
+        end
+        remaining = Spaceship::ConnectAPI::Certificate.all
+        UI.success("=== Certificates after revoke (#{remaining.size}) ===")
+        remaining.each { |c| UI.success("  - id=#{c.id} type=#{(c.certificate_type rescue '?')}") }
+      end
+    rescue => e
+      UI.important("cert audit/revoke error: #{e.class} #{e.message}")
+    end
   end
 end
