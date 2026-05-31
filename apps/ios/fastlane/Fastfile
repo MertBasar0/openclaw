@@ -635,39 +635,34 @@ platform :ios do
       UI.success("Tester #{email} already present in internal group.")
     else
       UI.message("Adding internal tester #{email} ...")
+      begin
+        UI.message("sig module.bulk: #{Spaceship::ConnectAPI.method(:post_bulk_beta_tester_assignments).parameters.inspect}")
+        UI.message("sig module.add_to_group: #{Spaceship::ConnectAPI.method(:add_beta_tester_to_group).parameters.inspect}")
+        UI.message("sig group.add_beta_testers: #{Spaceship::ConnectAPI::BetaGroup.instance_method(:add_beta_testers).parameters.inspect}")
+        UI.message("sig group.bulk: #{Spaceship::ConnectAPI::BetaGroup.instance_method(:post_bulk_beta_tester_assignments).parameters.inspect}")
+      rescue => e
+        UI.important("sig introspection error: #{e.message}")
+      end
+
+      h = { email: email, first_name: "Mert", last_name: "Basar" }
       added = false
-      mk = lambda { Spaceship::ConnectAPI::BetaTester.new("new", { "email" => email, "firstName" => "Mert", "lastName" => "Basar" }) }
-
-      unless added
+      attempts = [
+        ["group.add_beta_testers(emails)", -> { internal.add_beta_testers(beta_testers: [email]) }],
+        ["group.add_beta_testers(hash)",   -> { internal.add_beta_testers(beta_testers: [h]) }],
+        ["module.bulk(hash)",              -> { Spaceship::ConnectAPI.post_bulk_beta_tester_assignments(beta_group_id: internal.id, beta_testers: [h]) }],
+        ["module.bulk(emails)",            -> { Spaceship::ConnectAPI.post_bulk_beta_tester_assignments(beta_group_id: internal.id, beta_testers: [email]) }],
+        ["group.bulk(hash)",               -> { internal.post_bulk_beta_tester_assignments(beta_testers: [h]) }],
+      ]
+      attempts.each do |label, fn|
+        next if added
         begin
-          internal.post_bulk_beta_tester_assignments(beta_testers: [mk.call])
+          fn.call
           added = true
-          UI.success("added via group.post_bulk_beta_tester_assignments")
+          UI.success("added via #{label}")
         rescue => e
-          UI.important("group.post_bulk_beta_tester_assignments failed: #{e.class} #{e.message}")
+          UI.important("#{label} failed: #{e.class} #{e.message}")
         end
       end
-
-      unless added
-        begin
-          Spaceship::ConnectAPI.post_bulk_beta_tester_assignments(beta_group_id: internal.id, beta_testers: [mk.call])
-          added = true
-          UI.success("added via ConnectAPI.post_bulk_beta_tester_assignments")
-        rescue => e
-          UI.important("ConnectAPI.post_bulk_beta_tester_assignments failed: #{e.class} #{e.message}")
-        end
-      end
-
-      unless added
-        begin
-          Spaceship::ConnectAPI::BetaTester.create(app_id: app.id, email: email, first_name: "Mert", last_name: "Basar", beta_group_id: internal.id)
-          added = true
-          UI.success("added via BetaTester.create")
-        rescue => e
-          UI.important("BetaTester.create failed: #{e.class} #{e.message}")
-        end
-      end
-
       UI.success("Tester add attempted (success=#{added}).")
     end
 
