@@ -591,4 +591,73 @@ platform :ios do
     asc_api_key
     UI.success("App Store Connect API auth loaded successfully.")
   end
+
+  desc "Ensure internal TestFlight group + tester + latest build (no beta review needed)"
+  lane :internal_test do
+    asc_api_key
+
+    email = ENV["IOS_INTERNAL_TESTER_EMAIL"]
+    UI.user_error!("IOS_INTERNAL_TESTER_EMAIL is required") unless env_present?(email)
+    group_name = env_present?(ENV["IOS_INTERNAL_GROUP_NAME"]) ? ENV["IOS_INTERNAL_GROUP_NAME"] : "Internal"
+
+    app = Spaceship::ConnectAPI::App.find(BETA_APP_IDENTIFIER)
+    UI.user_error!("App Store Connect app not found for #{BETA_APP_IDENTIFIER}.") if app.nil?
+
+    groups = app.get_beta_groups(includes: "betaTesters")
+    UI.message("=== Existing beta groups ===")
+    groups.each do |g|
+      testers = (g.get_beta_testers rescue [])
+      emails = testers.map { |t| (t.email rescue nil) }.compact
+      UI.message("  - name=#{g.name.inspect} id=#{g.id} internal=#{g.is_internal_group.inspect} publicLink=#{g.public_link.inspect} testers=#{emails.inspect}")
+    end
+
+    internal = groups.find { |g| g.is_internal_group == true && g.name == group_name } ||
+               groups.find { |g| g.is_internal_group == true }
+    if internal.nil?
+      UI.message("No internal group found; creating internal group '#{group_name}'.")
+      internal = app.create_beta_group(group_name: group_name, is_internal_group: true)
+    else
+      UI.message("Using existing internal group: #{internal.name} (#{internal.id})")
+    end
+
+    build = latest_attachable_testflight_build(app: app)
+    if build.nil?
+      UI.important("No attachable build found to assign.")
+    else
+      UI.message("Attaching build #{build.app_version} (#{build.version}); internalState=#{build.build_beta_detail&.internal_build_state} externalState=#{build.build_beta_detail&.external_build_state}")
+      begin
+        build.add_beta_groups(beta_groups: [internal])
+      rescue => e
+        UI.important("add_beta_groups note: #{e.message}")
+      end
+    end
+
+    current = (internal.get_beta_testers rescue [])
+    already = current.any? { |t| ((t.email rescue "") || "").downcase == email.downcase }
+    if already
+      UI.success("Tester #{email} already present in internal group.")
+    else
+      UI.message("Adding internal tester #{email} ...")
+      added = false
+      begin
+        Spaceship::ConnectAPI.create_beta_tester(
+          beta_group_id: internal.id,
+          email: email,
+          first_name: "Mert",
+          last_name: "Basar"
+        )
+        added = true
+      rescue => e1
+        UI.important("create_beta_tester failed: #{e1.message}")
+      end
+      UI.success("Tester add attempted (success=#{added}).")
+    end
+
+    final = app.get_beta_groups(includes: "betaTesters").find { |g| g.id == internal.id } || internal
+    final_testers = (final.get_beta_testers rescue [])
+    UI.success("=== FINAL ===")
+    UI.success("group=#{final.name} id=#{final.id} internal=#{final.is_internal_group.inspect}")
+    UI.success("testers=#{final_testers.map { |t| (t.email rescue nil) }.compact.inspect}")
+    UI.success("attachedBuild=#{build&.app_version} (#{build&.version})")
+  end
 end
