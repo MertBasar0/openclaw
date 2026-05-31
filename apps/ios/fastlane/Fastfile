@@ -629,9 +629,14 @@ platform :ios do
       users = Spaceship::ConnectAPI::User.all
       UI.message("=== ASC Users (#{users.size}) ===")
       users.each do |u|
-        UI.message("  - email=#{(u.email rescue u.username rescue '?').inspect} name=#{(u.first_name rescue '')} #{(u.last_name rescue '')} roles=#{(u.roles rescue []).inspect}")
+        uname = (u.username rescue nil)
+        uemail = (u.email rescue nil)
+        attrs = (u.instance_variable_get(:@attributes) rescue nil) || (u.to_h rescue nil)
+        UI.message("  - username=#{uname.inspect} email=#{uemail.inspect} name=#{(u.first_name rescue '')} #{(u.last_name rescue '')} roles=#{(u.roles rescue []).inspect}")
+        UI.message("    raw attrs keys=#{(attrs.is_a?(Hash) ? attrs.keys : attrs).inspect}")
+        UI.message("    raw attrs=#{attrs.inspect}")
       end
-      match = users.find { |u| ((u.email rescue u.username) || "").to_s.downcase == email.downcase }
+      match = users.find { |u| [ (u.username rescue nil), (u.email rescue nil) ].compact.map { |x| x.to_s.downcase }.include?(email.downcase) }
       UI.message("Requested tester #{email} is an ASC user? #{!match.nil?}")
     rescue => e
       UI.important("User.all error: #{e.class} #{e.message}")
