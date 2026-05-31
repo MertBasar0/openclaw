@@ -636,25 +636,19 @@ platform :ios do
     else
       UI.message("Adding internal tester #{email} ...")
       begin
-        cl = Spaceship::ConnectAPI::TestFlight::Client
-        UI.message("TestFlight::Client methods ~tester/creat: #{cl.instance_methods.grep(/tester|creat/i).inspect}")
-        [:post_beta_tester_assignment, :create_beta_tester].each do |mname|
-          next unless cl.instance_methods.include?(mname)
-          m = cl.instance_method(mname)
-          if m.source_location
-            f, l = m.source_location
-            UI.message("SRC #{mname} @ #{f}:#{l}\n" + (File.readlines(f)[l - 1, 26] rescue []).join)
-          end
-        end
+        fl = Gem.loaded_specs["fastlane"]
+        root = fl ? fl.full_gem_path : nil
+        UI.message("fastlane gem root=#{root}")
+        out = `grep -rn -A 20 "def post_beta_tester_assignment\\|def add_beta_tester_to_group" #{root}/spaceship/lib 2>/dev/null | head -90`
+        UI.message("GREP:\n#{out}")
       rescue => e
-        UI.important("client introspection error: #{e.message}")
+        UI.important("gem grep error: #{e.message}")
       end
 
       h = { email: email, first_name: "Mert", last_name: "Basar" }
       added = false
       attempts = [
-        ["module.post_beta_tester_assignment(hash)", -> { Spaceship::ConnectAPI.post_beta_tester_assignment(beta_group_id: internal.id, beta_testers: [h.dup]) }],
-        ["module.post_beta_tester_assignment(email)", -> { Spaceship::ConnectAPI.post_beta_tester_assignment(beta_group_id: internal.id, beta_testers: [email]) }],
+        ["assignment(group_id, betaTesters hash)", -> { Spaceship::ConnectAPI.post_beta_tester_assignment(beta_group_id: internal.id, beta_testers_data: [h.dup]) }],
       ]
       attempts.each do |label, fn|
         next if added
