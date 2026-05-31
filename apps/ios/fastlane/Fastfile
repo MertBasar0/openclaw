@@ -635,20 +635,20 @@ platform :ios do
       UI.success("Tester #{email} already present in internal group.")
     else
       UI.message("Adding internal tester #{email} ...")
-      begin
-        fl = Gem.loaded_specs["fastlane"]
-        root = fl ? fl.full_gem_path : nil
-        UI.message("fastlane gem root=#{root}")
-        out = `grep -rn -A 20 "def post_beta_tester_assignment\\|def add_beta_tester_to_group" #{root}/spaceship/lib 2>/dev/null | head -90`
-        UI.message("GREP:\n#{out}")
-      rescue => e
-        UI.important("gem grep error: #{e.message}")
-      end
-
-      h = { email: email, first_name: "Mert", last_name: "Basar" }
       added = false
       attempts = [
-        ["assignment(group_id, betaTesters hash)", -> { Spaceship::ConnectAPI.post_beta_tester_assignment(beta_group_id: internal.id, beta_testers_data: [h.dup]) }],
+        ["create+assign via post_beta_tester_assignment", lambda {
+          Spaceship::ConnectAPI.post_beta_tester_assignment(
+            beta_group_ids: [internal.id],
+            attributes: { firstName: "Mert", lastName: "Basar", email: email }
+          )
+        }],
+        ["existing tester -> add_beta_tester_to_group", lambda {
+          existing = (Spaceship::ConnectAPI.get_beta_testers(filter: { email: email }) rescue [])
+          tester = existing.find { |t| ((t.email rescue "") || "").downcase == email.downcase } || existing.first
+          raise "no existing beta tester for #{email}" if tester.nil?
+          Spaceship::ConnectAPI.add_beta_tester_to_group(beta_group_id: internal.id, beta_tester_ids: [tester.id])
+        }],
       ]
       attempts.each do |label, fn|
         next if added
