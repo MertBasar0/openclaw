@@ -636,22 +636,25 @@ platform :ios do
     else
       UI.message("Adding internal tester #{email} ...")
       begin
-        UI.message("sig module.bulk: #{Spaceship::ConnectAPI.method(:post_bulk_beta_tester_assignments).parameters.inspect}")
-        UI.message("sig module.add_to_group: #{Spaceship::ConnectAPI.method(:add_beta_tester_to_group).parameters.inspect}")
-        UI.message("sig group.add_beta_testers: #{Spaceship::ConnectAPI::BetaGroup.instance_method(:add_beta_testers).parameters.inspect}")
-        UI.message("sig group.bulk: #{Spaceship::ConnectAPI::BetaGroup.instance_method(:post_bulk_beta_tester_assignments).parameters.inspect}")
+        cl = Spaceship::ConnectAPI::TestFlight::Client
+        UI.message("TestFlight::Client methods ~tester/creat: #{cl.instance_methods.grep(/tester|creat/i).inspect}")
+        [:post_beta_tester_assignment, :create_beta_tester].each do |mname|
+          next unless cl.instance_methods.include?(mname)
+          m = cl.instance_method(mname)
+          if m.source_location
+            f, l = m.source_location
+            UI.message("SRC #{mname} @ #{f}:#{l}\n" + (File.readlines(f)[l - 1, 26] rescue []).join)
+          end
+        end
       rescue => e
-        UI.important("sig introspection error: #{e.message}")
+        UI.important("client introspection error: #{e.message}")
       end
 
       h = { email: email, first_name: "Mert", last_name: "Basar" }
       added = false
       attempts = [
-        ["group.add_beta_testers(emails)", -> { internal.add_beta_testers(beta_testers: [email]) }],
-        ["group.add_beta_testers(hash)",   -> { internal.add_beta_testers(beta_testers: [h]) }],
-        ["module.bulk(hash)",              -> { Spaceship::ConnectAPI.post_bulk_beta_tester_assignments(beta_group_id: internal.id, beta_testers: [h]) }],
-        ["module.bulk(emails)",            -> { Spaceship::ConnectAPI.post_bulk_beta_tester_assignments(beta_group_id: internal.id, beta_testers: [email]) }],
-        ["group.bulk(hash)",               -> { internal.post_bulk_beta_tester_assignments(beta_testers: [h]) }],
+        ["module.post_beta_tester_assignment(hash)", -> { Spaceship::ConnectAPI.post_beta_tester_assignment(beta_group_id: internal.id, beta_testers: [h.dup]) }],
+        ["module.post_beta_tester_assignment(email)", -> { Spaceship::ConnectAPI.post_beta_tester_assignment(beta_group_id: internal.id, beta_testers: [email]) }],
       ]
       attempts.each do |label, fn|
         next if added
