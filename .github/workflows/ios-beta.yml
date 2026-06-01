@@ -106,6 +106,7 @@ jobs:
           ASC_KEY_PATH: ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
           IOS_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
           IOS_BETA_BUILD_NUMBER: ${{ inputs.build_number }}
+          BETA_APP_IDENTIFIER: com.mertbasar.ceviz
         run: fastlane ios beta
 
       - name: Upload IPA artifact
