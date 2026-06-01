@@ -4,7 +4,7 @@ require "json"
 
 default_platform(:ios)
 
-BETA_APP_IDENTIFIER = "io.github.mertbasar0.ceviz"
+BETA_APP_IDENTIFIER = ENV.fetch("BETA_APP_IDENTIFIER", "ai.openclaw.client")
 
 def load_env_file(path)
   return unless File.exist?(path)
