@@ -107,6 +107,7 @@ jobs:
           IOS_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
           IOS_BETA_BUILD_NUMBER: ${{ inputs.build_number }}
           BETA_APP_IDENTIFIER: com.mertbasar.ceviz
+          OPENCLAW_PUSH_RELAY_BASE_URL: https://ios-push-relay.openclaw.ai
         run: fastlane ios beta
 
       - name: Upload IPA artifact
