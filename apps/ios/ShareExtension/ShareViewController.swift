@@ -183,7 +183,7 @@ final class ShareViewController: UIViewController {
                 permissions: [:],
                 clientId: clientId,
                 clientMode: "node",
-                clientDisplayName: "OpenClaw Share",
+                clientDisplayName: "Ceviz Share",
                 includeDeviceIdentity: false)
         }
 

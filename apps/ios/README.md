@@ -145,7 +145,7 @@ pnpm ios:beta
    - uploads the IPA to TestFlight
 
 7. Expected outputs after a successful run:
-   - `apps/ios/build/beta/OpenClaw-<version>.ipa`
+   - `apps/ios/build/beta/Ceviz-<version>.ipa`
    - `apps/ios/build/beta/OpenClaw-<version>.app.dSYM.zip`
    - Fastlane log line like `Uploaded iOS beta: version=<version> short=<short> build=<build>`
 

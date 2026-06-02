@@ -441,7 +441,7 @@ def build_beta_release(context)
     build_path: "build",
     archive_path: archive_path,
     output_directory: output_directory,
-    output_name: "OpenClaw-#{version}.ipa",
+    output_name: "Ceviz-#{version}.ipa",
     xcargs: archive_xcargs,
     export_options: {
       signingStyle: "manual",

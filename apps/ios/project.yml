@@ -113,7 +113,7 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
-        CFBundleDisplayName: OpenClaw
+        CFBundleDisplayName: Ceviz
         CFBundleIconName: AppIcon
         CFBundleURLTypes:
           - CFBundleURLName: ai.openclaw.ios
@@ -189,7 +189,7 @@ targets:
     info:
       path: ShareExtension/Info.plist
       properties:
-        CFBundleDisplayName: OpenClaw Share
+        CFBundleDisplayName: Ceviz Share
         CFBundleShortVersionString: "$(OPENCLAW_MARKETING_VERSION)"
         CFBundleVersion: "$(OPENCLAW_BUILD_VERSION)"
         NSExtension:
@@ -226,7 +226,7 @@ targets:
     info:
       path: ActivityWidget/Info.plist
       properties:
-        CFBundleDisplayName: OpenClaw Activity
+        CFBundleDisplayName: Ceviz Activity
         CFBundleShortVersionString: "$(OPENCLAW_MARKETING_VERSION)"
         CFBundleVersion: "$(OPENCLAW_BUILD_VERSION)"
         NSSupportsLiveActivities: true
@@ -260,7 +260,7 @@ targets:
     info:
       path: WatchApp/Info.plist
       properties:
-        CFBundleDisplayName: OpenClaw
+        CFBundleDisplayName: Ceviz
         CFBundleShortVersionString: "$(OPENCLAW_MARKETING_VERSION)"
         CFBundleVersion: "$(OPENCLAW_BUILD_VERSION)"
         WKCompanionAppBundleIdentifier: "$(OPENCLAW_APP_BUNDLE_ID)"
@@ -292,7 +292,7 @@ targets:
     info:
       path: WatchExtension/Info.plist
       properties:
-        CFBundleDisplayName: OpenClaw
+        CFBundleDisplayName: Ceviz
         CFBundleShortVersionString: "$(OPENCLAW_MARKETING_VERSION)"
         CFBundleVersion: "$(OPENCLAW_BUILD_VERSION)"
         NSExtension:

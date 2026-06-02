@@ -129,7 +129,7 @@ pnpm ios:beta
 
 Quick verification after upload:
 
-- confirm `apps/ios/build/beta/OpenClaw-<version>.ipa` exists
+- confirm `apps/ios/build/beta/Ceviz-<version>.ipa` exists
 - confirm Fastlane prints `Uploaded iOS beta: version=<version> short=<short> build=<build>`
 - remember that TestFlight processing can take a few minutes after the upload succeeds
 
