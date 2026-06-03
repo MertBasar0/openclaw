@@ -34,6 +34,7 @@ platform :ios do
       configuration: "Release",
       export_method: (ENV["EXPORT_METHOD"] && !ENV["EXPORT_METHOD"].empty? ? ENV["EXPORT_METHOD"] : "app-store"),
       clean: true,
+      skip_package_dependencies_resolution: true,
       skip_profile_detection: true,
       output_directory: "build/ipa",
       output_name: "CevizWatch.ipa",
