@@ -59,3 +59,13 @@ targets:
         PRODUCT_NAME: CevizWatchApp
         TARGETED_DEVICE_FAMILY: "4"
         CODE_SIGNING_ALLOWED: "YES"
+
+schemes:
+  CevizBridge:
+    build:
+      targets:
+        CevizBridge: all
+    run:
+      config: Release
+    archive:
+      config: Release
