@@ -1,0 +1,47 @@
+default_platform(:ios)
+
+# CevizWatch: iOS bridge + gomulu watch app (2 hedef)
+BUNDLE_IDS = [
+  "com.mertbasar.ceviz",
+  "com.mertbasar.ceviz.watchkitapp"
+].freeze
+
+platform :ios do
+  desc "CevizWatch IPA build (manuel imzalama + ASC API ile olusturulan profiller)"
+  lane :build do
+    api_key = app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_filepath: ENV["ASC_KEY_PATH"]
+    )
+
+    # Her hedef icin distribution provisioning profili olustur/getir (cloud signing DEGIL)
+    profiles = {}
+    BUNDLE_IDS.each do |bid|
+      get_provisioning_profile(
+        api_key: api_key,
+        app_identifier: bid,
+        readonly: false,
+        output_path: "build/profiles"
+      )
+      profiles[bid] = lane_context[SharedValues::SIGH_NAME]
+      UI.success("Profile #{bid}: #{profiles[bid]}")
+    end
+
+    build_app(
+      project: "CevizWatch.xcodeproj",
+      scheme: "CevizBridge",
+      configuration: "Release",
+      export_method: (ENV["EXPORT_METHOD"] && !ENV["EXPORT_METHOD"].empty? ? ENV["EXPORT_METHOD"] : "app-store"),
+      clean: true,
+      skip_profile_detection: true,
+      output_directory: "build/ipa",
+      output_name: "CevizWatch.ipa",
+      export_options: {
+        signingStyle: "manual",
+        teamID: ENV["TEAM_ID"],
+        provisioningProfiles: profiles
+      }
+    )
+  end
+end

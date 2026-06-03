@@ -33,10 +33,12 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Install Fastlane
+        run: gem install fastlane --no-document
+
       - name: Generate Xcode project
         run: |
           xcodegen generate
-          echo "=== schemes ==="
           xcodebuild -list -project CevizWatch.xcodeproj || true
 
       - name: Import signing certificate
@@ -62,62 +64,21 @@ jobs:
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
 
-      - name: Archive
+      - name: Build IPA (Fastlane, manual signing)
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
-        run: |
-          xcodebuild \
-            -project CevizWatch.xcodeproj \
-            -scheme CevizBridge \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/CevizBridge.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8 \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            clean archive
-
-      - name: Export IPA
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
-          METHOD: ${{ inputs.export_method }}
-        run: |
-          cat > "$RUNNER_TEMP/exportOptions.plist" <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>method</key><string>${METHOD:-app-store}</string>
-            <key>teamID</key><string>$TEAM_ID</string>
-            <key>signingStyle</key><string>automatic</string>
-            <key>destination</key><string>export</string>
-            <key>uploadSymbols</key><false/>
-          </dict></plist>
-          EOF
-          cat "$RUNNER_TEMP/exportOptions.plist"
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/CevizBridge.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/exportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8 \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
-          echo "=== export sonucu ==="
-          ls -la "$RUNNER_TEMP/export"
+          ASC_KEY_PATH: /Users/runner/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+          EXPORT_METHOD: ${{ inputs.export_method }}
+        run: fastlane ios build
 
       - name: Upload IPA artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ceviz-watch-ipa
-          path: ${{ runner.temp }}/export/*.ipa
+          path: watch-ceviz/build/ipa/*.ipa
           retention-days: 30
           if-no-files-found: warn
 
