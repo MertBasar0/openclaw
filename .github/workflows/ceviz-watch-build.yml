@@ -1,6 +1,9 @@
 name: Ceviz Watch App Build (IPA)
 
 on:
+  push:
+    branches:
+      - ceviz-watch-app-build
   workflow_dispatch:
     inputs:
       export_method:
