@@ -36,6 +36,7 @@ platform :ios do
       clean: true,
       skip_package_dependencies_resolution: true,
       skip_profile_detection: true,
+      xcargs: "-allowProvisioningUpdates -authenticationKeyPath #{ENV['ASC_KEY_PATH']} -authenticationKeyID #{ENV['ASC_KEY_ID']} -authenticationKeyIssuerID #{ENV['ASC_ISSUER_ID']} DEVELOPMENT_TEAM=#{ENV['TEAM_ID']}",
       output_directory: "build/ipa",
       output_name: "CevizWatch.ipa",
       export_options: {
