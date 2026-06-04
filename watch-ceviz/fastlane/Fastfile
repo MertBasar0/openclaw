@@ -6,44 +6,80 @@ BUNDLE_IDS = [
   "com.mertbasar.ceviz.watchkitapp"
 ].freeze
 
-platform :ios do
-  desc "CevizWatch IPA build (manuel imzalama + ASC API ile olusturulan profiller)"
-  lane :build do
-    api_key = app_store_connect_api_key(
-      key_id: ENV["ASC_KEY_ID"],
-      issuer_id: ENV["ASC_ISSUER_ID"],
-      key_filepath: ENV["ASC_KEY_PATH"]
+def asc_key
+  app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_filepath: ENV["ASC_KEY_PATH"]
+  )
+end
+
+# Her hedef icin distribution provisioning profili olustur/getir (cloud signing DEGIL)
+def provision(api_key)
+  profiles = {}
+  BUNDLE_IDS.each do |bid|
+    get_provisioning_profile(
+      api_key: api_key,
+      app_identifier: bid,
+      readonly: false,
+      output_path: "build/profiles"
     )
+    profiles[bid] = lane_context[SharedValues::SIGH_NAME]
+    UI.success("Profile #{bid}: #{profiles[bid]}")
+  end
+  profiles
+end
 
-    # Her hedef icin distribution provisioning profili olustur/getir (cloud signing DEGIL)
-    profiles = {}
-    BUNDLE_IDS.each do |bid|
-      get_provisioning_profile(
-        api_key: api_key,
-        app_identifier: bid,
-        readonly: false,
-        output_path: "build/profiles"
-      )
-      profiles[bid] = lane_context[SharedValues::SIGH_NAME]
-      UI.success("Profile #{bid}: #{profiles[bid]}")
-    end
+def archive_xcargs(build_number)
+  [
+    "-allowProvisioningUpdates",
+    "-authenticationKeyPath", ENV["ASC_KEY_PATH"],
+    "-authenticationKeyID", ENV["ASC_KEY_ID"],
+    "-authenticationKeyIssuerID", ENV["ASC_ISSUER_ID"],
+    "DEVELOPMENT_TEAM=#{ENV['TEAM_ID']}",
+    "CURRENT_PROJECT_VERSION=#{build_number}"
+  ].join(" ")
+end
 
-    build_app(
-      project: "CevizWatch.xcodeproj",
-      scheme: "CevizBridge",
-      configuration: "Release",
-      export_method: (ENV["EXPORT_METHOD"] && !ENV["EXPORT_METHOD"].empty? ? ENV["EXPORT_METHOD"] : "app-store"),
-      clean: true,
-      skip_package_dependencies_resolution: true,
-      skip_profile_detection: true,
-      xcargs: "-allowProvisioningUpdates -authenticationKeyPath #{ENV['ASC_KEY_PATH']} -authenticationKeyID #{ENV['ASC_KEY_ID']} -authenticationKeyIssuerID #{ENV['ASC_ISSUER_ID']} DEVELOPMENT_TEAM=#{ENV['TEAM_ID']}",
-      output_directory: "build/ipa",
-      output_name: "CevizWatch.ipa",
-      export_options: {
-        signingStyle: "manual",
-        teamID: ENV["TEAM_ID"],
-        provisioningProfiles: profiles
-      }
+def build_ceviz(api_key, method)
+  profiles = provision(api_key)
+  build_number = Time.now.to_i.to_s # benzersiz, artan build numarasi
+  UI.message("Build number: #{build_number}")
+  build_app(
+    project: "CevizWatch.xcodeproj",
+    scheme: "CevizBridge",
+    configuration: "Release",
+    export_method: method,
+    clean: true,
+    skip_package_dependencies_resolution: true,
+    skip_profile_detection: true,
+    xcargs: archive_xcargs(build_number),
+    output_directory: "build/ipa",
+    output_name: "CevizWatch.ipa",
+    export_options: {
+      signingStyle: "manual",
+      teamID: ENV["TEAM_ID"],
+      provisioningProfiles: profiles
+    }
+  )
+end
+
+platform :ios do
+  desc "CevizWatch IPA build (manuel imzalama)"
+  lane :build do
+    method = (ENV["EXPORT_METHOD"] && !ENV["EXPORT_METHOD"].empty? ? ENV["EXPORT_METHOD"] : "app-store")
+    build_ceviz(asc_key, method)
+  end
+
+  desc "CevizWatch -> TestFlight (watch app icin temiz kurulum yolu)"
+  lane :beta do
+    key = asc_key
+    build_ceviz(key, "app-store")
+    upload_to_testflight(
+      api_key: key,
+      skip_waiting_for_build_processing: true,
+      skip_submission: true,
+      ipa: lane_context[SharedValues::IPA_OUTPUT_PATH]
     )
   end
 end
