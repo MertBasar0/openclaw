@@ -41,9 +41,9 @@ targets:
               - ceviz
         INFOPLIST_KEY_NSAppTransportSecurity:
           NSAllowsArbitraryLoads: YES
-    # dependencies:  # GECICI: iOS-only diagnostik (watch embed kaldirildi)
-    #   - target: CevizWatchApp
-    #     embed: true
+    dependencies:
+      - target: CevizWatchApp
+        embed: true
 
   CevizWatchApp:
     type: application
