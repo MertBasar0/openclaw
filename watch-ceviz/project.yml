@@ -11,8 +11,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     APP_MARKETING_VERSION: "2026.6.5"
     APP_PROJECT_VERSION: "6"
-    IOS_BUNDLE_ID: com.mertbasar.ceviz
-    WATCH_BUNDLE_ID: com.mertbasar.ceviz.watchkitapp
+    IOS_BUNDLE_ID: com.mertbasar.cevizwatch
+    WATCH_BUNDLE_ID: com.mertbasar.cevizwatch.watchkitapp
 
 targets:
   CevizBridge:
@@ -26,7 +26,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         CURRENT_PROJECT_VERSION: $(APP_PROJECT_VERSION)
         MARKETING_VERSION: $(APP_MARKETING_VERSION)
-        PRODUCT_BUNDLE_IDENTIFIER: com.mertbasar.ceviz
+        PRODUCT_BUNDLE_IDENTIFIER: com.mertbasar.cevizwatch
         PRODUCT_NAME: CevizBridge
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
@@ -57,7 +57,7 @@ targets:
         INFOPLIST_FILE: apple-watch/Info.plist
         CURRENT_PROJECT_VERSION: $(APP_PROJECT_VERSION)
         MARKETING_VERSION: $(APP_MARKETING_VERSION)
-        PRODUCT_BUNDLE_IDENTIFIER: com.mertbasar.ceviz.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.mertbasar.cevizwatch.watchkitapp
         PRODUCT_NAME: CevizWatchApp
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "4"

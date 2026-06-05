@@ -2,8 +2,8 @@ default_platform(:ios)
 
 # CevizWatch: iOS bridge + gomulu watch app (2 hedef)
 BUNDLE_IDS = [
-  "com.mertbasar.ceviz",
-  "com.mertbasar.ceviz.watchkitapp"
+  "com.mertbasar.cevizwatch",
+  "com.mertbasar.cevizwatch.watchkitapp"
 ].freeze
 
 def asc_key
