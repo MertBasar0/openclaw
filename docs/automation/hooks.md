@@ -280,7 +280,7 @@ when you intentionally want both representations.
 
 `TOOLS.md` is no longer a recognized bootstrap basename and is not loaded into runtime context. `openclaw doctor --fix` migrates the workspace-root `TOOLS.md` into the `## Tools` section of `AGENTS.md`; patterns that name other `TOOLS.md` files are not migrated and should be repointed at `AGENTS.md`.
 
-For workspace-local procedures and bridge documentation, use [Workspace capabilities](/concepts/workspace-capabilities). Capability descriptors are not recognized bootstrap basenames, so follow the **Discovery Convention**: keep a `capabilities/index.md` index and link it from `TOOLS.md` or `AGENTS.md` so agents can discover local capability paths autonomously.
+For workspace-local procedures and bridge documentation, use [Workspace capabilities](/concepts/workspace-capabilities). Capability descriptors are not recognized bootstrap basenames, so follow the **Discovery Convention**: keep a `capabilities/index.md` index and link it from `TOOLS.md` or `AGENTS.md` when agents should discover those local capability paths.
 
 <a id="command-logger"></a>
 
