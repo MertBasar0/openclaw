@@ -1,0 +1,1370 @@
+{
+  "kind": "ifc-takeoff-report",
+  "contractVersion": "0.1.0",
+  "source": {
+    "tool": "IfcOpenShell",
+    "version": "0.8.5-post1",
+    "file": "\\\\wsl.localhost\\Ubuntu\\home\\mertb\\.openclaw\\workspace\\blender-bonsai-poc\\out\\request_ifc_multiroom_demo.ifc",
+    "schema": "IFC4"
+  },
+  "summary": {
+    "elementCount": 25,
+    "categoryCounts": {
+      "door": 4,
+      "furniture": 4,
+      "slab": 3,
+      "wall": 10,
+      "window": 4
+    },
+    "classCounts": {
+      "IfcDoor": 4,
+      "IfcFurniture": 4,
+      "IfcSlab": 3,
+      "IfcWall": 10,
+      "IfcWindow": 4
+    },
+    "materialCounts": {
+      "light_wood": 8,
+      "soft_glass": 4,
+      "warm_concrete": 13
+    },
+    "geometry": {
+      "elementsWithRepresentation": 33,
+      "elementsWithBodyRepresentation": 33,
+      "elementsWithAxisRepresentation": 10,
+      "elementsWithBooleanBody": 6,
+      "totalBooleanOperandChainLength": 8,
+      "representationContexts": {
+        "Model/Body/MODEL_VIEW": 33,
+        "Plan/Axis/GRAPH_VIEW": 10
+      }
+    },
+    "hosting": {
+      "wallsHostingOpenings": 6,
+      "openingsHosted": 8,
+      "fillingsHosted": 8,
+      "openingsWithoutFilling": 0,
+      "fillingsWithoutHost": 0,
+      "totalWallOpeningAreaM2": 13.96,
+      "totalWallFaceAreaNetM2": 171.64
+    },
+    "totals": {
+      "count": 25,
+      "boundingBoxVolumeM3": 49.7416,
+      "footprintAreaM2": 131.832,
+      "surfaceAreaM2": 699.872,
+      "horizontalSpanM": 109.2,
+      "wallFaceAreaM2": 185.6,
+      "wallFaceAreaNetM2": 171.64,
+      "wallOpeningAreaM2": 13.96,
+      "slabAreaM2": 120.0,
+      "openingAreaM2": 13.96
+    },
+    "byCategory": {
+      "door": {
+        "count": 4,
+        "boundingBoxVolumeM3": 0.4536,
+        "footprintAreaM2": 0.216,
+        "surfaceAreaM2": 16.56,
+        "horizontalSpanM": 3.6,
+        "wallFaceAreaM2": 0.0,
+        "wallFaceAreaNetM2": 0.0,
+        "wallOpeningAreaM2": 0.0,
+        "slabAreaM2": 0.0,
+        "openingAreaM2": 7.56
+      },
+      "furniture": {
+        "count": 4,
+        "boundingBoxVolumeM3": 2.76,
+        "footprintAreaM2": 3.68,
+        "surfaceAreaM2": 19.36,
+        "horizontalSpanM": 5.2,
+        "wallFaceAreaM2": 0.0,
+        "wallFaceAreaNetM2": 0.0,
+        "wallOpeningAreaM2": 0.0,
+        "slabAreaM2": 0.0,
+        "openingAreaM2": 0.0
+      },
+      "slab": {
+        "count": 3,
+        "boundingBoxVolumeM3": 24.0,
+        "footprintAreaM2": 120.0,
+        "surfaceAreaM2": 256.8,
+        "horizontalSpanM": 30.0,
+        "wallFaceAreaM2": 0.0,
+        "wallFaceAreaNetM2": 0.0,
+        "wallOpeningAreaM2": 0.0,
+        "slabAreaM2": 120.0,
+        "openingAreaM2": 0.0
+      },
+      "wall": {
+        "count": 10,
+        "boundingBoxVolumeM3": 22.272,
+        "footprintAreaM2": 7.68,
+        "surfaceAreaM2": 393.52,
+        "horizontalSpanM": 64.0,
+        "wallFaceAreaM2": 185.6,
+        "wallFaceAreaNetM2": 171.64,
+        "wallOpeningAreaM2": 13.96,
+        "slabAreaM2": 0.0,
+        "openingAreaM2": 0.0
+      },
+      "window": {
+        "count": 4,
+        "boundingBoxVolumeM3": 0.256,
+        "footprintAreaM2": 0.256,
+        "surfaceAreaM2": 13.632,
+        "horizontalSpanM": 6.4,
+        "wallFaceAreaM2": 0.0,
+        "wallFaceAreaNetM2": 0.0,
+        "wallOpeningAreaM2": 0.0,
+        "slabAreaM2": 0.0,
+        "openingAreaM2": 6.4
+      }
+    },
+    "modelExtentsM": {
+      "min": {
+        "x": -5.06,
+        "y": -2.1,
+        "z": -0.2
+      },
+      "max": {
+        "x": 5.06,
+        "y": 2.09,
+        "z": 6.0
+      },
+      "size": {
+        "x": 10.12,
+        "y": 4.19,
+        "z": 6.2
+      }
+    }
+  },
+  "elements": [
+    {
+      "id": 393,
+      "globalId": "3wGj9OEFrBZBjiU4Ls1ahU",
+      "class": "IfcDoor",
+      "name": "ff_door_left",
+      "category": "door",
+      "materialHint": "light_wood",
+      "dimensionsM": {
+        "length": 0.9,
+        "width": 0.06,
+        "height": 2.1
+      },
+      "locationM": {
+        "x": -2.5,
+        "y": -2.07,
+        "z": 4.05
+      },
+      "bboxM": {
+        "min": {
+          "x": -2.95,
+          "y": -2.1,
+          "z": 3.0
+        },
+        "max": {
+          "x": -2.05,
+          "y": -2.04,
+          "z": 5.1
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.1134,
+        "footprintAreaM2": 0.054,
+        "surfaceAreaM2": 4.14,
+        "horizontalSpanM": 0.9,
+        "heightM": 2.1,
+        "openingAreaM2": 1.89
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": {
+          "globalId": "2YGOmm$Gz4pRj9qjDdiMnm",
+          "name": "ff_south_wall",
+          "class": "IfcWall"
+        },
+        "fillsOpening": {
+          "globalId": "1483uBr0r5DhWSmSKik$iJ",
+          "name": "ff_door_left_opening",
+          "class": "IfcOpeningElement"
+        }
+      }
+    },
+    {
+      "id": 419,
+      "globalId": "3ugTNvXPb7Y8jz9oLwP9fK",
+      "class": "IfcDoor",
+      "name": "ff_door_right",
+      "category": "door",
+      "materialHint": "light_wood",
+      "dimensionsM": {
+        "length": 0.9,
+        "width": 0.06,
+        "height": 2.1
+      },
+      "locationM": {
+        "x": 0.07,
+        "y": -0.5,
+        "z": 4.05
+      },
+      "bboxM": {
+        "min": {
+          "x": -0.38,
+          "y": -0.53,
+          "z": 3.0
+        },
+        "max": {
+          "x": 0.52,
+          "y": -0.47,
+          "z": 5.1
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.1134,
+        "footprintAreaM2": 0.054,
+        "surfaceAreaM2": 4.14,
+        "horizontalSpanM": 0.9,
+        "heightM": 2.1,
+        "openingAreaM2": 1.89
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": {
+          "globalId": "0ag9Tq00j6u8RklSEr5wCJ",
+          "name": "ff_partition",
+          "class": "IfcWall"
+        },
+        "fillsOpening": {
+          "globalId": "3MVF01qIr16RuPxH1d4vjn",
+          "name": "ff_door_right_opening",
+          "class": "IfcOpeningElement"
+        }
+      }
+    },
+    {
+      "id": 100,
+      "globalId": "3Vhb3LrpDFkwj73fCS6AYL",
+      "class": "IfcDoor",
+      "name": "gf_door_left",
+      "category": "door",
+      "materialHint": "light_wood",
+      "dimensionsM": {
+        "length": 0.9,
+        "width": 0.06,
+        "height": 2.1
+      },
+      "locationM": {
+        "x": -2.5,
+        "y": -2.07,
+        "z": 1.05
+      },
+      "bboxM": {
+        "min": {
+          "x": -2.95,
+          "y": -2.1,
+          "z": 0.0
+        },
+        "max": {
+          "x": -2.05,
+          "y": -2.04,
+          "z": 2.1
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.1134,
+        "footprintAreaM2": 0.054,
+        "surfaceAreaM2": 4.14,
+        "horizontalSpanM": 0.9,
+        "heightM": 2.1,
+        "openingAreaM2": 1.89
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": {
+          "globalId": "0$NheOj8140xvwxmMDC8dW",
+          "name": "gf_south_wall",
+          "class": "IfcWall"
+        },
+        "fillsOpening": {
+          "globalId": "0Ref5nzPD6WviqVLGpPt48",
+          "name": "gf_door_left_opening",
+          "class": "IfcOpeningElement"
+        }
+      }
+    },
+    {
+      "id": 126,
+      "globalId": "0GVJLRNN96wgKimt77e_AD",
+      "class": "IfcDoor",
+      "name": "gf_door_right",
+      "category": "door",
+      "materialHint": "light_wood",
+      "dimensionsM": {
+        "length": 0.9,
+        "width": 0.06,
+        "height": 2.1
+      },
+      "locationM": {
+        "x": 0.07,
+        "y": -0.5,
+        "z": 1.05
+      },
+      "bboxM": {
+        "min": {
+          "x": -0.38,
+          "y": -0.53,
+          "z": 0.0
+        },
+        "max": {
+          "x": 0.52,
+          "y": -0.47,
+          "z": 2.1
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.1134,
+        "footprintAreaM2": 0.054,
+        "surfaceAreaM2": 4.14,
+        "horizontalSpanM": 0.9,
+        "heightM": 2.1,
+        "openingAreaM2": 1.89
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": {
+          "globalId": "2ziCa1l2v2fghGQQ7bFNBO",
+          "name": "gf_partition",
+          "class": "IfcWall"
+        },
+        "fillsOpening": {
+          "globalId": "0b7hUH3VL9hfBReH0lrh7k",
+          "name": "gf_door_right_opening",
+          "class": "IfcOpeningElement"
+        }
+      }
+    },
+    {
+      "id": 432,
+      "globalId": "2n2ZWlU_rBpAQerXOdT01e",
+      "class": "IfcFurniture",
+      "name": "ff_furniture_left",
+      "category": "furniture",
+      "materialHint": "light_wood",
+      "dimensionsM": {
+        "length": 1.4,
+        "width": 0.8,
+        "height": 0.75
+      },
+      "locationM": {
+        "x": -3.0,
+        "y": 0.0,
+        "z": 3.375
+      },
+      "bboxM": {
+        "min": {
+          "x": -3.7,
+          "y": -0.4,
+          "z": 3.0
+        },
+        "max": {
+          "x": -2.3,
+          "y": 0.4,
+          "z": 3.75
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.84,
+        "footprintAreaM2": 1.12,
+        "surfaceAreaM2": 5.54,
+        "horizontalSpanM": 1.4,
+        "heightM": 0.75
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 445,
+      "globalId": "1AAPDdL257shw2I7xLNBQN",
+      "class": "IfcFurniture",
+      "name": "ff_furniture_right",
+      "category": "furniture",
+      "materialHint": "light_wood",
+      "dimensionsM": {
+        "length": 1.2,
+        "width": 0.6,
+        "height": 0.75
+      },
+      "locationM": {
+        "x": 3.0,
+        "y": 0.0,
+        "z": 3.375
+      },
+      "bboxM": {
+        "min": {
+          "x": 2.4,
+          "y": -0.3,
+          "z": 3.0
+        },
+        "max": {
+          "x": 3.6,
+          "y": 0.3,
+          "z": 3.75
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.54,
+        "footprintAreaM2": 0.72,
+        "surfaceAreaM2": 4.14,
+        "horizontalSpanM": 1.2,
+        "heightM": 0.75
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 139,
+      "globalId": "0gjPtCrtjAUQ27RcQIBZ3p",
+      "class": "IfcFurniture",
+      "name": "gf_furniture_left",
+      "category": "furniture",
+      "materialHint": "light_wood",
+      "dimensionsM": {
+        "length": 1.4,
+        "width": 0.8,
+        "height": 0.75
+      },
+      "locationM": {
+        "x": -3.0,
+        "y": 0.0,
+        "z": 0.375
+      },
+      "bboxM": {
+        "min": {
+          "x": -3.7,
+          "y": -0.4,
+          "z": 0.0
+        },
+        "max": {
+          "x": -2.3,
+          "y": 0.4,
+          "z": 0.75
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.84,
+        "footprintAreaM2": 1.12,
+        "surfaceAreaM2": 5.54,
+        "horizontalSpanM": 1.4,
+        "heightM": 0.75
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 152,
+      "globalId": "0ILiA$clz8xOgnz_jCV$$i",
+      "class": "IfcFurniture",
+      "name": "gf_furniture_right",
+      "category": "furniture",
+      "materialHint": "light_wood",
+      "dimensionsM": {
+        "length": 1.2,
+        "width": 0.6,
+        "height": 0.75
+      },
+      "locationM": {
+        "x": 3.0,
+        "y": 0.0,
+        "z": 0.375
+      },
+      "bboxM": {
+        "min": {
+          "x": 2.4,
+          "y": -0.3,
+          "z": 0.0
+        },
+        "max": {
+          "x": 3.6,
+          "y": 0.3,
+          "z": 0.75
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.54,
+        "footprintAreaM2": 0.72,
+        "surfaceAreaM2": 4.14,
+        "horizontalSpanM": 1.2,
+        "heightM": 0.75
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 306,
+      "globalId": "3AfNCw67T138E5VXVP5ZZO",
+      "class": "IfcSlab",
+      "name": "ff_slab",
+      "category": "slab",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 10.0,
+        "width": 4.0,
+        "height": 0.2
+      },
+      "locationM": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 2.9
+      },
+      "bboxM": {
+        "min": {
+          "x": -5.0,
+          "y": -2.0,
+          "z": 2.8
+        },
+        "max": {
+          "x": 5.0,
+          "y": 2.0,
+          "z": 3.0
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 8.0,
+        "footprintAreaM2": 40.0,
+        "surfaceAreaM2": 85.6,
+        "horizontalSpanM": 10.0,
+        "heightM": 0.2,
+        "slabAreaM2": 40.0,
+        "thicknessM": 0.2
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 13,
+      "globalId": "0xGOCZJBbBhxHWhaDU$V0Z",
+      "class": "IfcSlab",
+      "name": "gf_slab",
+      "category": "slab",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 10.0,
+        "width": 4.0,
+        "height": 0.2
+      },
+      "locationM": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": -0.1
+      },
+      "bboxM": {
+        "min": {
+          "x": -5.0,
+          "y": -2.0,
+          "z": -0.2
+        },
+        "max": {
+          "x": 5.0,
+          "y": 2.0,
+          "z": 0.0
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 8.0,
+        "footprintAreaM2": 40.0,
+        "surfaceAreaM2": 85.6,
+        "horizontalSpanM": 10.0,
+        "heightM": 0.2,
+        "slabAreaM2": 40.0,
+        "thicknessM": 0.2
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 599,
+      "globalId": "2zMahtawH73h3eiMVFdc76",
+      "class": "IfcSlab",
+      "name": "roof_slab",
+      "category": "slab",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 10.0,
+        "width": 4.0,
+        "height": 0.2
+      },
+      "locationM": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 5.9
+      },
+      "bboxM": {
+        "min": {
+          "x": -5.0,
+          "y": -2.0,
+          "z": 5.8
+        },
+        "max": {
+          "x": 5.0,
+          "y": 2.0,
+          "z": 6.0
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 8.0,
+        "footprintAreaM2": 40.0,
+        "surfaceAreaM2": 85.6,
+        "horizontalSpanM": 10.0,
+        "heightM": 0.2,
+        "slabAreaM2": 40.0,
+        "thicknessM": 0.2
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 355,
+      "globalId": "11nr690qn5VBjVP1q4_kXG",
+      "class": "IfcWall",
+      "name": "ff_east_wall",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 0.12,
+        "width": 4.0,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": 5.0,
+        "y": 0.0,
+        "z": 4.45
+      },
+      "bboxM": {
+        "min": {
+          "x": 4.94,
+          "y": -2.0,
+          "z": 3.0
+        },
+        "max": {
+          "x": 5.06,
+          "y": 2.0,
+          "z": 5.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 1.392,
+        "footprintAreaM2": 0.48,
+        "surfaceAreaM2": 24.856,
+        "horizontalSpanM": 4.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 11.6,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 0.0,
+        "wallFaceAreaNetM2": 11.6,
+        "hostedOpeningCount": 0
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 318,
+      "globalId": "21i487nLTBneHeivb3XijP",
+      "class": "IfcWall",
+      "name": "ff_north_wall",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 10.0,
+        "width": 0.12,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": 0.0,
+        "y": 2.0,
+        "z": 4.45
+      },
+      "bboxM": {
+        "min": {
+          "x": -5.0,
+          "y": 1.94,
+          "z": 3.0
+        },
+        "max": {
+          "x": 5.0,
+          "y": 2.06,
+          "z": 5.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 3.48,
+        "footprintAreaM2": 1.2,
+        "surfaceAreaM2": 61.096,
+        "horizontalSpanM": 10.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 29.0,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 3.2,
+        "wallFaceAreaNetM2": 25.8,
+        "hostedOpeningCount": 2
+      },
+      "hosting": {
+        "hostsOpenings": [
+          {
+            "globalId": "3usyL1IJLCxwe6AYLIiBbn",
+            "name": "ff_win_left_opening",
+            "class": "IfcOpeningElement"
+          },
+          {
+            "globalId": "21EJO0Af92qe2mFbRP5QYc",
+            "name": "ff_win_right_opening",
+            "class": "IfcOpeningElement"
+          }
+        ],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 368,
+      "globalId": "0ag9Tq00j6u8RklSEr5wCJ",
+      "class": "IfcWall",
+      "name": "ff_partition",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 0.12,
+        "width": 4.0,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 4.45
+      },
+      "bboxM": {
+        "min": {
+          "x": -0.06,
+          "y": -2.0,
+          "z": 3.0
+        },
+        "max": {
+          "x": 0.06,
+          "y": 2.0,
+          "z": 5.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 1.392,
+        "footprintAreaM2": 0.48,
+        "surfaceAreaM2": 24.856,
+        "horizontalSpanM": 4.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 11.6,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 1.89,
+        "wallFaceAreaNetM2": 9.71,
+        "hostedOpeningCount": 1
+      },
+      "hosting": {
+        "hostsOpenings": [
+          {
+            "globalId": "3MVF01qIr16RuPxH1d4vjn",
+            "name": "ff_door_right_opening",
+            "class": "IfcOpeningElement"
+          }
+        ],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 330,
+      "globalId": "2YGOmm$Gz4pRj9qjDdiMnm",
+      "class": "IfcWall",
+      "name": "ff_south_wall",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 10.0,
+        "width": 0.12,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": 0.0,
+        "y": -2.0,
+        "z": 4.45
+      },
+      "bboxM": {
+        "min": {
+          "x": -5.0,
+          "y": -2.06,
+          "z": 3.0
+        },
+        "max": {
+          "x": 5.0,
+          "y": -1.94,
+          "z": 5.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 3.48,
+        "footprintAreaM2": 1.2,
+        "surfaceAreaM2": 61.096,
+        "horizontalSpanM": 10.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 29.0,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 1.89,
+        "wallFaceAreaNetM2": 27.11,
+        "hostedOpeningCount": 1
+      },
+      "hosting": {
+        "hostsOpenings": [
+          {
+            "globalId": "1483uBr0r5DhWSmSKik$iJ",
+            "name": "ff_door_left_opening",
+            "class": "IfcOpeningElement"
+          }
+        ],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 342,
+      "globalId": "0m50m73Cv24OJoM_96s7eO",
+      "class": "IfcWall",
+      "name": "ff_west_wall",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 0.12,
+        "width": 4.0,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": -5.0,
+        "y": 0.0,
+        "z": 4.45
+      },
+      "bboxM": {
+        "min": {
+          "x": -5.06,
+          "y": -2.0,
+          "z": 3.0
+        },
+        "max": {
+          "x": -4.94,
+          "y": 2.0,
+          "z": 5.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 1.392,
+        "footprintAreaM2": 0.48,
+        "surfaceAreaM2": 24.856,
+        "horizontalSpanM": 4.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 11.6,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 0.0,
+        "wallFaceAreaNetM2": 11.6,
+        "hostedOpeningCount": 0
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 62,
+      "globalId": "2U7vJNcYP8YfocOLmDvRv1",
+      "class": "IfcWall",
+      "name": "gf_east_wall",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 0.12,
+        "width": 4.0,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": 5.0,
+        "y": 0.0,
+        "z": 1.45
+      },
+      "bboxM": {
+        "min": {
+          "x": 4.94,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "max": {
+          "x": 5.06,
+          "y": 2.0,
+          "z": 2.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 1.392,
+        "footprintAreaM2": 0.48,
+        "surfaceAreaM2": 24.856,
+        "horizontalSpanM": 4.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 11.6,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 0.0,
+        "wallFaceAreaNetM2": 11.6,
+        "hostedOpeningCount": 0
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 25,
+      "globalId": "1qeLKubtz91BmjpdVVi5ut",
+      "class": "IfcWall",
+      "name": "gf_north_wall",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 10.0,
+        "width": 0.12,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": 0.0,
+        "y": 2.0,
+        "z": 1.45
+      },
+      "bboxM": {
+        "min": {
+          "x": -5.0,
+          "y": 1.94,
+          "z": 0.0
+        },
+        "max": {
+          "x": 5.0,
+          "y": 2.06,
+          "z": 2.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 3.48,
+        "footprintAreaM2": 1.2,
+        "surfaceAreaM2": 61.096,
+        "horizontalSpanM": 10.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 29.0,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 3.2,
+        "wallFaceAreaNetM2": 25.8,
+        "hostedOpeningCount": 2
+      },
+      "hosting": {
+        "hostsOpenings": [
+          {
+            "globalId": "3YTnLhDIP4Te4ZkjIih4nk",
+            "name": "gf_win_left_opening",
+            "class": "IfcOpeningElement"
+          },
+          {
+            "globalId": "0SxfmIzl14xxwzREVvq1AS",
+            "name": "gf_win_right_opening",
+            "class": "IfcOpeningElement"
+          }
+        ],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 75,
+      "globalId": "2ziCa1l2v2fghGQQ7bFNBO",
+      "class": "IfcWall",
+      "name": "gf_partition",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 0.12,
+        "width": 4.0,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 1.45
+      },
+      "bboxM": {
+        "min": {
+          "x": -0.06,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "max": {
+          "x": 0.06,
+          "y": 2.0,
+          "z": 2.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 1.392,
+        "footprintAreaM2": 0.48,
+        "surfaceAreaM2": 24.856,
+        "horizontalSpanM": 4.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 11.6,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 1.89,
+        "wallFaceAreaNetM2": 9.71,
+        "hostedOpeningCount": 1
+      },
+      "hosting": {
+        "hostsOpenings": [
+          {
+            "globalId": "0b7hUH3VL9hfBReH0lrh7k",
+            "name": "gf_door_right_opening",
+            "class": "IfcOpeningElement"
+          }
+        ],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 37,
+      "globalId": "0$NheOj8140xvwxmMDC8dW",
+      "class": "IfcWall",
+      "name": "gf_south_wall",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 10.0,
+        "width": 0.12,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": 0.0,
+        "y": -2.0,
+        "z": 1.45
+      },
+      "bboxM": {
+        "min": {
+          "x": -5.0,
+          "y": -2.06,
+          "z": 0.0
+        },
+        "max": {
+          "x": 5.0,
+          "y": -1.94,
+          "z": 2.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 3.48,
+        "footprintAreaM2": 1.2,
+        "surfaceAreaM2": 61.096,
+        "horizontalSpanM": 10.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 29.0,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 1.89,
+        "wallFaceAreaNetM2": 27.11,
+        "hostedOpeningCount": 1
+      },
+      "hosting": {
+        "hostsOpenings": [
+          {
+            "globalId": "0Ref5nzPD6WviqVLGpPt48",
+            "name": "gf_door_left_opening",
+            "class": "IfcOpeningElement"
+          }
+        ],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 49,
+      "globalId": "2N7ZQUfojDsvB9hJqDaBBO",
+      "class": "IfcWall",
+      "name": "gf_west_wall",
+      "category": "wall",
+      "materialHint": "warm_concrete",
+      "dimensionsM": {
+        "length": 0.12,
+        "width": 4.0,
+        "height": 2.9
+      },
+      "locationM": {
+        "x": -5.0,
+        "y": 0.0,
+        "z": 1.45
+      },
+      "bboxM": {
+        "min": {
+          "x": -5.06,
+          "y": -2.0,
+          "z": 0.0
+        },
+        "max": {
+          "x": -4.94,
+          "y": 2.0,
+          "z": 2.9
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 1.392,
+        "footprintAreaM2": 0.48,
+        "surfaceAreaM2": 24.856,
+        "horizontalSpanM": 4.0,
+        "heightM": 2.9,
+        "wallFaceAreaM2": 11.6,
+        "thicknessM": 0.12,
+        "wallOpeningAreaM2": 0.0,
+        "wallFaceAreaNetM2": 11.6,
+        "hostedOpeningCount": 0
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": null,
+        "fillsOpening": null
+      }
+    },
+    {
+      "id": 380,
+      "globalId": "1v_en5p816NwVTVwJPzOyP",
+      "class": "IfcWindow",
+      "name": "ff_win_left",
+      "category": "window",
+      "materialHint": "soft_glass",
+      "dimensionsM": {
+        "length": 1.6,
+        "width": 0.04,
+        "height": 1.0
+      },
+      "locationM": {
+        "x": -2.5,
+        "y": 2.07,
+        "z": 4.65
+      },
+      "bboxM": {
+        "min": {
+          "x": -3.3,
+          "y": 2.05,
+          "z": 4.15
+        },
+        "max": {
+          "x": -1.7,
+          "y": 2.09,
+          "z": 5.15
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.064,
+        "footprintAreaM2": 0.064,
+        "surfaceAreaM2": 3.408,
+        "horizontalSpanM": 1.6,
+        "heightM": 1.0,
+        "openingAreaM2": 1.6
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": {
+          "globalId": "21i487nLTBneHeivb3XijP",
+          "name": "ff_north_wall",
+          "class": "IfcWall"
+        },
+        "fillsOpening": {
+          "globalId": "3usyL1IJLCxwe6AYLIiBbn",
+          "name": "ff_win_left_opening",
+          "class": "IfcOpeningElement"
+        }
+      }
+    },
+    {
+      "id": 406,
+      "globalId": "2jYtoKKmHAFu6xn2m6WfdW",
+      "class": "IfcWindow",
+      "name": "ff_win_right",
+      "category": "window",
+      "materialHint": "soft_glass",
+      "dimensionsM": {
+        "length": 1.6,
+        "width": 0.04,
+        "height": 1.0
+      },
+      "locationM": {
+        "x": 2.5,
+        "y": 2.07,
+        "z": 4.65
+      },
+      "bboxM": {
+        "min": {
+          "x": 1.7,
+          "y": 2.05,
+          "z": 4.15
+        },
+        "max": {
+          "x": 3.3,
+          "y": 2.09,
+          "z": 5.15
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.064,
+        "footprintAreaM2": 0.064,
+        "surfaceAreaM2": 3.408,
+        "horizontalSpanM": 1.6,
+        "heightM": 1.0,
+        "openingAreaM2": 1.6
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": {
+          "globalId": "21i487nLTBneHeivb3XijP",
+          "name": "ff_north_wall",
+          "class": "IfcWall"
+        },
+        "fillsOpening": {
+          "globalId": "21EJO0Af92qe2mFbRP5QYc",
+          "name": "ff_win_right_opening",
+          "class": "IfcOpeningElement"
+        }
+      }
+    },
+    {
+      "id": 87,
+      "globalId": "2IL1fHEELFh9crFF0KFkMF",
+      "class": "IfcWindow",
+      "name": "gf_win_left",
+      "category": "window",
+      "materialHint": "soft_glass",
+      "dimensionsM": {
+        "length": 1.6,
+        "width": 0.04,
+        "height": 1.0
+      },
+      "locationM": {
+        "x": -2.5,
+        "y": 2.07,
+        "z": 1.65
+      },
+      "bboxM": {
+        "min": {
+          "x": -3.3,
+          "y": 2.05,
+          "z": 1.15
+        },
+        "max": {
+          "x": -1.7,
+          "y": 2.09,
+          "z": 2.15
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.064,
+        "footprintAreaM2": 0.064,
+        "surfaceAreaM2": 3.408,
+        "horizontalSpanM": 1.6,
+        "heightM": 1.0,
+        "openingAreaM2": 1.6
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": {
+          "globalId": "1qeLKubtz91BmjpdVVi5ut",
+          "name": "gf_north_wall",
+          "class": "IfcWall"
+        },
+        "fillsOpening": {
+          "globalId": "3YTnLhDIP4Te4ZkjIih4nk",
+          "name": "gf_win_left_opening",
+          "class": "IfcOpeningElement"
+        }
+      }
+    },
+    {
+      "id": 113,
+      "globalId": "0A4XzoSTvBAxANzWJ44j3Q",
+      "class": "IfcWindow",
+      "name": "gf_win_right",
+      "category": "window",
+      "materialHint": "soft_glass",
+      "dimensionsM": {
+        "length": 1.6,
+        "width": 0.04,
+        "height": 1.0
+      },
+      "locationM": {
+        "x": 2.5,
+        "y": 2.07,
+        "z": 1.65
+      },
+      "bboxM": {
+        "min": {
+          "x": 1.7,
+          "y": 2.05,
+          "z": 1.15
+        },
+        "max": {
+          "x": 3.3,
+          "y": 2.09,
+          "z": 2.15
+        }
+      },
+      "quantities": {
+        "boundingBoxVolumeM3": 0.064,
+        "footprintAreaM2": 0.064,
+        "surfaceAreaM2": 3.408,
+        "horizontalSpanM": 1.6,
+        "heightM": 1.0,
+        "openingAreaM2": 1.6
+      },
+      "hosting": {
+        "hostsOpenings": [],
+        "hostWall": {
+          "globalId": "1qeLKubtz91BmjpdVVi5ut",
+          "name": "gf_north_wall",
+          "class": "IfcWall"
+        },
+        "fillsOpening": {
+          "globalId": "0SxfmIzl14xxwzREVvq1AS",
+          "name": "gf_win_right_opening",
+          "class": "IfcOpeningElement"
+        }
+      }
+    }
+  ],
+  "diagnostics": []
+}

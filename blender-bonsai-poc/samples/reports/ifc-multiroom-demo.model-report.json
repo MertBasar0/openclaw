@@ -1,0 +1,108 @@
+{
+  "kind": "ifc-model-report",
+  "contractVersion": "0.1.0",
+  "generatedAtUtc": "2026-05-21T22:35:26Z",
+  "requestId": "blender-bonsai-ifc-multiroom-demo-001",
+  "action": "ifc-multiroom-demo",
+  "source": {
+    "snapshot": {
+      "tool": "IfcOpenShell",
+      "version": "0.8.5-post1",
+      "file": "\\\\wsl.localhost\\Ubuntu\\home\\mertb\\.openclaw\\workspace\\blender-bonsai-poc\\out\\request_ifc_multiroom_demo.ifc",
+      "schema": "IFC4"
+    },
+    "takeoff": {
+      "tool": "IfcOpenShell",
+      "version": "0.8.5-post1",
+      "file": "\\\\wsl.localhost\\Ubuntu\\home\\mertb\\.openclaw\\workspace\\blender-bonsai-poc\\out\\request_ifc_multiroom_demo.ifc",
+      "schema": "IFC4"
+    },
+    "resultEnvelope": null
+  },
+  "status": "geometry-aware-poc-ready",
+  "modelSummary": {
+    "quantifiedElementCount": 25,
+    "extractedEntityCount": 38,
+    "categoryCounts": {
+      "door": 4,
+      "furniture": 4,
+      "slab": 3,
+      "wall": 10,
+      "window": 4
+    },
+    "classCounts": {
+      "IfcDoor": 4,
+      "IfcFurniture": 4,
+      "IfcSlab": 3,
+      "IfcWall": 10,
+      "IfcWindow": 4
+    },
+    "materialCounts": {
+      "light_wood": 8,
+      "soft_glass": 4,
+      "warm_concrete": 13
+    }
+  },
+  "quantityHighlights": {
+    "slabAreaM2": 120.0,
+    "wallFaceAreaM2": 185.6,
+    "wallFaceAreaNetM2": 171.64,
+    "wallOpeningAreaM2": 13.96,
+    "openingAreaM2": 13.96,
+    "totalBoundingBoxVolumeM3": 49.7416,
+    "modelExtentsM": {
+      "min": {
+        "x": -5.06,
+        "y": -2.1,
+        "z": -0.2
+      },
+      "max": {
+        "x": 5.06,
+        "y": 2.09,
+        "z": 6.0
+      },
+      "size": {
+        "x": 10.12,
+        "y": 4.19,
+        "z": 6.2
+      }
+    }
+  },
+  "geometryReadiness": {
+    "hasRealShapeRepresentations": true,
+    "elementsWithRepresentation": 33,
+    "elementsWithBodyRepresentation": 33,
+    "elementsWithAxisRepresentation": 10,
+    "elementsWithBooleanBody": 6,
+    "totalBooleanOperandChainLength": 8,
+    "hasBooleanBodyCuts": true,
+    "representationContexts": {
+      "Model/Body/MODEL_VIEW": 33,
+      "Plan/Axis/GRAPH_VIEW": 10
+    },
+    "geometryLevel": "real-ifc-shape-representations"
+  },
+  "hostingReadiness": {
+    "wallsHostingOpenings": 6,
+    "openingsHosted": 8,
+    "fillingsHosted": 8,
+    "openingsWithoutFilling": 0,
+    "fillingsWithoutHost": 0,
+    "totalWallOpeningAreaM2": 13.96,
+    "totalWallFaceAreaNetM2": 171.64,
+    "hasOpeningHosting": true
+  },
+  "caveats": [
+    "Quantities are deterministic PoC outputs derived from curated IFC dimensions/placements, not production BIM validation.",
+    "Representation coverage only confirms the presence of basic IFC shape representations; it does not certify authoring correctness or downstream viewer compatibility.",
+    "Wall bodies use IfcBooleanResult DIFFERENCE operands to subtract opening voids, but tessellated mesh validation against viewer renderers is not performed here."
+  ],
+  "recommendedNextActions": [
+    "Validate boolean wall bodies in an external viewer (e.g. BlenderBIM/Bonsai) and tighten the void buffer once visual artefacts are ruled out.",
+    "Cross-check deterministic takeoff totals against geometry-derived quantities or native QTO extraction.",
+    "Expose model-report readiness flags in the queue/orchestrator so follow-up agents can branch without re-parsing raw JSON.",
+    "Add an external viewer validation pass for the multi-room sample before broadening the copilot surface."
+  ],
+  "naturalLanguageAssessment": "This PoC IFC model contains 25 quantified elements across 5 categories, 5 IFC classes, and 3 material hints. It reports 120.0 m2 slab area, 185.6 m2 wall face area (171.64 m2 net), 13.96 m2 opening area, and 49.7416 m3 total bbox volume within overall extents of 10.12 x 4.19 x 6.2 m. Real IFC shape coverage is present on 33 elements (33 body, 10 axis, with 6 boolean-cut bodies). Opening hosting is wired: 8 openings across 6 walls, 8 fillings linked, net wall face area 171.64 m2 (opening cut-out 13.96 m2). Diagnostics are currently empty.",
+  "diagnostics": []
+}

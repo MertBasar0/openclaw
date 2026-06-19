@@ -1,0 +1,21 @@
+{
+  "kind": "blender-bonsai-request",
+  "contractVersion": "0.1.0",
+  "requestId": "blender-bonsai-ifc-multiroom-demo-001",
+  "action": "ifc-multiroom-demo",
+  "readOnly": true,
+  "sourceKind": "manual-sample",
+  "artifacts": {
+    "responsePath": "samples/responses/ifc-multiroom-demo.result.json",
+    "ifcPath": "out/request_ifc_multiroom_demo.ifc",
+    "ifcSnapshotPath": "out/request_ifc_multiroom_property_snapshot.json",
+    "ifcTakeoffPath": "samples/reports/ifc-multiroom-demo.takeoff.json",
+    "modelReportJsonPath": "samples/reports/ifc-multiroom-demo.model-report.json",
+    "modelReportMarkdownPath": "samples/reports/ifc-multiroom-demo.model-report.md"
+  },
+  "options": {
+    "withGeometry": true,
+    "reuseExistingArtifactsIfPresent": true,
+    "notes": "Create a two-storey, four-room IFC sample with hosted openings, boolean wall cuts, deterministic takeoff, and an agent-readable report."
+  }
+}
