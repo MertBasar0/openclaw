@@ -108,6 +108,7 @@ Bu action iki katlı/dört odalı IFC örneğini executor contract üzerinden ü
 ## IFC geometry viewer validation
 
 `blender_scripts/validate_ifc_geometry_view.py` emitted IFC dosyasını authoring yolundan ayrı açar, IfcOpenShell geometry engine ile tessellate eder, Blender mesh objelerine dönüştürür, render PNG ve JSON validation raporu üretir.
+Validation JSON artık her shape için bbox ölçüleri, bbox hacmi/footprint alanı, mesh surface area ve mesh volume da taşır; summary içinde aynı metrikler toplam ve kategori bazında gruplanır.
 
 Tam model doğrulama çıktıları:
 
@@ -120,6 +121,18 @@ Host wall odaklı doğrulama çıktıları:
 - `blender-bonsai-poc/out/ifc-multiroom-view-host-walls.validation.json`
 
 2026-05-22 doğrulamasında full model `25/25` product shape, host-wall kontrolü `6/6` opening-host wall shape üretti; geometry failure yok. Host wall meshleri opening sayısına göre düz kutudan daha zengin tessellation verdi: iki opening'li north wall'lar `40 vertex / 60 triangle`, tek opening'li partition wall'lar `16 vertex / 28 triangle`, tek opening'li south wall'lar `24 vertex / 44 triangle`.
+
+Geometry-derived quantity karşılaştırması için:
+
+```bash
+python3 blender-bonsai-poc/scripts/compare_geometry_takeoff.py \
+  --takeoff blender-bonsai-poc/samples/reports/ifc-multiroom-demo.takeoff.json \
+  --geometry blender-bonsai-poc/out/ifc-multiroom-view-full.validation.json \
+  --json-output blender-bonsai-poc/out/ifc-multiroom-geometry-comparison.json \
+  --markdown-output blender-bonsai-poc/out/ifc-multiroom-geometry-comparison.md
+```
+
+Karşılaştırma shape/category coverage, slab footprint, overall/category bbox volume, wall mesh surface area ve host-wall net mesh volume kontrollerini üretir. Mevcut multi-room raporu `needs-review`: slab ve wall bbox hacimleri deterministic takeoff ile birebir, wall mesh surface area farkı yalnızca `0.00568%`; fakat door/window/furniture geometry bbox hacimleri neredeyse sıfır geliyor ve host wall mesh volume hâlâ opening sonrası net hacim yerine gross wall volume'a yakın kalıyor.
 
 ## Read-only edit proposals
 
@@ -149,6 +162,17 @@ blender --python blender-bonsai-poc/blender_scripts/visualize_proposals.py -- \
 ```
 
 Visualizer IFC'yi Bonsai ile yükler, proposal listesini `Edit Proposals` text datablock'una yazar ve ilgili IFC class'larını severity renkleriyle tint eder. Bu da sadece görselleştirmedir; IFC kaydetmez veya değiştirmez.
+
+Interactive session viewer için yeni native Bonsai yolu:
+
+```bash
+python3 blender-bonsai-poc/scripts/run_bonsai_session.py \
+  --session blender-bonsai-poc/samples/sessions/ifc-geometry-proposals.session.json
+```
+
+Session viewer IFC'yi `bpy.ops.bim.load_project` ile Bonsai içinde açar, orijinal IFC objelerine dokunmadan `OpenClaw Proposal Highlight Overlay` koleksiyonunda ayrı highlight meshleri üretir ve açık Blender UI içinde session/proposal JSON değişikliklerini varsayılan olarak saniyede bir hot-reload eder. Tek seferlik smoke için `--once` kullanılabilir.
+
+Örnek session tracked demo proposal dosyasını kullanır; gerçek proposal akışı için `--proposals blender-bonsai-poc/out/edit_proposals.json` ile override edilebilir.
 
 ## Request/response executor demo
 
@@ -186,4 +210,6 @@ Not: örnek request dosyaları `options.reuseExistingArtifactsIfPresent=true` il
 - Multi-room/multi-storey sahne çeşitlendirmesi executor action olarak eklendi: `ifc-multiroom-demo`.
 - IfcOpenShell geometry engine + Blender mesh render üzerinden dış doğrulama hattı eklendi: `validate_ifc_geometry_view.py`.
 - Read-only edit proposal hattı eklendi: review/checklist/model-report artifact'larından uygulanmamış proposal seti üretiliyor ve Blender içinde proposal text + severity tint olarak görselleştiriliyor.
-- Sonraki adım: Bonsai/BlenderBIM UI içinde manuel görsel kontrol ve ardından geometry-derived quantity karşılaştırması.
+- Native Bonsai session loader eklendi: ayrı highlight overlay koleksiyonu ve session/proposal JSON hot-reload ile manuel görsel kontrol yolu artık doğrudan Blender UI içinde çalışıyor.
+- Geometry-derived quantity karşılaştırması eklendi: full-model validator artık mesh/bbox miktarları çıkarıyor, compare script'i deterministic takeoff'a karşı sayısal `ok` / `needs-review` kapısı üretiyor.
+- Sonraki adım: door/window/furniture representation ölçeklerini düzeltmek ve host-wall boolean cut'ların mesh hacmine net opening subtraction olarak yansımasını sağlamak.

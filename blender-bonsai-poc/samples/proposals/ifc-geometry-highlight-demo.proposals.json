@@ -1,0 +1,35 @@
+{
+  "kind": "cad-bim-edit-proposal-set",
+  "contractVersion": "0.1.0",
+  "mode": "proposal-only",
+  "readOnly": true,
+  "appliedAny": false,
+  "sourceModelReport": "../reports/ifc-geometry-demo.model-report.json",
+  "modelStatus": "demo-highlight",
+  "requestId": "ifc-geometry-proposals-demo",
+  "summary": {
+    "proposalCount": 1,
+    "bySeverity": {
+      "medium": 1
+    },
+    "byCategory": {
+      "geometry": 1
+    }
+  },
+  "proposals": [
+    {
+      "id": "demo-highlight-slab",
+      "category": "geometry",
+      "target": "IfcSlab",
+      "operation": "inspect-element",
+      "field": "Representation.Body",
+      "currentValue": "real-ifc-shape-representations",
+      "proposedValue": "Review slab body and placement in Bonsai before enabling write actions.",
+      "rationale": "Demo proposal used to prove the read-only overlay path against a known IFC class.",
+      "source": "samples.proposals.ifc-geometry-highlight-demo",
+      "severity": "medium",
+      "requiresWrite": false,
+      "applied": false
+    }
+  ]
+}

@@ -83,6 +83,78 @@ def make_mesh_object(entity, shape, mat):
     return obj, len(verts), len(faces)
 
 
+def round6(value):
+    return round(float(value), 6)
+
+
+def empty_bbox():
+    return {
+        "min": {"x": float("inf"), "y": float("inf"), "z": float("inf")},
+        "max": {"x": float("-inf"), "y": float("-inf"), "z": float("-inf")},
+    }
+
+
+def add_to_bbox(bbox, point):
+    for axis, value in zip(("x", "y", "z"), point):
+        bbox["min"][axis] = min(bbox["min"][axis], value)
+        bbox["max"][axis] = max(bbox["max"][axis], value)
+
+
+def finalize_bbox(bbox):
+    return {
+        "min": {axis: round6(value) for axis, value in bbox["min"].items()},
+        "max": {axis: round6(value) for axis, value in bbox["max"].items()},
+        "size": {
+            axis: round6(bbox["max"][axis] - bbox["min"][axis])
+            for axis in ("x", "y", "z")
+        },
+    }
+
+
+def bbox_quantities(bbox):
+    size = bbox["size"]
+    return {
+        "bboxVolumeM3": round6(size["x"] * size["y"] * size["z"]),
+        "bboxFootprintAreaM2": round6(size["x"] * size["y"]),
+    }
+
+
+def mesh_surface_area(verts, faces):
+    total = 0.0
+    for face in faces:
+        a = Vector(verts[face[0]])
+        b = Vector(verts[face[1]])
+        c = Vector(verts[face[2]])
+        total += 0.5 * (b - a).cross(c - a).length
+    return round6(total)
+
+
+def mesh_signed_volume(verts, faces):
+    total = 0.0
+    for face in faces:
+        a = Vector(verts[face[0]])
+        b = Vector(verts[face[1]])
+        c = Vector(verts[face[2]])
+        total += a.dot(b.cross(c)) / 6.0
+    return round6(abs(total))
+
+
+def mesh_metrics(shape):
+    geom = shape.geometry
+    verts = [(geom.verts[i], geom.verts[i + 1], geom.verts[i + 2]) for i in range(0, len(geom.verts), 3)]
+    faces = [(geom.faces[i], geom.faces[i + 1], geom.faces[i + 2]) for i in range(0, len(geom.faces), 3)]
+    bbox = empty_bbox()
+    for point in verts:
+        add_to_bbox(bbox, point)
+    finalized_bbox = finalize_bbox(bbox)
+    return {
+        "bboxM": finalized_bbox,
+        **bbox_quantities(finalized_bbox),
+        "meshSurfaceAreaM2": mesh_surface_area(verts, faces),
+        "meshVolumeM3": mesh_signed_volume(verts, faces),
+    }
+
+
 def look_at(obj, target):
     direction = Vector(target) - obj.location
     obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
@@ -168,8 +240,16 @@ def main():
 
     created = []
     failures = []
-    totals = {"vertices": 0, "triangles": 0}
+    totals = {
+        "vertices": 0,
+        "triangles": 0,
+        "bboxVolumeM3": 0.0,
+        "bboxFootprintAreaM2": 0.0,
+        "meshSurfaceAreaM2": 0.0,
+        "meshVolumeM3": 0.0,
+    }
     by_category = {}
+    quantity_by_category = {}
     created_index = 0
     for ifc_class in PRODUCT_CLASSES:
         for entity in model.by_type(ifc_class):
@@ -182,6 +262,7 @@ def main():
                 continue
             try:
                 shape = ifcopenshell.geom.create_shape(settings, entity)
+                metrics = mesh_metrics(shape)
                 obj, vertex_count, triangle_count = make_mesh_object(entity, shape, mats.get(category, mats["wall"]))
                 if args.explode:
                     obj.location.x += (created_index % 3) * 4.2
@@ -196,11 +277,25 @@ def main():
                         "hostedOpeningCount": hosted_opening_count(entity),
                         "vertices": vertex_count,
                         "triangles": triangle_count,
+                        **metrics,
                     }
                 )
                 totals["vertices"] += vertex_count
                 totals["triangles"] += triangle_count
+                for key in ("bboxVolumeM3", "bboxFootprintAreaM2", "meshSurfaceAreaM2", "meshVolumeM3"):
+                    totals[key] += metrics[key]
                 by_category[category] = by_category.get(category, 0) + 1
+                category_totals = quantity_by_category.setdefault(
+                    category,
+                    {
+                        "bboxVolumeM3": 0.0,
+                        "bboxFootprintAreaM2": 0.0,
+                        "meshSurfaceAreaM2": 0.0,
+                        "meshVolumeM3": 0.0,
+                    },
+                )
+                for key in category_totals:
+                    category_totals[key] += metrics[key]
             except Exception as exc:
                 failures.append(
                     {
@@ -226,7 +321,14 @@ def main():
         "shapeCreatedCount": len(created),
         "shapeFailureCount": len(failures),
         "byCategory": dict(sorted(by_category.items())),
-        "totals": totals,
+        "quantityByCategory": {
+            category: {key: round6(value) for key, value in values.items()}
+            for category, values in sorted(quantity_by_category.items())
+        },
+        "totals": {
+            key: round6(value) if isinstance(value, float) else value
+            for key, value in totals.items()
+        },
         "failures": failures,
         "created": sorted(created, key=lambda item: (item["category"], item["name"])),
     }

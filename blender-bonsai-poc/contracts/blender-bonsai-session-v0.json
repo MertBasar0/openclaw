@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw.local/contracts/blender-bonsai-session-v0.json",
+  "title": "Blender Bonsai visual session v0",
+  "type": "object",
+  "required": ["kind", "contractVersion", "sessionId", "ifcPath", "proposalsPath"],
+  "properties": {
+    "kind": { "const": "blender-bonsai-session" },
+    "contractVersion": { "const": "0.1.0" },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "ifcPath": { "type": "string", "minLength": 1 },
+    "proposalsPath": { "type": "string", "minLength": 1 },
+    "refreshIntervalSeconds": { "type": "number", "minimum": 0.25 },
+    "overlay": {
+      "type": "object",
+      "properties": {
+        "collectionName": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

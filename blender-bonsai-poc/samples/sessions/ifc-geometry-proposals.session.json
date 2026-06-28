@@ -1,0 +1,11 @@
+{
+  "kind": "blender-bonsai-session",
+  "contractVersion": "0.1.0",
+  "sessionId": "ifc-geometry-proposals-demo",
+  "ifcPath": "../../out/request_ifc_geometry_demo.ifc",
+  "proposalsPath": "../proposals/ifc-geometry-highlight-demo.proposals.json",
+  "refreshIntervalSeconds": 1.0,
+  "overlay": {
+    "collectionName": "OpenClaw Proposal Highlight Overlay"
+  }
+}
