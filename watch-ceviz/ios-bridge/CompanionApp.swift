@@ -1036,7 +1036,7 @@ struct NextActionsCard: View {
         }
 
         if target.hasPrefix("/") {
-            return URL(string: "http://127.0.0.1:8080\(target)")
+            return BackendConfig.url(target)
         }
 
         return URL(string: target)
@@ -1209,11 +1209,7 @@ struct JobDetailView: View {
     }
     
     private func fetchReport() {
-        guard let url = URL(string: "http://172.17.169.202:8080/api/v1/jobs/\(jobId)/report") else {
-            self.errorMessage = "Invalid URL"
-            self.isLoading = false
-            return
-        }
+        let url = BackendConfig.url("/api/v1/jobs/\(jobId)/report")
         
         URLSession.shared.dataTask(with: url) { data, response, error in
             DispatchQueue.main.async {
