@@ -23,11 +23,13 @@ struct ContentView: View {
                 }
                 .padding(.horizontal)
 
-                Text(sessionManager.responseText)
-                    .font(.footnote)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                    .frame(maxHeight: 60)
+                ScrollView {
+                    Text(sessionManager.responseText)
+                        .font(.footnote)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxHeight: 60)
                 
                 if sessionManager.handoffUrl != nil {
                     HandoffOpenPanel(
@@ -95,7 +97,7 @@ struct ContentView: View {
         if let base64Audio = recorder.stopRecording() {
             sessionManager.sendAudioCommand(audioBase64: base64Audio)
         } else {
-            sessionManager.responseText = "Failed to capture audio"
+            sessionManager.responseText = recorder.lastError ?? "Failed to capture audio"
         }
     }
 }

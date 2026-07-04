@@ -4,17 +4,28 @@ import AVFoundation
 class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate {
     var audioRecorder: AVAudioRecorder?
     var recordingURL: URL?
+    @Published var lastError: String?
 
     func startRecording() {
+        lastError = nil
         let session = AVAudioSession.sharedInstance()
-        session.requestRecordPermission { granted in
-            guard granted else {
-                print("Microphone permission denied")
-                return
+        switch session.recordPermission {
+        case .granted:
+            beginRecording(session: session)
+        case .denied:
+            lastError = "Mikrofon izni reddedilmiş. Watch ayarlarından izin ver."
+        case .undetermined:
+            session.requestRecordPermission { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        self.beginRecording(session: session)
+                    } else {
+                        self.lastError = "Mikrofon izni verilmedi."
+                    }
+                }
             }
-            DispatchQueue.main.async {
-                self.beginRecording(session: session)
-            }
+        @unknown default:
+            lastError = "Bilinmeyen mikrofon izin durumu."
         }
     }
 
@@ -25,33 +36,47 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
 
             let tempDir = FileManager.default.temporaryDirectory
             recordingURL = tempDir.appendingPathComponent("command.m4a")
-            
+
             let settings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
                 AVSampleRateKey: 16000,
                 AVNumberOfChannelsKey: 1,
                 AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
             ]
-            
+
             if let url = recordingURL {
-                audioRecorder = try AVAudioRecorder(url: url, settings: settings)
-                audioRecorder?.delegate = self
-                audioRecorder?.record()
+                let recorder = try AVAudioRecorder(url: url, settings: settings)
+                recorder.delegate = self
+                if recorder.record() {
+                    audioRecorder = recorder
+                } else {
+                    lastError = "Kayıt başlatılamadı (recorder.record() false döndü)."
+                }
             }
         } catch {
-            print("Failed to setup recording: \(error)")
+            lastError = "Kayıt kurulumu başarısız: \(error.localizedDescription)"
         }
     }
 
     func stopRecording() -> String? {
-        audioRecorder?.stop()
-        audioRecorder = nil
-        
-        guard let url = recordingURL,
-              let data = try? Data(contentsOf: url) else {
+        guard let recorder = audioRecorder else {
+            if lastError == nil {
+                lastError = "Kayıt hiç başlamamıştı (izin diyaloğu sırasında durdurulmuş olabilir). Tekrar dene."
+            }
             return nil
         }
-        
+        recorder.stop()
+        audioRecorder = nil
+
+        guard let url = recordingURL,
+              let data = try? Data(contentsOf: url),
+              !data.isEmpty else {
+            if lastError == nil {
+                lastError = "Ses dosyası boş ya da okunamadı."
+            }
+            return nil
+        }
+
         return data.base64EncodedString()
     }
 }
