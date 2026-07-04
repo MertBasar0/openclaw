@@ -7,10 +7,22 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
 
     func startRecording() {
         let session = AVAudioSession.sharedInstance()
+        session.requestRecordPermission { granted in
+            guard granted else {
+                print("Microphone permission denied")
+                return
+            }
+            DispatchQueue.main.async {
+                self.beginRecording(session: session)
+            }
+        }
+    }
+
+    private func beginRecording(session: AVAudioSession) {
         do {
             try session.setCategory(.playAndRecord, mode: .default)
             try session.setActive(true)
-            
+
             let tempDir = FileManager.default.temporaryDirectory
             recordingURL = tempDir.appendingPathComponent("command.m4a")
             

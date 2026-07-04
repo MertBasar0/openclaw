@@ -30,6 +30,7 @@ targets:
         PRODUCT_NAME: CevizBridge
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Ceviz, sesli komutlarını kaydetmek için mikrofonu kullanır.
         CODE_SIGNING_ALLOWED: "YES"
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_CFBundleDisplayName: Ceviz
