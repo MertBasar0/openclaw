@@ -1,4 +1,5 @@
 import SwiftUI
+import WatchKit
 
 struct ContentView: View {
     @StateObject private var sessionManager = WatchSessionManager()
@@ -6,6 +7,8 @@ struct ContentView: View {
     @StateObject private var player = AudioPlayerManager()
     
     @State private var isRecording = false
+    @State private var recordingSeconds = 0
+    @State private var recordingTimer: Timer?
     
     var body: some View {
         TabView {
@@ -60,7 +63,13 @@ struct ContentView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .background(Circle().fill(isRecording ? Color.red.opacity(0.3) : Color.blue.opacity(0.3)))
-                
+
+                if isRecording {
+                    Text("● Kayıt \(recordingSeconds) sn")
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                }
+
                 Spacer()
                 
                 if !sessionManager.isReachable {
@@ -89,11 +98,22 @@ struct ContentView: View {
     
     private func start() {
         isRecording = true
+        // Bilek indiginde watchOS uygulamayi askiya alip kaydi ~1 sn'de
+        // kesiyor; kayit boyunca extended runtime ile uyanik tut.
+        sessionManager.startExtendedSession()
+        WKInterfaceDevice.current().play(.start)
         recorder.startRecording()
+        recordingSeconds = 0
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            recordingSeconds += 1
+        }
     }
-    
+
     private func stop() {
         isRecording = false
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        WKInterfaceDevice.current().play(.stop)
         if let base64Audio = recorder.stopRecording() {
             sessionManager.sendAudioCommand(audioBase64: base64Audio)
         } else {

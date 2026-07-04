@@ -1101,6 +1101,7 @@ struct JobDetailView: View {
     }
     
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 16) {
             if let details = continuationDetailsForCard {
                 ReportContinuationCard(
@@ -1124,11 +1125,13 @@ struct JobDetailView: View {
 
             if isLoading {
                 ProgressView("Fetching report for \(jobId)...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 48)
             } else if let error = errorMessage {
                 Text("Error: \(error)")
                     .foregroundColor(.red)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 48)
             } else if let report = report {
                 VStack(alignment: .leading, spacing: 6) {
                     if bridgeSummaryText != nil {
@@ -1156,7 +1159,6 @@ struct JobDetailView: View {
 
                 Divider()
 
-                ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         ReportMetaHeaderCard(report: report)
 
@@ -1183,11 +1185,12 @@ struct JobDetailView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                }
             }
-            Spacer()
         }
         .padding()
+        }
+        .background(Color(.systemGroupedBackground))
+        .toolbarBackground(.visible, for: .navigationBar)
         .navigationTitle("Job Report")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
