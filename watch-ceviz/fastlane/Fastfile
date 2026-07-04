@@ -41,7 +41,36 @@ def archive_xcargs(build_number)
   ].join(" ")
 end
 
+# CI her kosuda gecici keychain'e yeni bir "Created via API" dev sertifikasi
+# uretir (private key runner ile yok olur); birikince Apple sertifika limitine
+# takilip build "choose a certificate to revoke" ile duser. Build oncesi bu
+# cop sertifikalari temizle. DISTRIBUTION ve gercek (IOS_DEVELOPMENT)
+# sertifikalara asla dokunma.
+def prune_disposable_dev_certs
+  Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    filepath: File.expand_path(ENV["ASC_KEY_PATH"])
+  )
+  prunable = Spaceship::ConnectAPI::Certificate.all.select do |c|
+    type = (c.certificate_type.to_s rescue "")
+    name = (c.display_name.to_s rescue "")
+    type.include?("DEVELOPMENT") && !type.include?("IOS_DEVELOPMENT") && name == "Created via API"
+  end
+  prunable.each do |c|
+    begin
+      c.delete!
+      UI.success("Revoked disposable dev cert #{c.id}")
+    rescue => e
+      UI.important("revoke #{c.id} failed: #{e.class} #{e.message}")
+    end
+  end
+rescue => e
+  UI.important("cert prune skipped: #{e.class} #{e.message}")
+end
+
 def build_ceviz(api_key, method)
+  prune_disposable_dev_certs
   profiles = provision(api_key)
   build_number = Time.now.to_i.to_s # benzersiz, artan build numarasi
   UI.message("Build number: #{build_number}")
