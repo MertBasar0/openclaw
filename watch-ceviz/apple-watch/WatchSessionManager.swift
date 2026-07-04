@@ -23,6 +23,8 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     @Published var handoffPreview: HandoffPreview? = nil
 
     private var extendedSession: WKExtendedRuntimeSession?
+    private var resultPollTimer: Timer?
+    private var resultPollDeadline: Date?
 
     enum HandoffState: Equatable {
         case idle
@@ -229,39 +231,92 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
                 return
             }
 
-            let summary = reply["summary"] as? String ?? "Unknown response"
-            let requiresPhoneHandoff = reply["requires_phone_handoff"] as? Bool ?? false
-            let handoffUrl = reply["handoff_url"] as? String
-            let transcript = reply["transcript"] as? String
-            let phoneReport = reply["phone_report"] as? String
-            let reportMeta = self.reportMeta(from: reply["report_meta"])
-            let previewSections = self.previewSections(from: reply["preview_sections"])
-            let reportSections = self.reportSections(from: reply["report_sections"])
-
-            DispatchQueue.main.async {
-                self.responseText = summary
-                self.handoffUrl = requiresPhoneHandoff ? handoffUrl : nil
-                self.handoffJobId = requiresPhoneHandoff ? jobId : nil
-                self.handoffState = requiresPhoneHandoff && handoffUrl != nil ? .ready : .idle
-                self.handoffPreview = requiresPhoneHandoff && handoffUrl != nil
-                    ? HandoffPreview(
-                        transcript: transcript,
-                        summaryText: reportMeta?.watchSummary ?? summary,
-                        phoneReport: reportMeta?.phoneReport ?? phoneReport,
-                        category: reportMeta?.category,
-                        nextAction: reportMeta?.nextAction,
-                        retryCount: reportMeta?.retryCount ?? 0,
-                        failureCode: reportMeta?.failureCode,
-                        failureMessage: reportMeta?.failureMessage,
-                        reportSections: reportSections,
-                        previewSections: previewSections
-                    )
-                    : nil
-            }
+            let summary = self.applySummarizeReply(reply, jobId: jobId)
             completion(summary)
             self.fetchJobs()
         }, errorHandler: { error in
             completion(error.localizedDescription)
+        })
+    }
+
+    @discardableResult
+    private func applySummarizeReply(_ reply: [String: Any], jobId: String) -> String {
+        let summary = reply["summary"] as? String ?? "Unknown response"
+        let requiresPhoneHandoff = reply["requires_phone_handoff"] as? Bool ?? false
+        let handoffUrl = reply["handoff_url"] as? String
+        let transcript = reply["transcript"] as? String
+        let phoneReport = reply["phone_report"] as? String
+        let reportMeta = self.reportMeta(from: reply["report_meta"])
+        let previewSections = self.previewSections(from: reply["preview_sections"])
+        let reportSections = self.reportSections(from: reply["report_sections"])
+
+        DispatchQueue.main.async {
+            self.responseText = summary
+            self.handoffUrl = requiresPhoneHandoff ? handoffUrl : nil
+            self.handoffJobId = requiresPhoneHandoff ? jobId : nil
+            self.handoffState = requiresPhoneHandoff && handoffUrl != nil ? .ready : .idle
+            self.handoffPreview = requiresPhoneHandoff && handoffUrl != nil
+                ? HandoffPreview(
+                    transcript: transcript,
+                    summaryText: reportMeta?.watchSummary ?? summary,
+                    phoneReport: reportMeta?.phoneReport ?? phoneReport,
+                    category: reportMeta?.category,
+                    nextAction: reportMeta?.nextAction,
+                    retryCount: reportMeta?.retryCount ?? 0,
+                    failureCode: reportMeta?.failureCode,
+                    failureMessage: reportMeta?.failureMessage,
+                    reportSections: reportSections,
+                    previewSections: previewSections
+                )
+                : nil
+        }
+        return summary
+    }
+
+    // MARK: - Result polling (PTT sonrasi is tamamlanana kadar)
+
+    private func startResultPolling(jobId: String) {
+        stopResultPolling()
+        resultPollDeadline = Date().addingTimeInterval(180)
+        startExtendedSession()
+        resultPollTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
+            self?.pollJobResult(jobId: jobId)
+        }
+    }
+
+    private func stopResultPolling() {
+        resultPollTimer?.invalidate()
+        resultPollTimer = nil
+        resultPollDeadline = nil
+        stopExtendedSession()
+    }
+
+    private func pollJobResult(jobId: String) {
+        if let deadline = resultPollDeadline, Date() > deadline {
+            stopResultPolling()
+            DispatchQueue.main.async {
+                self.responseText += "\n(Sonuç hâlâ hazırlanıyor — Jobs sekmesinden kontrol edebilirsin.)"
+            }
+            return
+        }
+
+        guard WCSession.default.isReachable else { return }
+
+        WCSession.default.sendMessage(["action": "summarize_job", "job_id": jobId], replyHandler: { reply in
+            if reply["error"] is String { return }
+
+            let reportMeta = self.reportMeta(from: reply["report_meta"])
+            let jobStatus = reportMeta?.status ?? (reply["status"] as? String) ?? ""
+            guard jobStatus == "completed" || jobStatus == "failed" else { return }
+
+            DispatchQueue.main.async {
+                self.stopResultPolling()
+                WKInterfaceDevice.current().play(jobStatus == "completed" ? .success : .failure)
+            }
+            self.applySummarizeReply(reply, jobId: jobId)
+            self.fetchJobs()
+        }, errorHandler: { _ in
+            // Gecici baglanti hatasi: bir sonraki tikte tekrar denenecek.
         })
     }
 
@@ -362,6 +417,13 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
 
                 if let ttsBase64 = response.ttsAudioData, let format = response.ttsFormat {
                     self.audioPlayerManager?.play(base64Data: ttsBase64, format: format)
+                }
+
+                // Backend "processing" ack'i ile hemen döner; iş OpenClaw'da
+                // arkada tamamlanır ve sonucu kimse itmez. Tamamlanana kadar
+                // summarize üzerinden yokla ki özet ve handoff bileğe düşsün.
+                if response.status == "processing", let jobId = response.jobId {
+                    self.startResultPolling(jobId: jobId)
                 }
             }
         }, errorHandler: { error in
