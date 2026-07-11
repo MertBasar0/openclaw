@@ -19,6 +19,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     @Published var activeJobs: [ActiveJob] = []
     @Published var pendingCommands: [QueuedCommand] = []
     @Published var transportStatus: String = "Disconnected"
+    @Published var isProcessing = false
     @Published var handoffState: HandoffState = .idle
     @Published var handoffPreview: HandoffPreview? = nil
 
@@ -295,7 +296,8 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         if let deadline = resultPollDeadline, Date() > deadline {
             stopResultPolling()
             DispatchQueue.main.async {
-                self.responseText += "\n(Sonuç hâlâ hazırlanıyor — Jobs sekmesinden kontrol edebilirsin.)"
+                self.isProcessing = false
+                self.responseText += "\n(Sonuç hâlâ hazırlanıyor — İşler sekmesinden kontrol edebilirsin.)"
             }
             return
         }
@@ -311,6 +313,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
 
             DispatchQueue.main.async {
                 self.stopResultPolling()
+                self.isProcessing = false
                 WKInterfaceDevice.current().play(jobStatus == "completed" ? .success : .failure)
             }
             self.applySummarizeReply(reply, jobId: jobId)
@@ -375,6 +378,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
 
         DispatchQueue.main.async {
             self.responseText = "Sending..."
+            self.isProcessing = true
             self.handoffUrl = nil
             self.handoffJobId = nil
             self.handoffState = .idle
@@ -424,6 +428,8 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
                 // summarize üzerinden yokla ki özet ve handoff bileğe düşsün.
                 if response.status == "processing", let jobId = response.jobId {
                     self.startResultPolling(jobId: jobId)
+                } else {
+                    self.isProcessing = false
                 }
             }
         }, errorHandler: { error in
@@ -431,6 +437,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             self.stopExtendedSession()
             
             DispatchQueue.main.async {
+                self.isProcessing = false
                 self.handoffJobId = nil
                 self.handoffState = .idle
                 self.handoffPreview = nil

@@ -33,7 +33,16 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
     func sessionDidDeactivate(_ session: WCSession) {
         WCSession.default.activate()
     }
+    func sessionReachabilityDidChange(_ session: WCSession) {
+        DispatchQueue.main.async {
+            WatchLinkStatus.shared.isReachable = session.isReachable
+        }
+    }
+
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        DispatchQueue.main.async {
+            WatchLinkStatus.shared.isReachable = session.isReachable
+        }
         if let error = error {
             logger.error("WCSession activation failed: \(error.localizedDescription)")
         } else {

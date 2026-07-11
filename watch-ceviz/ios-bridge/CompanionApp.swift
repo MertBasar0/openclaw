@@ -266,8 +266,67 @@ struct CompanionApp: App {
 
 struct HomeView: View {
     @ObservedObject var router: AppRouter
+    @ObservedObject private var link = WatchLinkStatus.shared
 
     var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("CEVIZ")
+                    .font(CVZ.mono(12, .semibold))
+                    .tracking(1.5)
+                    .foregroundColor(CVZ.text)
+                Spacer()
+                Text(link.isReachable ? "▮ WATCH BAĞLI" : "▮ WATCH BAĞLI DEĞİL")
+                    .font(CVZ.mono(11, .semibold))
+                    .foregroundColor(link.isReachable ? CVZ.accent : CVZ.err)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+
+            Spacer()
+
+            if let pending = router.pendingContinuation {
+                CVZContinuationCard(
+                    metaText: pending.badgeText,
+                    title: pending.title,
+                    summary: pending.subtitle,
+                    buttonTitle: "DEVAM ET — RAPORU AÇ →",
+                    action: router.activatePendingRouteIfNeeded
+                )
+                .padding(.horizontal, 16)
+            } else if let last = router.lastContinuation {
+                CVZContinuationCard(
+                    metaText: "son devam",
+                    title: last.title,
+                    summary: last.subtitle,
+                    buttonTitle: "TEKRAR AÇ →",
+                    action: router.reopenLastContinuation
+                )
+                .padding(.horizontal, 16)
+            } else {
+                VStack(spacing: 14) {
+                    Image(systemName: "applewatch")
+                        .font(.system(size: 44, weight: .thin))
+                        .foregroundColor(Color(red: 0.18, green: 0.216, blue: 0.2))
+                    Text("WATCH BEKLENİYOR_")
+                        .font(CVZ.mono(11, .semibold))
+                        .foregroundColor(CVZ.textDim)
+                    Text("Saatten sesli komut verin; iş tamamlanınca devam kartı burada belirir.")
+                        .font(.system(size: 12.5))
+                        .foregroundColor(CVZ.textDim)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 230)
+                }
+            }
+
+            Spacer()
+        }
+        .background(CVZ.bg.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var legacyBody: some View {
         VStack(spacing: 20) {
             Image(systemName: "applewatch.side.right")
                 .resizable()
@@ -1100,7 +1159,146 @@ struct JobDetailView: View {
         return ReportBodySectionBuilder(report: report, watchSummary: bridgeSummaryText).sections
     }
     
+    @State private var toastMessage: String?
+
     var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 16) {
+                Text("CEVIZ://JOB/\(jobId.replacingOccurrences(of: "job-", with: "").uppercased())")
+                    .font(CVZ.mono(12))
+                    .foregroundColor(CVZ.textDim)
+                    .lineLimit(1)
+                Spacer()
+                Button(action: {
+                    isLoading = true
+                    fetchReport()
+                }) {
+                    Text("YENİLE ↺")
+                        .font(CVZ.mono(12, .semibold))
+                        .foregroundColor(CVZ.accent)
+                }
+                .buttonStyle(.plain)
+                Button(action: onClose) {
+                    Text("KAPAT ✕")
+                        .font(CVZ.mono(12, .semibold))
+                        .foregroundColor(CVZ.accent)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    sourceStrip
+
+                    if isLoading {
+                        ProgressView()
+                            .tint(CVZ.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 48)
+                    } else if let error = errorMessage {
+                        Text("✕ HATA: \(error)")
+                            .font(CVZ.mono(12))
+                            .foregroundColor(CVZ.err)
+                            .padding(.vertical, 24)
+                    } else if let report = report {
+                        titleBlock(report)
+
+                        if let watchSummary = bridgeSummaryText {
+                            CVZSectionView(eyebrow: "SAAT ÖZETİ", content: watchSummary, emphasized: true)
+                        }
+
+                        ForEach(reportBodySections) { section in
+                            CVZSectionView(eyebrow: section.title.uppercased(), content: section.content)
+                        }
+
+                        if let nextActions = report.nextActions, !nextActions.isEmpty {
+                            CVZActionsView(actions: nextActions, router: router) { message in
+                                showToast(message)
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(CVZ.bg.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .overlay(alignment: .bottom) {
+            if let toastMessage {
+                Text(toastMessage)
+                    .font(CVZ.mono(11))
+                    .foregroundColor(CVZ.accent)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(CVZ.panel, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(CVZ.accent.opacity(0.5), lineWidth: 1))
+                    .padding(.bottom, 24)
+                    .transition(.opacity)
+            }
+        }
+        .onAppear {
+            fetchReport()
+        }
+    }
+
+    private var sourceStrip: some View {
+        HStack(spacing: 8) {
+            Text("WATCH → IPHONE")
+                .font(CVZ.mono(9.5, .semibold))
+                .foregroundColor(CVZ.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(CVZ.accentBg, in: RoundedRectangle(cornerRadius: 4))
+            Text(activeContinuation?.source == .watch ? "sesli komut" : "rapor")
+                .font(CVZ.mono(10.5))
+                .foregroundColor(CVZ.textDim)
+            Spacer()
+        }
+        .padding(10)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(CVZ.line, lineWidth: 1))
+    }
+
+    private func titleBlock(_ report: JobReportResponse) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(report.reportTitle)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(CVZ.text)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 6) {
+                CVZStatusChip(status: report.reportMeta?.status ?? report.status, size: 10.5)
+                if let severity = report.reportMeta?.severity, !severity.isEmpty {
+                    CVZMetaChip(text: "ÖNEM:\(turkishSeverity(severity))")
+                }
+            }
+        }
+    }
+
+    private func turkishSeverity(_ severity: String) -> String {
+        switch severity.lowercased() {
+        case "low": return "DÜŞÜK"
+        case "medium", "med": return "ORTA"
+        case "high": return "YÜKSEK"
+        default: return severity.uppercased()
+        }
+    }
+
+    private func showToast(_ message: String) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                if toastMessage == message {
+                    toastMessage = nil
+                }
+            }
+        }
+    }
+
+    private var legacyBody: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 16) {
             if let details = continuationDetailsForCard {

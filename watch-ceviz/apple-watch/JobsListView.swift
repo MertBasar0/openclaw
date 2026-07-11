@@ -2,93 +2,60 @@ import SwiftUI
 
 struct JobsListView: View {
     @ObservedObject var sessionManager: WatchSessionManager
-    
+
     var body: some View {
-        List {
-            if sessionManager.activeJobs.isEmpty {
-                Text("No active jobs")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                    .padding()
-            } else {
-                ForEach(sessionManager.activeJobs) { job in
-                    NavigationLink(destination: JobDetailView(job: job, sessionManager: sessionManager)) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(job.name)
-                                .font(.headline)
-                                .lineLimit(2)
-                            
-                            HStack {
-                                statusIcon(for: job.status)
-                                Text(job.status.capitalized)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                Text("\(job.elapsedSeconds)s")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("İŞLER")
+                        .font(CVZ.mono(9.5, .semibold))
+                        .tracking(1)
+                        .foregroundColor(CVZ.accent)
+                    Spacer()
+                }
+                .padding(.bottom, 4)
 
-                            Text(job.summaryText)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(2)
-
-                            if job.continuationPreview != nil {
-                                JobContinuationBadge(preview: job.continuationPreview, compact: true)
-                            }
+                if sessionManager.activeJobs.isEmpty {
+                    Text("Aktif iş yok")
+                        .font(CVZ.mono(10.5))
+                        .foregroundColor(CVZ.textDim)
+                        .padding(.top, 12)
+                } else {
+                    ForEach(sessionManager.activeJobs) { job in
+                        NavigationLink(destination: JobDetailView(job: job, sessionManager: sessionManager)) {
+                            jobRow(job)
                         }
-                        .padding(.vertical, 4)
+                        .buttonStyle(.plain)
                     }
                 }
             }
+            .padding(.horizontal, 2)
         }
-        .navigationTitle("Jobs")
+        .background(CVZ.bg.ignoresSafeArea())
         .onAppear {
             sessionManager.fetchJobs()
         }
     }
-    
-    @ViewBuilder
-    private func statusIcon(for status: String) -> some View {
-        switch status {
-        case "running":
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .foregroundColor(.blue)
-        case "completed":
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
-        case "failed":
-            Image(systemName: "xmark.octagon.fill")
-                .foregroundColor(.red)
-        case "queued":
-            Image(systemName: "clock.fill")
-                .foregroundColor(.orange)
-        default:
-            Image(systemName: "questionmark.circle")
-                .foregroundColor(.gray)
-        }
-    }
-}
 
-struct JobContinuationBadge: View {
-    let preview: HandoffPreview?
-    var compact: Bool = false
+    private func jobRow(_ job: ActiveJob) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Rectangle().fill(CVZ.lineSoft).frame(height: 1)
 
-    var body: some View {
-        HandoffSectionContainer(title: "More on iPhone", systemImage: "iphone", compact: compact) {
-            if let firstSection = preview?.sectionSnippets.first {
-                HandoffSectionCard(section: firstSection, lineLimit: compact ? 1 : 2, compact: true)
-            } else {
-                HandoffMessageCard(
-                    eyebrow: "IPHONE",
-                    title: "Continuation ready",
-                    systemImage: "arrow.triangle.branch",
-                    message: "Open the full report on phone.",
-                    lineLimit: 2,
-                    compact: true
-                )
+            Text(job.name)
+                .font(CVZ.mono(11, .semibold))
+                .foregroundColor(CVZ.text)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+
+            HStack {
+                CVZStatusChip(status: job.status)
+                Spacer()
+                Text(String(format: "%02d:%02d", job.elapsedSeconds / 60, job.elapsedSeconds % 60))
+                    .font(CVZ.mono(9))
+                    .foregroundColor(CVZ.textDim)
             }
         }
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
     }
 }

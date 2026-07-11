@@ -91,34 +91,54 @@ struct HandoffOpenPanel: View {
     let action: () -> Void
 
     var body: some View {
-        HandoffSectionContainer(title: "Open on iPhone", systemImage: "iphone") {
+        VStack(spacing: 3) {
             Button(action: action) {
-                Label(buttonTitle, systemImage: "iphone")
+                HStack {
+                    Text("→ IPHONE'DA AÇ")
+                        .font(CVZ.mono(10.5, .semibold))
+                        .foregroundColor(CVZ.accent)
+                    Spacer()
+                    Text("rapor hazır")
+                        .font(CVZ.mono(9))
+                        .foregroundColor(CVZ.textDim)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 8)
+                .background(CVZ.accentBg, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(CVZ.accent, lineWidth: 1))
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
+            .buttonStyle(.plain)
             .disabled(!isReachable)
 
-            if !subtitle.isEmpty {
+            if !isReachable {
+                Text("iPhone erişilebilir olmalı")
+                    .font(CVZ.mono(9))
+                    .foregroundColor(CVZ.textDim)
+            } else if !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .font(CVZ.mono(9))
+                    .foregroundColor(CVZ.textDim)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+}
 
-            if showsExpandedPreview, let preview {
-                ForEach(preview.sectionSnippets.prefix(3)) { section in
-                    HandoffSectionCard(section: section)
-                }
-            } else if let firstSection = preview?.sectionSnippets.first {
-                HandoffSectionCard(section: firstSection, lineLimit: 2, compact: true)
+struct JobContinuationBadge: View {
+    let preview: HandoffPreview?
+    var compact: Bool = false
+
+    var body: some View {
+        HandoffSectionContainer(title: "iPhone'da devamı var", systemImage: "iphone", compact: compact) {
+            if let firstSection = preview?.sectionSnippets.first {
+                HandoffSectionCard(section: firstSection, lineLimit: compact ? 1 : 2, compact: true)
             } else {
                 HandoffMessageCard(
                     eyebrow: "IPHONE",
-                    title: "Full report",
-                    systemImage: "doc.text",
-                    message: "The phone opens the fuller report view.",
-                    lineLimit: 3,
+                    title: "Devam hazır",
+                    systemImage: "arrow.triangle.branch",
+                    message: "Tam raporu telefonda açın.",
+                    lineLimit: 2,
                     compact: true
                 )
             }
