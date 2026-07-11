@@ -6,6 +6,8 @@ struct ContentView: View {
     @StateObject private var recorder = AudioRecorderManager()
     @StateObject private var player = AudioPlayerManager()
 
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var isRecording = false
     @State private var recordingSeconds = 0
     @State private var recordingTimer: Timer?
@@ -35,6 +37,11 @@ struct ContentView: View {
         .background(CVZ.bg)
         .onAppear {
             sessionManager.audioPlayerManager = player
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                sessionManager.resumeResultPollingIfNeeded()
+            }
         }
     }
 

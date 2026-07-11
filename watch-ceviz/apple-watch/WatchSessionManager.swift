@@ -26,6 +26,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     private var extendedSession: WKExtendedRuntimeSession?
     private var resultPollTimer: Timer?
     private var resultPollDeadline: Date?
+    private var pollingJobId: String?
 
     enum HandoffState: Equatable {
         case idle
@@ -278,6 +279,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
 
     private func startResultPolling(jobId: String) {
         stopResultPolling()
+        pollingJobId = jobId
         resultPollDeadline = Date().addingTimeInterval(180)
         startExtendedSession()
         resultPollTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
@@ -289,7 +291,22 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         resultPollTimer?.invalidate()
         resultPollTimer = nil
         resultPollDeadline = nil
+        pollingJobId = nil
         stopExtendedSession()
+    }
+
+    /// watchOS bilek indiginde uygulamayi askiya alip poll timer'ini
+    /// oldurebiliyor; uygulama tekrar aktif olunca yarim kalan sonucu
+    /// hemen sor ve timer'i tazele.
+    func resumeResultPollingIfNeeded() {
+        guard isProcessing, let jobId = pollingJobId else { return }
+        if resultPollTimer == nil || !(resultPollTimer?.isValid ?? false) {
+            resultPollDeadline = Date().addingTimeInterval(120)
+            resultPollTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
+                self?.pollJobResult(jobId: jobId)
+            }
+        }
+        pollJobResult(jobId: jobId)
     }
 
     private func pollJobResult(jobId: String) {
