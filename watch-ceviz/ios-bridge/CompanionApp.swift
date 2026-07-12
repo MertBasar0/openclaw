@@ -267,10 +267,11 @@ struct CompanionApp: App {
 struct HomeView: View {
     @ObservedObject var router: AppRouter
     @ObservedObject private var link = WatchLinkStatus.shared
+    @State private var showSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 12) {
                 Text("CEVIZ")
                     .font(CVZ.mono(12, .semibold))
                     .tracking(1.5)
@@ -280,6 +281,12 @@ struct HomeView: View {
                     .font(CVZ.mono(11, .semibold))
                     .foregroundColor(link.isReachable ? CVZ.accent : CVZ.err)
                     .lineLimit(1)
+                Button(action: { showSettings = true }) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14))
+                        .foregroundColor(CVZ.textDim)
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
@@ -324,6 +331,9 @@ struct HomeView: View {
         }
         .background(CVZ.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
     }
 
     private var legacyBody: some View {
@@ -1410,9 +1420,9 @@ struct JobDetailView: View {
     }
     
     private func fetchReport() {
-        let url = BackendConfig.url("/api/v1/jobs/\(jobId)/report")
-        
-        URLSession.shared.dataTask(with: url) { data, response, error in
+        let reportRequest = BackendConfig.request("/api/v1/jobs/\(jobId)/report")
+
+        URLSession.shared.dataTask(with: reportRequest) { data, response, error in
             DispatchQueue.main.async {
                 self.isLoading = false
                 if let error = error {

@@ -11,6 +11,8 @@ Environment=WATCH_CEVIZ_STT_ENGINE=auto
 Environment=WATCH_CEVIZ_WHISPER_MODEL=small
 Environment=WATCH_CEVIZ_WHISPER_LANGUAGE=tr
 Environment=OPENCLAW_WATCH_AGENT=main
+# Uretimde zorunlu: openssl rand -hex 24 ile uret, telefonda Ayarlar ekranina gir
+Environment=WATCH_CEVIZ_AUTH_TOKEN=CHANGE_ME
 ExecStart=/home/mertb/.openclaw/ceviz-recovery/restored/watch-ceviz/.venv/bin/python /home/mertb/.openclaw/ceviz-recovery/restored/watch-ceviz/backend/main.py 8080
 Restart=on-failure
 RestartSec=5

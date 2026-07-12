@@ -9,7 +9,7 @@ import os
 class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCenterDelegate {
     static let shared = WatchBridgeCoordinator()
     private let logger = Logger(subsystem: "com.mertbasar.ceviz.ios", category: "WatchBridge")
-    private let backendURL = BackendConfig.url("/api/v1/watch/command")
+    private var backendURL: URL { BackendConfig.url("/api/v1/watch/command") }
     private let notificationCenter = UNUserNotificationCenter.current()
     private let handoffNotificationPrefix = "watch-ceviz.handoff."
     private let handoffNudgeDefaultsKey = "watch-ceviz.last-handoff-nudge"
@@ -110,6 +110,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
         let actionURL = BackendConfig.url("/api/v1/jobs/\(jobId)/\(actionPath)")
         var request = URLRequest(url: actionURL)
         request.httpMethod = "POST"
+        BackendConfig.applyAuth(&request)
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -146,6 +147,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
         let jobsURL = BackendConfig.url("/api/v1/jobs/active")
         var request = URLRequest(url: jobsURL)
         request.httpMethod = "GET"
+        BackendConfig.applyAuth(&request)
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
@@ -166,6 +168,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
         var urlRequest = URLRequest(url: backendURL)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        BackendConfig.applyAuth(&urlRequest)
         
         do {
             urlRequest.httpBody = try JSONEncoder().encode(request)

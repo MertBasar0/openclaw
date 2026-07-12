@@ -201,6 +201,7 @@ struct CVZActionsView: View {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        BackendConfig.applyAuth(&request)
 
         Task {
             do {

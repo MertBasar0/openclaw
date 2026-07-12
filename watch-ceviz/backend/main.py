@@ -1,5 +1,7 @@
+import hmac
 import json
 import logging
+import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import sys
@@ -8,6 +10,11 @@ from urllib.parse import parse_qs, urlparse
 import uuid
 
 logging.basicConfig(level=logging.INFO)
+
+# Bos birakilirsa auth kapali (gelistirme kolayligi). Uretimde systemd
+# unit'i WATCH_CEVIZ_AUTH_TOKEN ile calistirir; tum /api/* istekleri
+# "Authorization: Bearer <token>" ister.
+AUTH_TOKEN = os.environ.get("WATCH_CEVIZ_AUTH_TOKEN", "").strip()
 
 CONTRACTS_DIR = Path(__file__).resolve().parents[1] / "contracts"
 
@@ -785,9 +792,26 @@ def wait_for_job_completion(job: dict, timeout_seconds: float, poll_interval: fl
 
 
 class WatchCevizHandler(BaseHTTPRequestHandler):
+    def _authorized(self) -> bool:
+        if not AUTH_TOKEN:
+            return True
+        header = self.headers.get("Authorization", "")
+        return hmac.compare_digest(header, f"Bearer {AUTH_TOKEN}")
+
+    def _reject_unauthorized(self, path: str) -> bool:
+        if not path.startswith("/api/") or self._authorized():
+            return False
+        self.send_response(401)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"error": "Unauthorized"}')
+        return True
+
     def do_GET(self):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+        if self._reject_unauthorized(path):
+            return
         if path in {"/", "/shortcuts", "/api/v1/shortcuts/command"}:
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -949,6 +973,8 @@ Content-Type: application/json
         parsed_url = urlparse(self.path)
         path = parsed_url.path
         query = parse_qs(parsed_url.query)
+        if self._reject_unauthorized(path):
+            return
         if path.startswith("/api/v1/jobs/") and path.endswith("/cancel"):
             job_id = path.split("/")[4]
             job = jobs_db.get(job_id)
