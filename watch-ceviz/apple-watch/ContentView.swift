@@ -37,6 +37,7 @@ struct ContentView: View {
         .background(CVZ.bg)
         .onAppear {
             sessionManager.audioPlayerManager = player
+            sessionManager.resumeResultPollingIfNeeded()
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {

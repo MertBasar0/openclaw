@@ -27,6 +27,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     private var resultPollTimer: Timer?
     private var resultPollDeadline: Date?
     private var pollingJobId: String?
+    private static let pendingJobDefaultsKey = "cvz.pendingJobId"
 
     enum HandoffState: Equatable {
         case idle
@@ -280,6 +281,9 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     private func startResultPolling(jobId: String) {
         stopResultPolling()
         pollingJobId = jobId
+        // watchOS uygulamayi tamamen oldurebilir; bekleyen isi diske yaz ki
+        // yeniden acilista sonuc kurtarilabilsin.
+        UserDefaults.standard.set(jobId, forKey: Self.pendingJobDefaultsKey)
         resultPollDeadline = Date().addingTimeInterval(180)
         startExtendedSession()
         resultPollTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
@@ -296,10 +300,19 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     }
 
     /// watchOS bilek indiginde uygulamayi askiya alip poll timer'ini
-    /// oldurebiliyor; uygulama tekrar aktif olunca yarim kalan sonucu
-    /// hemen sor ve timer'i tazele.
+    /// oldurebiliyor, hatta uygulamayi tamamen sonlandirabiliyor.
+    /// Aktiflesince (soguk baslangic dahil) diske yazilmis bekleyen isi
+    /// hatirla, sonucu hemen sor ve timer'i tazele.
     func resumeResultPollingIfNeeded() {
-        guard isProcessing, let jobId = pollingJobId else { return }
+        let persisted = UserDefaults.standard.string(forKey: Self.pendingJobDefaultsKey)
+        guard let jobId = pollingJobId ?? persisted else { return }
+
+        if !isProcessing {
+            isProcessing = true
+            responseText = "İşleniyor… (bekleyen sonuç kontrol ediliyor)"
+        }
+        pollingJobId = jobId
+
         if resultPollTimer == nil || !(resultPollTimer?.isValid ?? false) {
             resultPollDeadline = Date().addingTimeInterval(120)
             resultPollTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
@@ -331,6 +344,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             DispatchQueue.main.async {
                 self.stopResultPolling()
                 self.isProcessing = false
+                UserDefaults.standard.removeObject(forKey: Self.pendingJobDefaultsKey)
                 WKInterfaceDevice.current().play(jobStatus == "completed" ? .success : .failure)
             }
             self.applySummarizeReply(reply, jobId: jobId)

@@ -267,7 +267,9 @@ struct CompanionApp: App {
 struct HomeView: View {
     @ObservedObject var router: AppRouter
     @ObservedObject private var link = WatchLinkStatus.shared
+    @Environment(\.scenePhase) private var homeScenePhase
     @State private var showSettings = false
+    @State private var recentJobs: [ActiveJob] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -291,49 +293,112 @@ struct HomeView: View {
             .padding(.horizontal, 16)
             .frame(height: 44)
 
-            Spacer()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let pending = router.pendingContinuation {
+                        CVZContinuationCard(
+                            metaText: pending.badgeText,
+                            title: pending.title,
+                            summary: pending.subtitle,
+                            buttonTitle: "DEVAM ET — RAPORU AÇ →",
+                            action: router.activatePendingRouteIfNeeded
+                        )
+                    } else if let last = router.lastContinuation {
+                        CVZContinuationCard(
+                            metaText: "son devam",
+                            title: last.title,
+                            summary: last.subtitle,
+                            buttonTitle: "TEKRAR AÇ →",
+                            action: router.reopenLastContinuation
+                        )
+                    } else {
+                        VStack(spacing: 14) {
+                            Image(systemName: "applewatch")
+                                .font(.system(size: 44, weight: .thin))
+                                .foregroundColor(Color(red: 0.18, green: 0.216, blue: 0.2))
+                            Text("WATCH BEKLENİYOR_")
+                                .font(CVZ.mono(11, .semibold))
+                                .foregroundColor(CVZ.textDim)
+                            Text("Saatten sesli komut verin; iş tamamlanınca devam kartı burada belirir.")
+                                .font(.system(size: 12.5))
+                                .foregroundColor(CVZ.textDim)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: 230)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 28)
+                    }
 
-            if let pending = router.pendingContinuation {
-                CVZContinuationCard(
-                    metaText: pending.badgeText,
-                    title: pending.title,
-                    summary: pending.subtitle,
-                    buttonTitle: "DEVAM ET — RAPORU AÇ →",
-                    action: router.activatePendingRouteIfNeeded
-                )
-                .padding(.horizontal, 16)
-            } else if let last = router.lastContinuation {
-                CVZContinuationCard(
-                    metaText: "son devam",
-                    title: last.title,
-                    summary: last.subtitle,
-                    buttonTitle: "TEKRAR AÇ →",
-                    action: router.reopenLastContinuation
-                )
-                .padding(.horizontal, 16)
-            } else {
-                VStack(spacing: 14) {
-                    Image(systemName: "applewatch")
-                        .font(.system(size: 44, weight: .thin))
-                        .foregroundColor(Color(red: 0.18, green: 0.216, blue: 0.2))
-                    Text("WATCH BEKLENİYOR_")
-                        .font(CVZ.mono(11, .semibold))
-                        .foregroundColor(CVZ.textDim)
-                    Text("Saatten sesli komut verin; iş tamamlanınca devam kartı burada belirir.")
-                        .font(.system(size: 12.5))
-                        .foregroundColor(CVZ.textDim)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 230)
+                    if !recentJobs.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Rectangle().fill(CVZ.line).frame(height: 1)
+                            Text("SON İŞLER")
+                                .font(CVZ.mono(10, .semibold))
+                                .tracking(1.4)
+                                .foregroundColor(CVZ.textDim)
+                                .padding(.top, 10)
+
+                            ForEach(recentJobs) { job in
+                                Button(action: { openJob(job) }) {
+                                    HStack(alignment: .top) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(job.name)
+                                                .font(CVZ.mono(12, .semibold))
+                                                .foregroundColor(CVZ.text)
+                                                .lineLimit(1)
+                                            Text(job.summaryText)
+                                                .font(.system(size: 12))
+                                                .foregroundColor(CVZ.textDim)
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                        Spacer()
+                                        CVZStatusChip(status: job.status)
+                                    }
+                                    .padding(10)
+                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(CVZ.line, lineWidth: 1))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
                 }
+                .padding(16)
             }
-
-            Spacer()
         }
         .background(CVZ.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
+        .onAppear {
+            fetchRecentJobs()
+        }
+        .onChange(of: homeScenePhase) { phase in
+            if phase == .active {
+                fetchRecentJobs()
+            }
+        }
+    }
+
+    private func openJob(_ job: ActiveJob) {
+        let link = job.deepLink ?? "ceviz://job/\(job.id)"
+        if let url = URL(string: link) {
+            _ = router.open(url: url, source: .deepLink, presentImmediately: true)
+        }
+    }
+
+    /// Saat ne durumda olursa olsun sonuc telefonda her zaman gorulebilsin:
+    /// Home, is listesini backend'den dogrudan ceker.
+    private func fetchRecentJobs() {
+        URLSession.shared.dataTask(with: BackendConfig.request("/api/v1/jobs/active")) { data, _, _ in
+            guard let data,
+                  let decoded = try? JSONDecoder().decode(ActiveJobsResponse.self, from: data) else { return }
+            DispatchQueue.main.async {
+                recentJobs = Array(decoded.jobs.suffix(4).reversed())
+            }
+        }.resume()
     }
 
     private var legacyBody: some View {
