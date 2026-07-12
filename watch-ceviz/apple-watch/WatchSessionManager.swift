@@ -27,6 +27,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     private var resultPollTimer: Timer?
     private var resultPollDeadline: Date?
     private var pollingJobId: String?
+    private var pollErrorCount = 0
     private static let pendingJobDefaultsKey = "cvz.pendingJobId"
 
     enum HandoffState: Equatable {
@@ -335,6 +336,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         guard WCSession.default.isReachable else { return }
 
         WCSession.default.sendMessage(["action": "summarize_job", "job_id": jobId], replyHandler: { reply in
+            DispatchQueue.main.async { self.pollErrorCount = 0 }
             if reply["error"] is String { return }
 
             let reportMeta = self.reportMeta(from: reply["report_meta"])
@@ -349,8 +351,15 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             }
             self.applySummarizeReply(reply, jobId: jobId)
             self.fetchJobs()
-        }, errorHandler: { _ in
-            // Gecici baglanti hatasi: bir sonraki tikte tekrar denenecek.
+        }, errorHandler: { error in
+            // Gecici baglanti hatasi olabilir; ama ust uste tekrarliyorsa
+            // kullaniciya goster — sessiz sonsuz bekleme en kotu durum.
+            DispatchQueue.main.async {
+                self.pollErrorCount += 1
+                if self.pollErrorCount >= 3 {
+                    self.responseText = "Sonuç aktarılamıyor: \(error.localizedDescription)"
+                }
+            }
         })
     }
 

@@ -33,6 +33,28 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
     func sessionDidDeactivate(_ session: WCSession) {
         WCSession.default.activate()
     }
+    /// WCSession reply sozlukleri yalnizca property-list tiplerini kabul
+    /// eder; backend JSON'undaki null'lar (NSNull) aktarimi sessizce
+    /// dusurur. Reply'a girecek her sozlugu ozyinelemeli temizle.
+    private func plistSafe(_ value: Any) -> Any? {
+        if value is NSNull { return nil }
+        if let dict = value as? [String: Any] {
+            var out: [String: Any] = [:]
+            for (key, inner) in dict {
+                if let safe = plistSafe(inner) { out[key] = safe }
+            }
+            return out
+        }
+        if let array = value as? [Any] {
+            return array.compactMap { plistSafe($0) }
+        }
+        return value
+    }
+
+    private func safeReply(_ dict: [String: Any]) -> [String: Any] {
+        (plistSafe(dict) as? [String: Any]) ?? dict
+    }
+
     func sessionReachabilityDidChange(_ session: WCSession) {
         DispatchQueue.main.async {
             WatchLinkStatus.shared.isReachable = session.isReachable
@@ -138,7 +160,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
                 self.scheduleHandoffNotificationIfNeeded(for: decodedResponse, jobId: jobId)
             }
 
-            replyHandler(resultObj)
+            replyHandler(self.safeReply(resultObj))
         }
         task.resume()
     }
@@ -159,7 +181,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
                 replyHandler(["error": "Failed to parse jobs response"])
                 return
             }
-            replyHandler(jobsObj)
+            replyHandler(self.safeReply(jobsObj))
         }
         task.resume()
     }
