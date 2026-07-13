@@ -101,6 +101,7 @@ struct CVZContinuationCard: View {
 // SONRAKI AKSIYONLAR — terminal aksiyon satirlari + toast geri bildirimi
 struct CVZActionsView: View {
     let actions: [NextActionPayload]
+    var jobId: String = ""
     @ObservedObject var router: AppRouter
     let onFeedback: (String) -> Void
 
@@ -198,8 +199,12 @@ struct CVZActionsView: View {
 
     private func sendSuggestionAsCommand(_ text: String) {
         var request = BackendConfig.request("/api/v1/shortcuts/command", method: "POST")
-        request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.httpBody = text.data(using: .utf8)
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        // continue_job_id: backend onceki isin baglamini prompt'a ekler;
+        // oneri metni tek basina anlamsiz kalmasin.
+        var body: [String: Any] = ["text": text]
+        if !jobId.isEmpty { body["continue_job_id"] = jobId }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         onFeedback("→ OpenClaw'a gönderiliyor…")
 
         Task {

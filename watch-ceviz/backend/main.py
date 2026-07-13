@@ -668,14 +668,44 @@ def sync_job_status(job: dict) -> None:
     )
 
 
+def build_continuation_context(prev_job: dict, *, approved_suggestion: bool) -> str:
+    prev_summary = trim_watch_text(prev_job.get("watch_summary") or prev_job.get("canned_result") or "", 220)
+    intro = (
+        "Kullanıcı, önceki işin raporundaki öneriyi UYGULAMANI ONAYLADI; transkript o önerinin metnidir."
+        if approved_suggestion
+        else "Bu komut, az önceki işin devamıdır."
+    )
+    return (
+        "BAĞLAM (devam eden konuşma):\n"
+        f"- Önceki komut: {trim_watch_text(prev_job.get('transcript') or prev_job.get('name') or '', 160)}\n"
+        f"- Önceki sonucun özeti: {prev_summary}\n"
+        f"- {intro} Bağlamı kullanarak istenen işlemi ŞİMDİ gerçekleştir; "
+        "tekrar teyit isteme, transkripti yeni bağımsız bir komut sanma."
+    )
+
+
 def create_openclaw_job(
     *,
     transcript: str,
     source: str,
     client_timestamp: str | None = None,
     stt_error: str = "",
+    continue_job: dict | None = None,
+    approved_suggestion: bool = False,
 ) -> dict:
     effective_transcript = transcript.strip()
+
+    # Konusma surekliligi: acik devam (oneri onayi) veya son isten 180 sn
+    # icinde gelen komut ayni konusmanin devami sayilir; onceki isin
+    # baglami prompt'a eklenir ki ajan ipin ucunu kaybetmesin.
+    conversation_id = uuid.uuid4().hex[:8]
+    if continue_job is None and jobs_db:
+        last_job = max(jobs_db.values(), key=lambda j: j["created_at"])
+        if time.time() - last_job["created_at"] < 180:
+            continue_job = last_job
+    if continue_job is not None:
+        conversation_id = continue_job.get("conversation_id", conversation_id)
+
     invocation_payload = {
         "audio_data": "",
         "format": source,
@@ -684,17 +714,12 @@ def create_openclaw_job(
         "_stt_source": source,
         "_stt_error": stt_error,
     }
+    if continue_job is not None:
+        invocation_payload["_continuation_context"] = build_continuation_context(
+            continue_job, approved_suggestion=approved_suggestion
+        )
     invocation = openclaw_client.invoke_watch_command(invocation_payload)
     new_job_id = f"job-{uuid.uuid4().hex[:8]}"
-
-    # Konusma surekliligi: son isten 180 sn icinde gelen komut ayni
-    # konusmanin devami sayilir (ana session zaten baglami tasiyor; bu
-    # alan UI'da thread gruplamasi icin).
-    conversation_id = uuid.uuid4().hex[:8]
-    if jobs_db:
-        last_job = max(jobs_db.values(), key=lambda j: j["created_at"])
-        if time.time() - last_job["created_at"] < 180:
-            conversation_id = last_job.get("conversation_id", conversation_id)
     initial_requires_phone_handoff = not bool(effective_transcript)
     summary_text = build_processing_summary(source, effective_transcript, stt_error)
     phone_report = (
@@ -1109,10 +1134,18 @@ Content-Type: application/json
                 }).encode("utf-8"))
                 return
 
+            continue_job = None
+            approved_suggestion = False
+            if isinstance(payload, dict):
+                continue_job = jobs_db.get(str(payload.get("continue_job_id") or ""))
+                approved_suggestion = continue_job is not None
+
             job = create_openclaw_job(
                 transcript=transcript,
                 source="shortcut",
                 client_timestamp=client_timestamp,
+                continue_job=continue_job,
+                approved_suggestion=approved_suggestion,
             )
             wait_for_job_completion(job, parse_wait_seconds(payload, query))
 

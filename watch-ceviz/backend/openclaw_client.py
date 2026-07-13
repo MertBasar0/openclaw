@@ -175,6 +175,8 @@ class OpenClawClient:
             if optional_transcript
             else "Transkript üretilemedi.\n"
         )
+        continuation = (payload.get("_continuation_context") or "").strip()
+        continuation_block = f"\n{continuation}\n" if continuation else ""
         stt_status_line = f"STT kaynağı: {stt_source}\n"
         stt_error_line = f"STT fallback nedeni: {stt_error}\n" if stt_error else ""
 
@@ -186,7 +188,8 @@ class OpenClawClient:
             f"Base64 ses yükü uzunluğu: {audio_size}\n"
             f"{stt_status_line}"
             f"{stt_error_line}"
-            f"{transcript_line}\n"
+            f"{transcript_line}"
+            f"{continuation_block}\n"
             "Lütfen Türkçe yanıt ver. Eğer gerçek transkript yoksa bunu açıkça söyle ve en güvenli bir sonraki adımı öner. "
             "Yanıtı iki blok halinde üret ve marker metinlerini aynen koru.\n"
             f"1) İlk blok tam olarak {self.REPORT_START} ile başlayıp {self.REPORT_END} ile bitsin. "

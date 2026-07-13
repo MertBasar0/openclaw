@@ -1289,7 +1289,7 @@ struct JobDetailView: View {
                         }
 
                         if let nextActions = report.nextActions, !nextActions.isEmpty {
-                            CVZActionsView(actions: nextActions, router: router) { message in
+                            CVZActionsView(actions: nextActions, jobId: jobId, router: router) { message in
                                 showToast(message)
                             }
                         }
