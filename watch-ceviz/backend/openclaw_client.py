@@ -108,6 +108,54 @@ class OpenClawClient:
             next_action=structured["next_action"] or self._extract_next_action(clean_text),
         )
 
+    def collect_background_activity(self, started_at: float, log_path: str) -> list[str]:
+        """Is sirasinda arkada ne oldu: kullanilan araclar + alt ajanlar.
+
+        Rapora "ALT AJANLAR & ARACLAR" bolumu olarak girer. Veri iki
+        kaynaktan: sonuc JSON'undaki toolSummary ve `openclaw sessions`
+        listesindeki, is penceresi icinde guncellenmis subagent session'lari.
+        """
+        lines: list[str] = []
+
+        try:
+            parsed = json.loads(Path(log_path).read_text(encoding="utf-8"))
+            summary = parsed.get("result", {}).get("meta", {}).get("toolSummary") or {}
+            tools = summary.get("tools") or []
+            if tools:
+                calls = summary.get("calls", 0)
+                failures = summary.get("failures", 0)
+                fail_note = f", {failures} hata" if failures else ""
+                lines.append(f"Araçlar: {', '.join(tools)} ({calls} çağrı{fail_note})")
+        except Exception:
+            pass
+
+        # `openclaw sessions` CLI'i spawn edilen oturumlari listelemiyor;
+        # dogrudan agent'in sessions.json indeksinden oku. Is penceresinde
+        # guncellenen, ana oturum ve kanal oturumlari disindaki her oturum
+        # arka plan calismasi sayilir.
+        try:
+            index_path = Path.home() / ".openclaw" / "agents" / self.agent / "sessions" / "sessions.json"
+            data = json.loads(index_path.read_text(encoding="utf-8"))
+            window_start_ms = (started_at - 5) * 1000
+            channel_markers = (
+                ":whatsapp:", ":telegram:", ":discord:", ":slack:", ":matrix:",
+                ":qqbot:", ":signal:", ":imessage:", ":sms:",
+            )
+            for key, info in (data.items() if isinstance(data, dict) else []):
+                if not isinstance(info, dict):
+                    continue
+                if key == f"agent:{self.agent}:main" or any(m in key for m in channel_markers):
+                    continue
+                updated = info.get("updatedAt") or info.get("lastActivity") or 0
+                if not isinstance(updated, (int, float)) or updated < window_start_ms:
+                    continue
+                title = info.get("displayName") or info.get("title") or info.get("label") or key.split(":")[-1]
+                lines.append(f"Alt ajan/oturum: {str(title)[:90]}")
+        except Exception:
+            pass
+
+        return lines
+
     def read_log_tail(self, log_path: str, max_chars: int = 1200) -> str:
         if not Path(log_path).exists():
             return ""

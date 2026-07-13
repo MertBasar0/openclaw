@@ -524,11 +524,21 @@ def build_common_sections(job: dict) -> list[dict[str, str]]:
 
 
 def build_report_sections(job: dict) -> list[dict[str, str]]:
-    return [
+    sections = [
         section
         for section in build_common_sections(job)
         if section["id"] != "category"
     ]
+    activity = job.get("background_activity") or []
+    if activity:
+        sections.append(build_section(
+            section_id="background-activity",
+            title="Alt Ajanlar & Araçlar",
+            eyebrow="AJANLAR",
+            icon="person.3",
+            content="\n".join(activity),
+        ))
+    return sections
 
 
 def build_preview_sections(job: dict) -> list[dict[str, str]]:
@@ -633,6 +643,12 @@ def sync_job_status(job: dict) -> None:
             job["requires_phone_handoff"] = result.requires_phone_handoff
             job["phone_report"] = result.phone_report
             job["next_action"] = result.next_action
+            try:
+                job["background_activity"] = openclaw_client.collect_background_activity(
+                    invocation["started_at"], invocation["log_path"]
+                )
+            except Exception:
+                job["background_activity"] = []
         except Exception as exc:
             logging.exception("Failed to parse OpenClaw result for job %s", job["id"])
             job["status"] = "failed"
@@ -670,6 +686,15 @@ def create_openclaw_job(
     }
     invocation = openclaw_client.invoke_watch_command(invocation_payload)
     new_job_id = f"job-{uuid.uuid4().hex[:8]}"
+
+    # Konusma surekliligi: son isten 180 sn icinde gelen komut ayni
+    # konusmanin devami sayilir (ana session zaten baglami tasiyor; bu
+    # alan UI'da thread gruplamasi icin).
+    conversation_id = uuid.uuid4().hex[:8]
+    if jobs_db:
+        last_job = max(jobs_db.values(), key=lambda j: j["created_at"])
+        if time.time() - last_job["created_at"] < 180:
+            conversation_id = last_job.get("conversation_id", conversation_id)
     initial_requires_phone_handoff = not bool(effective_transcript)
     summary_text = build_processing_summary(source, effective_transcript, stt_error)
     phone_report = (
@@ -680,6 +705,7 @@ def create_openclaw_job(
 
     job = {
         "id": new_job_id,
+        "conversation_id": conversation_id,
         "name": effective_transcript or client_timestamp or "Shortcut Command",
         "status": "running",
         "created_at": time.time(),
