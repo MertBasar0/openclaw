@@ -879,6 +879,7 @@ Content-Type: application/json
                 deep_link = build_handoff_deep_link(job["id"]) if derive_job_handoff(job) else None
                 active_jobs.append({
                     "id": job["id"],
+                    "conversation_id": job.get("conversation_id") or "",
                     "name": job["name"],
                     "status": job["status"],
                     "elapsed_seconds": job["elapsed_seconds"],

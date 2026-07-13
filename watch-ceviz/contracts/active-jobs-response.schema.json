@@ -6,20 +6,69 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "title": { "type": "string" },
-        "status": { "type": "string" },
-        "severity": { "type": "string" },
-        "category": { "type": "string" },
-        "watch_summary": { "type": "string" },
-        "requires_phone_handoff": { "type": "boolean" },
-        "handoff_reason": { "type": ["string", "null"] },
-        "phone_report": { "type": "string" },
-        "next_action": { "type": ["string", "null"] },
-        "retry_count": { "type": "integer" },
-        "failure_code": { "type": ["string", "null"] },
-        "failure_message": { "type": ["string", "null"] }
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "watch_summary": {
+          "type": "string"
+        },
+        "requires_phone_handoff": {
+          "type": "boolean"
+        },
+        "handoff_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "phone_report": {
+          "type": "string"
+        },
+        "next_action": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry_count": {
+          "type": "integer"
+        },
+        "failure_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "failure_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
-      "required": ["title", "status", "severity", "category", "watch_summary", "requires_phone_handoff", "handoff_reason", "phone_report", "next_action", "retry_count", "failure_code", "failure_message"]
+      "required": [
+        "title",
+        "status",
+        "severity",
+        "category",
+        "watch_summary",
+        "requires_phone_handoff",
+        "handoff_reason",
+        "phone_report",
+        "next_action",
+        "retry_count",
+        "failure_code",
+        "failure_message"
+      ]
     },
     "previewSection": {
       "type": "object",
@@ -27,25 +76,61 @@
       "properties": {
         "id": {
           "type": "string",
-          "enum": ["category", "watch-summary", "expanded-analysis", "suggested-next-action", "capture"]
+          "enum": [
+            "category",
+            "watch-summary",
+            "expanded-analysis",
+            "suggested-next-action",
+            "capture"
+          ]
         },
-        "title": { "type": "string" },
-        "eyebrow": { "type": "string" },
-        "icon": { "type": "string" },
-        "content": { "type": "string" }
+        "title": {
+          "type": "string"
+        },
+        "eyebrow": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        }
       },
-      "required": ["id", "title", "eyebrow", "icon", "content"]
+      "required": [
+        "id",
+        "title",
+        "eyebrow",
+        "icon",
+        "content"
+      ]
     },
     "nextActionItem": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string" },
-        "label": { "type": "string" },
-        "kind": { "type": "string" },
-        "target": { "type": ["string", "null"] }
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
-      "required": ["id", "label", "kind", "target"]
+      "required": [
+        "id",
+        "label",
+        "kind",
+        "target"
+      ]
     },
     "job": {
       "type": "object",
@@ -59,7 +144,12 @@
         },
         "status": {
           "type": "string",
-          "enum": ["running", "completed", "failed", "queued"]
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "queued"
+          ]
         },
         "elapsed_seconds": {
           "type": "integer"
@@ -84,14 +174,33 @@
         },
         "preview_sections": {
           "type": "array",
-          "items": { "$ref": "#/$defs/previewSection" }
+          "items": {
+            "$ref": "#/$defs/previewSection"
+          }
         },
         "next_actions": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nextActionItem" }
+          "items": {
+            "$ref": "#/$defs/nextActionItem"
+          }
+        },
+        "conversation_id": {
+          "type": "string"
         }
       },
-      "required": ["id", "name", "status", "elapsed_seconds", "summary_text", "requires_phone_handoff", "transcript", "phone_report", "report_meta", "preview_sections", "next_actions"]
+      "required": [
+        "id",
+        "name",
+        "status",
+        "elapsed_seconds",
+        "summary_text",
+        "requires_phone_handoff",
+        "transcript",
+        "phone_report",
+        "report_meta",
+        "preview_sections",
+        "next_actions"
+      ]
     }
   },
   "type": "object",
@@ -99,8 +208,12 @@
   "properties": {
     "jobs": {
       "type": "array",
-      "items": { "$ref": "#/$defs/job" }
+      "items": {
+        "$ref": "#/$defs/job"
+      }
     }
   },
-  "required": ["jobs"]
+  "required": [
+    "jobs"
+  ]
 }
