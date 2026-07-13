@@ -218,6 +218,10 @@ struct ContentView: View {
         recordingSeconds = 0
         recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             recordingSeconds += 1
+            // WCSession 65KB mesaj limiti: kayit uzarsa otomatik bitir.
+            if recordingSeconds >= 20 {
+                stop()
+            }
         }
     }
 

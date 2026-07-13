@@ -408,6 +408,17 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             return
         }
 
+        // WCSession sendMessageData limiti ~65KB; asarsak gonderim sessizce
+        // olur. Kullaniciya net soyle, kuyruga da alma.
+        if data.count > 60_000 {
+            DispatchQueue.main.async {
+                self.isProcessing = false
+                self.responseText = "Kayıt çok uzun (\(data.count / 1024)KB). ~15 saniyeden kısa konuş."
+                WKInterfaceDevice.current().play(.failure)
+            }
+            return
+        }
+
         if !WCSession.default.isReachable { 
             self.queueCommand(audioBase64: audioBase64) 
             return 

@@ -37,10 +37,13 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
             let tempDir = FileManager.default.temporaryDirectory
             recordingURL = tempDir.appendingPathComponent("command.m4a")
 
+            // Dusuk bitrate sart: WCSession mesaj limiti 65KB; 24kbps'de
+            // ~20 sn konusma base64 ile limitin altinda kalir.
             let settings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
                 AVSampleRateKey: 16000,
                 AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 24000,
                 AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
             ]
 

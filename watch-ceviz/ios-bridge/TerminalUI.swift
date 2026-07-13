@@ -104,6 +104,11 @@ struct CVZActionsView: View {
     @ObservedObject var router: AppRouter
     let onFeedback: (String) -> Void
 
+    // "Open on Phone" deeplink'i zaten telefonda acik olan raporda anlamsiz.
+    private var visibleActions: [NextActionPayload] {
+        actions.filter { $0.id != "open-on-phone" }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Rectangle().fill(CVZ.line).frame(height: 1)
@@ -113,15 +118,11 @@ struct CVZActionsView: View {
                 .foregroundColor(CVZ.textDim)
                 .padding(.top, 10)
 
-            ForEach(actions) { action in
-                if action.kind == "hint" {
+            ForEach(visibleActions) { action in
+                Button(action: { handleAction(action) }) {
                     actionRow(action)
-                } else {
-                    Button(action: { handleAction(action) }) {
-                        actionRow(action)
-                    }
-                    .buttonStyle(.plain)
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -187,8 +188,35 @@ struct CVZActionsView: View {
             }
         case "api_call":
             performApiCall(action)
+        case "hint":
+            // Oneri metni tiklanabilir: dogrudan OpenClaw'a yeni komut olarak gider.
+            sendSuggestionAsCommand(action.label)
         default:
             onFeedback("→ \(action.label)")
+        }
+    }
+
+    private func sendSuggestionAsCommand(_ text: String) {
+        var request = BackendConfig.request("/api/v1/shortcuts/command", method: "POST")
+        request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = text.data(using: .utf8)
+        onFeedback("→ OpenClaw'a gönderiliyor…")
+
+        Task {
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse,
+                      (200...299).contains(http.statusCode) else {
+                    throw URLError(.badServerResponse)
+                }
+                await MainActor.run {
+                    onFeedback("✓ Öneri iş olarak başlatıldı — SON İŞLER'de görünecek")
+                }
+            } catch {
+                await MainActor.run {
+                    onFeedback("✕ Gönderilemedi: \(error.localizedDescription)")
+                }
+            }
         }
     }
 
