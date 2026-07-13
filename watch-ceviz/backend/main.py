@@ -670,17 +670,21 @@ def sync_job_status(job: dict) -> None:
 
 def build_continuation_context(prev_job: dict, *, approved_suggestion: bool) -> str:
     prev_summary = trim_watch_text(prev_job.get("watch_summary") or prev_job.get("canned_result") or "", 220)
-    intro = (
-        "Kullanıcı, önceki işin raporundaki öneriyi UYGULAMANI ONAYLADI; transkript o önerinin metnidir."
-        if approved_suggestion
-        else "Bu komut, az önceki işin devamıdır."
-    )
+    if approved_suggestion:
+        directive = (
+            "Kullanıcı, önceki işin raporundaki öneriyi UYGULAMANI ONAYLADI; transkript o önerinin metnidir. "
+            "Bağlamı kullanarak istenen işlemi ŞİMDİ gerçekleştir; tekrar teyit isteme."
+        )
+    else:
+        directive = (
+            "Bu komut muhtemelen az önceki işin devamı. Yeni komut önceki bağlamla İLİŞKİLİYSE bağlamı kullan; "
+            "ilişkisizse bağımsız yeni komut olarak ele al. Transkript bozuksa işlem yapma, onay iste."
+        )
     return (
         "BAĞLAM (devam eden konuşma):\n"
         f"- Önceki komut: {trim_watch_text(prev_job.get('transcript') or prev_job.get('name') or '', 160)}\n"
         f"- Önceki sonucun özeti: {prev_summary}\n"
-        f"- {intro} Bağlamı kullanarak istenen işlemi ŞİMDİ gerçekleştir; "
-        "tekrar teyit isteme, transkripti yeni bağımsız bir komut sanma."
+        f"- {directive}"
     )
 
 
