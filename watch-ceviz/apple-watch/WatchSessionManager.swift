@@ -28,6 +28,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     private var resultPollDeadline: Date?
     private var pollingJobId: String?
     private var pollErrorCount = 0
+    private var sendGeneration = 0
     private static let pendingJobDefaultsKey = "cvz.pendingJobId"
 
     enum HandoffState: Equatable {
@@ -436,9 +437,27 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             self.handoffPreview = nil
         }
 
+        // WCSession bazen (ozellikle telefon uygulamasi elle kapatilmissa)
+        // ne cevap ne hata dondurur; gonderim onayina zaman asimi koy ki
+        // ekran sonsuza dek "yorumlaniyor"da kalmasin.
+        DispatchQueue.main.async {
+            self.sendGeneration += 1
+            let generation = self.sendGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                guard let self,
+                      self.sendGeneration == generation,
+                      self.isProcessing,
+                      self.pollingJobId == nil else { return }
+                self.isProcessing = false
+                self.queueCommand(audioBase64: audioBase64)
+                self.responseText = "Telefondan yanıt alınamadı; komut kuyruğa alındı. iPhone'da Ceviz'i açıp saatte tekrar dene."
+            }
+        }
+
         WCSession.default.sendMessageData(data, replyHandler: { replyData in
             // Stop extended session on success
             self.stopExtendedSession()
+            DispatchQueue.main.async { self.sendGeneration += 1 }
             
             guard let response = try? JSONDecoder().decode(WatchCommandResponse.self, from: replyData) else {
                 DispatchQueue.main.async {
@@ -488,6 +507,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             self.stopExtendedSession()
             
             DispatchQueue.main.async {
+                self.sendGeneration += 1
                 self.isProcessing = false
                 self.handoffJobId = nil
                 self.handoffState = .idle
