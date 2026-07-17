@@ -1343,7 +1343,18 @@ struct JobDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 6) {
-                CVZStatusChip(status: report.reportMeta?.status ?? report.status, size: 10.5)
+                // Kosu durumu ile SONUC durumu ayri: is yapilamadiysa
+                // [TAMAM] yerine gercegi soyleyen turuncu cip goster.
+                if let outcome = report.reportMeta?.outcome, outcome == "blocked" || outcome == "needs_input" {
+                    Text(outcome == "needs_input" ? "[GİRDİ BEKLİYOR]" : "[YAPILAMADI]")
+                        .font(CVZ.mono(10.5, .semibold))
+                        .foregroundColor(CVZ.warn)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(CVZ.warnBg, in: RoundedRectangle(cornerRadius: 4))
+                } else {
+                    CVZStatusChip(status: report.reportMeta?.status ?? report.status, size: 10.5)
+                }
                 if let severity = report.reportMeta?.severity, !severity.isEmpty {
                     CVZMetaChip(text: "ÖNEM:\(turkishSeverity(severity))")
                 }

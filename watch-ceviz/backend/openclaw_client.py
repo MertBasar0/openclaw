@@ -20,6 +20,8 @@ class TaskResult:
     requires_phone_handoff: bool
     phone_report: str
     next_action: str | None
+    outcome: str | None = None
+    next_action_actor: str | None = None
 
 
 @dataclass
@@ -106,6 +108,8 @@ class OpenClawClient:
             ),
             phone_report=self._build_phone_report(clean_text),
             next_action=structured["next_action"] or self._extract_next_action(clean_text),
+            outcome=structured.get("outcome"),
+            next_action_actor=structured.get("next_action_actor"),
         )
 
     def collect_background_activity(self, started_at: float, log_path: str) -> list[str]:
@@ -201,7 +205,10 @@ class OpenClawClient:
             "1. Kısa durum, 2. Ne anlaşıldı / sınırlama, 3. Önerilen sonraki adım.\n"
             f"2) İkinci blok tam olarak {self.META_START} ile başlayıp {self.META_END} ile bitsin. "
             "Bu blokta tek satır geçerli JSON nesnesi ver. Şema: "
-            '{"watch_summary":"...","next_action":"..."|null,"requires_phone_handoff":true,"category":"..."}. '
+            '{"watch_summary":"...","next_action":"..."|null,"next_action_actor":"agent"|"user","outcome":"done"|"blocked"|"needs_input","requires_phone_handoff":true,"category":"..."}. '
+            "outcome: istenen iş gerçekten yapıldıysa done, yapılamadıysa blocked, kullanıcıdan bilgi/onay gerekiyorsa needs_input. "
+            "next_action_actor: next_action'ı AJAN kendisi çalıştırabilecekse agent yaz ve next_action'ı komut kipinde üret; "
+            "yalnızca kullanıcının davranışı gerekiyorsa user yaz (bu tür öneriler kullanıcıya bilgi olarak gösterilir, ajana geri gönderilmez). "
             "watch_summary tek cümle ve 160 karakter altında olsun. next_action net, uygulanabilir tek adım olsun. "
             "JSON dışında meta bloğunda başka açıklama yazma."
         )
@@ -225,6 +232,8 @@ class OpenClawClient:
             "next_action": self._clean_optional_text(meta.get("next_action")),
             "category": self._clean_optional_text(meta.get("category")),
             "requires_phone_handoff": self._coerce_optional_bool(meta.get("requires_phone_handoff")),
+            "outcome": self._clean_optional_text(meta.get("outcome")),
+            "next_action_actor": self._clean_optional_text(meta.get("next_action_actor")),
         }
 
     def _extract_tagged_block(self, text: str, start_tag: str, end_tag: str) -> str | None:

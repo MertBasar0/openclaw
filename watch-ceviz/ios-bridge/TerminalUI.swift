@@ -104,6 +104,7 @@ struct CVZActionsView: View {
     var jobId: String = ""
     @ObservedObject var router: AppRouter
     let onFeedback: (String) -> Void
+    @State private var usedActionIds: Set<String> = []
 
     // "Open on Phone" deeplink'i zaten telefonda acik olan raporda anlamsiz.
     private var visibleActions: [NextActionPayload] {
@@ -120,16 +121,35 @@ struct CVZActionsView: View {
                 .padding(.top, 10)
 
             ForEach(visibleActions) { action in
-                Button(action: { handleAction(action) }) {
-                    actionRow(action)
+                if action.kind == "hint" {
+                    // Kullaniciya yonelik oneri: bilgi satiri, ajana gonderilemez.
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "lightbulb")
+                            .font(.system(size: 12))
+                            .foregroundColor(CVZ.textDim)
+                            .padding(.top, 2)
+                        Text(action.label)
+                            .font(.system(size: 13))
+                            .foregroundColor(CVZ.textSub)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(CVZ.line.opacity(0.5), lineWidth: 1))
+                } else {
+                    Button(action: { handleAction(action) }) {
+                        actionRow(action)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(usedActionIds.contains(action.id))
+                    .opacity(usedActionIds.contains(action.id) ? 0.35 : 1)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
 
     private func isPrimary(_ action: NextActionPayload) -> Bool {
-        action.kind == "api_call"
+        action.kind == "api_call" || action.kind == "agent_command"
     }
 
     private func actionRow(_ action: NextActionPayload) -> some View {
@@ -160,13 +180,19 @@ struct CVZActionsView: View {
         switch kind {
         case "deep_link", "deeplink", "open_url": return "arrow.up.right"
         case "copy": return "doc.on.doc"
-        case "api_call": return "bolt.fill"
+        case "api_call", "agent_command": return "bolt.fill"
         case "hint": return "lightbulb"
         default: return "arrow.forward"
         }
     }
 
     private func handleAction(_ action: NextActionPayload) {
+        // Gonderim tetikleyen aksiyonlar tek kullanimlik: ust uste basip
+        // ayni isi tekrar tekrar calistirmayi engelle.
+        if action.kind == "agent_command" || action.kind == "api_call" {
+            guard !usedActionIds.contains(action.id) else { return }
+            usedActionIds.insert(action.id)
+        }
         switch action.kind {
         case "deep_link", "deeplink":
             if let target = action.target, let url = URL(string: target) {
@@ -189,8 +215,8 @@ struct CVZActionsView: View {
             }
         case "api_call":
             performApiCall(action)
-        case "hint":
-            // Oneri metni tiklanabilir: dogrudan OpenClaw'a yeni komut olarak gider.
+        case "agent_command":
+            // Ajanin calistirabilecegi oneri: baglamla birlikte OpenClaw'a gider.
             sendSuggestionAsCommand(action.label)
         default:
             onFeedback("→ \(action.label)")

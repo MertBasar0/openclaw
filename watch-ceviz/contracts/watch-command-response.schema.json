@@ -8,31 +8,99 @@
       "additionalProperties": false,
       "description": "Structured report metadata that mirrors the watch/phone handoff fields so clients can avoid parsing the freeform report text.",
       "properties": {
-        "title": { "type": "string" },
-        "status": { "type": "string" },
-        "severity": { "type": "string" },
-        "category": { "type": "string" },
-        "watch_summary": { "type": "string" },
-        "requires_phone_handoff": { "type": "boolean" },
-        "handoff_reason": { "type": ["string", "null"] },
-        "phone_report": { "type": "string" },
-        "next_action": { "type": ["string", "null"] },
-        "retry_count": { "type": "integer" },
-        "failure_code": { "type": ["string", "null"] },
-        "failure_message": { "type": ["string", "null"] }
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "watch_summary": {
+          "type": "string"
+        },
+        "requires_phone_handoff": {
+          "type": "boolean"
+        },
+        "handoff_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "phone_report": {
+          "type": "string"
+        },
+        "next_action": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry_count": {
+          "type": "integer"
+        },
+        "failure_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "failure_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "type": "string"
+        }
       },
-      "required": ["title", "status", "severity", "category", "watch_summary", "requires_phone_handoff", "handoff_reason", "phone_report", "next_action", "retry_count", "failure_code", "failure_message"]
+      "required": [
+        "title",
+        "status",
+        "severity",
+        "category",
+        "watch_summary",
+        "requires_phone_handoff",
+        "handoff_reason",
+        "phone_report",
+        "next_action",
+        "retry_count",
+        "failure_code",
+        "failure_message"
+      ]
     },
     "nextActionItem": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string" },
-        "label": { "type": "string" },
-        "kind": { "type": "string" },
-        "target": { "type": ["string", "null"] }
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
-      "required": ["id", "label", "kind", "target"]
+      "required": [
+        "id",
+        "label",
+        "kind",
+        "target"
+      ]
     },
     "previewSection": {
       "type": "object",
@@ -40,14 +108,34 @@
       "properties": {
         "id": {
           "type": "string",
-          "enum": ["category", "watch-summary", "expanded-analysis", "suggested-next-action", "capture"]
+          "enum": [
+            "category",
+            "watch-summary",
+            "expanded-analysis",
+            "suggested-next-action",
+            "capture"
+          ]
         },
-        "title": { "type": "string" },
-        "eyebrow": { "type": "string" },
-        "icon": { "type": "string" },
-        "content": { "type": "string" }
+        "title": {
+          "type": "string"
+        },
+        "eyebrow": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        }
       },
-      "required": ["id", "title", "eyebrow", "icon", "content"]
+      "required": [
+        "id",
+        "title",
+        "eyebrow",
+        "icon",
+        "content"
+      ]
     }
   },
   "type": "object",
@@ -55,7 +143,11 @@
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["success", "error", "processing"],
+      "enum": [
+        "success",
+        "error",
+        "processing"
+      ],
       "description": "The processing status of the command."
     },
     "transcript": {
@@ -73,7 +165,10 @@
     },
     "tts_format": {
       "type": "string",
-      "enum": ["mp3", "aac"],
+      "enum": [
+        "mp3",
+        "aac"
+      ],
       "description": "The format of the TTS audio data."
     },
     "requires_phone_handoff": {
@@ -89,7 +184,10 @@
       "description": "Canonical deep-link URL for the companion iPhone app. Prefer this over handoff_url in new clients."
     },
     "handoff_reason": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Machine-friendly explanation for why the phone handoff is needed."
     },
     "job_id": {
@@ -106,13 +204,22 @@
     "preview_sections": {
       "type": "array",
       "description": "Thin structured preview sections for watch/iPhone continuation cards, aligned with report section semantics.",
-      "items": { "$ref": "#/$defs/previewSection" }
+      "items": {
+        "$ref": "#/$defs/previewSection"
+      }
     },
     "next_actions": {
       "type": "array",
-      "items": { "$ref": "#/$defs/nextActionItem" },
+      "items": {
+        "$ref": "#/$defs/nextActionItem"
+      },
       "description": "Structured next-action affordances for phone continuation surfaces."
     }
   },
-  "required": ["status", "transcript", "summary_text", "requires_phone_handoff"]
+  "required": [
+    "status",
+    "transcript",
+    "summary_text",
+    "requires_phone_handoff"
+  ]
 }

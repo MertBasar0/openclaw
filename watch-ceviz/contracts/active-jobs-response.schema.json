@@ -53,6 +53,9 @@
             "string",
             "null"
           ]
+        },
+        "outcome": {
+          "type": "string"
         }
       },
       "required": [

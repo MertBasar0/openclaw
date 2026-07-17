@@ -412,7 +412,7 @@ def build_next_actions(job: dict) -> list[dict[str, str | None]]:
         append_action({
             "id": "suggested-next-action",
             "label": trim_watch_text(next_action, max_len=80),
-            "kind": "hint",
+            "kind": "agent_command" if job.get("next_action_actor") == "agent" else "hint",
             "target": None,
         })
 
@@ -449,8 +449,11 @@ def build_section(*, section_id: str, title: str, eyebrow: str, icon: str, conte
 
 
 def build_structured_report_fields(job: dict) -> dict:
+    meta = build_report_meta(job)
+    if job.get("outcome"):
+        meta["outcome"] = job["outcome"]
     return {
-        "report_meta": build_report_meta(job),
+        "report_meta": meta,
         "preview_sections": build_preview_sections(job),
     }
 
@@ -643,6 +646,8 @@ def sync_job_status(job: dict) -> None:
             job["requires_phone_handoff"] = result.requires_phone_handoff
             job["phone_report"] = result.phone_report
             job["next_action"] = result.next_action
+            job["outcome"] = result.outcome
+            job["next_action_actor"] = result.next_action_actor
             try:
                 job["background_activity"] = openclaw_client.collect_background_activity(
                     invocation["started_at"], invocation["log_path"]

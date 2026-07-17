@@ -26,6 +26,7 @@ struct ReportMeta: Codable, Equatable {
     let retryCount: Int
     let failureCode: String?
     let failureMessage: String?
+    let outcome: String?
 
     enum CodingKeys: String, CodingKey {
         case title
@@ -40,6 +41,7 @@ struct ReportMeta: Codable, Equatable {
         case retryCount = "retry_count"
         case failureCode = "failure_code"
         case failureMessage = "failure_message"
+        case outcome
     }
 }
 
