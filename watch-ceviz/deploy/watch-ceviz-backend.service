@@ -8,7 +8,9 @@ WorkingDirectory=/home/mertb/.openclaw/ceviz-recovery/restored/watch-ceviz
 Environment=HOME=/home/mertb
 Environment=PATH=/home/mertb/.local/bin:/usr/local/bin:/usr/bin:/bin:/home/mertb/.nvm/versions/node/v22.22.2/bin
 Environment=WATCH_CEVIZ_STT_ENGINE=auto
-Environment=WATCH_CEVIZ_WHISPER_MODEL=small
+# GPU icin: venv icindeki nvidia cublas+cudnn lib dizinleri
+# Environment=LD_LIBRARY_PATH=<venv>/lib/python3.12/site-packages/nvidia/cublas/lib:<venv>/lib/python3.12/site-packages/nvidia/cudnn/lib
+Environment=WATCH_CEVIZ_WHISPER_MODEL=large-v3
 Environment=WATCH_CEVIZ_WHISPER_LANGUAGE=tr
 Environment=OPENCLAW_WATCH_AGENT=main
 # Uretimde zorunlu: openssl rand -hex 24 ile uret, telefonda Ayarlar ekranina gir
