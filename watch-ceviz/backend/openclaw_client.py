@@ -209,6 +209,8 @@ class OpenClawClient:
             "outcome: istenen iş gerçekten yapıldıysa done, yapılamadıysa blocked, kullanıcıdan bilgi/onay gerekiyorsa needs_input. "
             "next_action_actor: next_action'ı AJAN kendisi çalıştırabilecekse agent yaz ve next_action'ı komut kipinde üret; "
             "yalnızca kullanıcının davranışı gerekiyorsa user yaz (bu tür öneriler kullanıcıya bilgi olarak gösterilir, ajana geri gönderilmez). "
+            "user türü next_action'da 'onaylayın/onayla' gibi seçim-bekleyen ifadeler KULLANMA — ortada onaylanacak bir şey yok; "
+            "'Yeni komut verin: ...' kalıbıyla, kullanıcının ne söylemesi gerektiğini açıkça yaz. "
             "watch_summary tek cümle ve 160 karakter altında olsun. next_action net, uygulanabilir tek adım olsun. "
             "JSON dışında meta bloğunda başka açıklama yazma."
         )

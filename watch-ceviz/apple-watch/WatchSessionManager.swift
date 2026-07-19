@@ -414,7 +414,12 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         if data.count > 60_000 {
             DispatchQueue.main.async {
                 self.isProcessing = false
-                self.responseText = "Kayıt çok uzun (\(data.count / 1024)KB). ~15 saniyeden kısa konuş."
+                // Eski handoff paneli mesaji golgelemesin; hata tek basina gorunsun.
+                self.handoffUrl = nil
+                self.handoffJobId = nil
+                self.handoffState = .idle
+                self.handoffPreview = nil
+                self.responseText = "✕ Kayıt gönderilemedi: çok uzun (\(data.count / 1024)KB). Daha kısa konuşup tekrar dene."
                 WKInterfaceDevice.current().play(.failure)
             }
             return
