@@ -109,7 +109,7 @@ If a required bootstrap file is missing, OpenClaw injects a "missing file" marke
 A workspace can contain many files, but agents do not read every file on every session. Advanced local setups can keep a small inventory of integrations such as host bridges or device queues:
 
 1. **Keep a central index:** Create `capabilities/index.md` and record each capability's status, scope, owner, canonical instructions, and entry point.
-2. **Link intentionally:** Mention the index in `TOOLS.md` only when agents should discover this local inventory.
+2. **Link intentionally:** Mention the index in the `## Tools` section of `AGENTS.md` only when agents should discover this local inventory.
 3. **Follow the instructions:** Open the linked skill or plugin documentation and run a read-only availability check before taking action.
 
 The inventory is not an instruction surface. Put repeatable agent procedures in [workspace skills](/tools/skills), add runtime integrations through [plugins](/tools/plugin), and use [ClawHub](/clawhub) for shared discovery. See [Workspace capability inventory](/concepts/workspace-capabilities) for the record format.

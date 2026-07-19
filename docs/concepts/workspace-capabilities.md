@@ -101,9 +101,10 @@ bootstrap files are documented in
 extra bootstrap injection accepts recognized bootstrap basenames.
 
 When a workspace intentionally exposes its local inventory, link the concise
-`capabilities/index.md` from `TOOLS.md`. The index should only identify the
-available surface, its owner, and its canonical instructions; the agent must
-read the linked skill or plugin documentation before acting.
+`capabilities/index.md` from the `## Tools` section of `AGENTS.md`. The index
+should only identify the available surface, its owner, and its canonical
+instructions; the agent must read the linked skill or plugin documentation
+before acting.
 
 Do not inject every record by default or add a listener, session store, auth
 layer, or shadow tool router for discovery.
