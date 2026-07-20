@@ -68,6 +68,16 @@ def _load_model():
         raise RuntimeError(f"Whisper modeli yuklenemedi (model={size}): {last_err}")
 
 
+def warmup() -> str:
+    """Modeli onden yukle (boot'ta cagrilir) ki ilk komut yavas olmasin.
+    Basarisizsa sessizce gec: ilk gercek istek yine lazy yukler."""
+    try:
+        _load_model()
+    except Exception:
+        pass
+    return _active_device
+
+
 def transcribe_bytes(audio_bytes: bytes, audio_format: str = "m4a", language: str | None = None) -> str:
     """Base64'ten cozulmus ses baytlarini metne cevir. Bos string = transkript yok."""
     model = _load_model()

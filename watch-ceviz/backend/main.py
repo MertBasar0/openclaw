@@ -1212,10 +1212,23 @@ Content-Type: application/json
             self.wfile.write(b'{"error": "Not found"}')
 
 
+def _warmup_stt() -> None:
+    try:
+        import local_whisper
+        device = local_whisper.warmup()
+        logging.info("STT warmup tamam (cihaz=%s, model=%s)", device,
+                     os.environ.get("WATCH_CEVIZ_WHISPER_MODEL", "small"))
+    except Exception as exc:
+        logging.warning("STT warmup atlandı: %s", exc)
+
+
 def run(port=8080):
     server_address = ('', port)
     httpd = HTTPServer(server_address, WatchCevizHandler)
     logging.info(f"Starting watch-ceviz stub server on port {port}...")
+    # Modeli arka planda onden yukle: server hemen ayakta, ilk komut hizli.
+    import threading
+    threading.Thread(target=_warmup_stt, daemon=True).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
