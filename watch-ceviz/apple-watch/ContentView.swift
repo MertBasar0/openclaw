@@ -66,9 +66,23 @@ struct ContentView: View {
 
             micButton
 
-            Text(hintText)
-                .font(CVZ.mono(9))
-                .foregroundColor(CVZ.textDim)
+            // Devam penceresi acikken rozet goster; süre dolunca kendiliginden söner.
+            TimelineView(.periodic(from: .now, by: 10)) { context in
+                if stage != .recording, stage != .processing,
+                   let last = sessionManager.lastResultAt,
+                   context.date.timeIntervalSince(last) < WatchSessionManager.continuationWindow {
+                    Text("↩ devam")
+                        .font(CVZ.mono(9, .semibold))
+                        .foregroundColor(CVZ.accent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(CVZ.accentBg, in: RoundedRectangle(cornerRadius: 3))
+                } else {
+                    Text(hintText)
+                        .font(CVZ.mono(9))
+                        .foregroundColor(CVZ.textDim)
+                }
+            }
         }
         .padding(.horizontal, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

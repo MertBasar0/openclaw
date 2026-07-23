@@ -20,6 +20,11 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     @Published var pendingCommands: [QueuedCommand] = []
     @Published var transportStatus: String = "Disconnected"
     @Published var isProcessing = false
+    /// Son sonucun geldigi an. Backend, 180 sn icindeki yeni komutu ayni
+    /// konusmanin devami sayiyor; saat bunu rozetle gosterir.
+    @Published var lastResultAt: Date?
+
+    static let continuationWindow: TimeInterval = 180
     @Published var handoffState: HandoffState = .idle
     @Published var handoffPreview: HandoffPreview? = nil
 
@@ -257,6 +262,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
 
         DispatchQueue.main.async {
             self.responseText = summary
+            self.lastResultAt = Date()
             self.handoffUrl = requiresPhoneHandoff ? handoffUrl : nil
             self.handoffJobId = requiresPhoneHandoff ? jobId : nil
             self.handoffState = requiresPhoneHandoff && handoffUrl != nil ? .ready : .idle
@@ -475,6 +481,9 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
 
             DispatchQueue.main.async {
                 self.responseText = response.summaryText
+                if response.status != "processing" {
+                    self.lastResultAt = Date()
+                }
                 let effectiveRequiresPhoneHandoff = response.reportMeta?.requiresPhoneHandoff ?? response.requiresPhoneHandoff
                 self.handoffUrl = effectiveRequiresPhoneHandoff ? response.handoffUrl : nil
                 self.handoffJobId = effectiveRequiresPhoneHandoff ? response.jobId : nil

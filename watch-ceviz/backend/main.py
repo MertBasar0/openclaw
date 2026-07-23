@@ -21,6 +21,12 @@ CONTRACTS_DIR = Path(__file__).resolve().parents[1] / "contracts"
 # Dynamic job store for real OpenClaw processes
 jobs_db = {}
 
+# Is gecmisi diske yazilir: servis yeniden baslayinca (guc kesintisi,
+# makine reboot'u, deploy) gecmis ve konusma zinciri kaybolmasin.
+STATE_DIR = Path(os.environ.get("WATCH_CEVIZ_STATE_DIR", str(Path.home() / ".openclaw" / "ceviz-state")))
+JOBS_STATE_PATH = STATE_DIR / "jobs.json"
+MAX_PERSISTED_JOBS = 50
+
 from openclaw_client import OpenClawClient
 from stt import WatchSTT
 
@@ -655,7 +661,17 @@ def build_job_report(job: dict) -> tuple[str, str]:
 
 def sync_job_status(job: dict) -> None:
     now = time.time()
+    previous_status = job.get("status")
     job["elapsed_seconds"] = max(0, int(now - job["created_at"]))
+    try:
+        _sync_job_status_impl(job, now)
+    finally:
+        # Durum degistiyse gecmisi diske yaz (running -> completed/failed).
+        if job.get("status") != previous_status:
+            save_jobs()
+
+
+def _sync_job_status_impl(job: dict, now: float) -> None:
     invocation = job.get("invocation")
     if not invocation or job["status"] not in {"running", "processing"}:
         if job["status"] == "running" and job["elapsed_seconds"] >= 10 and "invocation" not in job:
@@ -703,6 +719,83 @@ def sync_job_status(job: dict) -> None:
         f"OpenClaw komutu {return_code} koduyla başarısız oldu.\n\n"
         f"Log özeti:\n{openclaw_client.read_log_tail(invocation['log_path'])}"
     )
+
+
+def _serializable_job(job: dict) -> dict:
+    """Popen nesnesi JSON'a yazilamaz; invocation'in geri kalanini koru
+    (log_path sayesinde servis kapaliyken biten is kurtarilabilir)."""
+    out = {k: v for k, v in job.items() if k != "invocation"}
+    invocation = job.get("invocation")
+    if isinstance(invocation, dict):
+        out["invocation"] = {
+            k: v for k, v in invocation.items() if k != "process"
+        }
+    return out
+
+
+def save_jobs() -> None:
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        recent = sorted(jobs_db.values(), key=lambda j: j.get("created_at", 0))[-MAX_PERSISTED_JOBS:]
+        payload = {"jobs": [_serializable_job(job) for job in recent]}
+        tmp = JOBS_STATE_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(JOBS_STATE_PATH)
+    except Exception as exc:
+        logging.warning("İş geçmişi yazılamadı: %s", exc)
+
+
+def load_jobs() -> None:
+    """Diskteki gecmisi geri yukle. Servis kapaliyken tamamlanmis
+    olabilecek isleri log dosyasindan sonuclandirmayi dene."""
+    if not JOBS_STATE_PATH.exists():
+        return
+    try:
+        data = json.loads(JOBS_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logging.warning("İş geçmişi okunamadı: %s", exc)
+        return
+
+    restored = 0
+    recovered = 0
+    for job in data.get("jobs", []):
+        if not isinstance(job, dict) or not job.get("id"):
+            continue
+        invocation = job.get("invocation")
+        if job.get("status") in {"running", "processing", "queued"}:
+            log_path = (invocation or {}).get("log_path")
+            result = None
+            if log_path and Path(log_path).exists():
+                try:
+                    result = openclaw_client.extract_result(log_path)
+                except Exception:
+                    result = None
+            if result is not None:
+                job["status"] = "completed"
+                job["category"] = result.category
+                job["canned_result"] = result.canned_result
+                job["watch_summary"] = result.watch_summary
+                job["requires_phone_handoff"] = result.requires_phone_handoff
+                job["phone_report"] = result.phone_report
+                job["next_action"] = result.next_action
+                job["outcome"] = result.outcome
+                job["next_action_actor"] = result.next_action_actor
+                recovered += 1
+            else:
+                job["status"] = "failed"
+                job["canned_result"] = (
+                    "Backend yeniden başlatıldığı için bu işin sonucu alınamadı. "
+                    "Komutu tekrar gönderebilirsin."
+                )
+                job["watch_summary"] = "Backend yeniden başlatıldı; iş sonuçlanmadan kesildi."
+                job["outcome"] = "blocked"
+        # Yeniden baslatma sonrasi canli process yok.
+        job.pop("invocation", None)
+        jobs_db[job["id"]] = job
+        restored += 1
+
+    if restored:
+        logging.info("İş geçmişi yüklendi: %d iş (%d tanesi loglardan kurtarıldı)", restored, recovered)
 
 
 def build_continuation_context(prev_job: dict, *, approved_suggestion: bool) -> str:
@@ -794,6 +887,7 @@ def create_openclaw_job(
         },
     }
     jobs_db[new_job_id] = job
+    save_jobs()
     return job
 
 
@@ -1273,6 +1367,7 @@ def run(port=8080):
     server_address = ('', port)
     httpd = HTTPServer(server_address, WatchCevizHandler)
     logging.info(f"Starting watch-ceviz stub server on port {port}...")
+    load_jobs()
     # Modeli arka planda onden yukle: server hemen ayakta, ilk komut hizli.
     import threading
     threading.Thread(target=_warmup_stt, daemon=True).start()
