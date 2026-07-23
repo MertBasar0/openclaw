@@ -111,7 +111,8 @@
             "watch-summary",
             "expanded-analysis",
             "suggested-next-action",
-            "capture"
+            "capture",
+            "background-activity"
           ]
         },
         "title": {
@@ -146,7 +147,8 @@
               "enum": [
                 "watch-summary",
                 "expanded-analysis",
-                "suggested-next-action"
+                "suggested-next-action",
+                "background-activity"
               ]
             }
           }
@@ -166,7 +168,8 @@
                 "watch-summary",
                 "expanded-analysis",
                 "suggested-next-action",
-                "capture"
+                "capture",
+                "background-activity"
               ]
             }
           }

@@ -113,7 +113,8 @@
             "watch-summary",
             "expanded-analysis",
             "suggested-next-action",
-            "capture"
+            "capture",
+            "background-activity"
           ]
         },
         "title": {

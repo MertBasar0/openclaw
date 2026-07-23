@@ -868,6 +868,21 @@ class WatchCevizHandler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
+        import traceback
+        try:
+            self._do_GET_impl()
+        except Exception as exc:
+            logging.error("GET %s başarısız: %s", self.path, exc)
+            traceback.print_exc()
+            try:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(exc)}).encode("utf-8"))
+            except Exception:
+                pass
+
+    def _do_GET_impl(self):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
         if self._reject_unauthorized(path):
