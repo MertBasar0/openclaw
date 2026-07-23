@@ -98,6 +98,93 @@ struct CVZContinuationCard: View {
     }
 }
 
+/// Telefondan komut yazma alani.
+///
+/// STT bozuk cozdugunde saate donup tekrar konusmak yerine klavyeyle
+/// duzeltmeyi saglar; `continue_job_id` ile gittigi icin ajan onceki
+/// isin baglamini korur (konusmanin devami sayilir).
+struct CVZCommandInput: View {
+    let jobId: String
+    let needsInput: Bool
+    let onFeedback: (String) -> Void
+
+    @State private var text: String = ""
+    @State private var sending = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Rectangle().fill(CVZ.line).frame(height: 1)
+            Text(needsInput ? "KOMUTU DÜZELT" : "DEVAM ET")
+                .font(CVZ.mono(10, .semibold))
+                .tracking(1.4)
+                .foregroundColor(needsInput ? CVZ.accent : CVZ.textDim)
+                .padding(.top, 10)
+
+            if needsInput {
+                Text("Sesli komut doğru anlaşılmadıysa doğrusunu buraya yazabilirsin.")
+                    .font(.system(size: 12))
+                    .foregroundColor(CVZ.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                TextField("", text: $text, axis: .vertical)
+                    .lineLimit(1...4)
+                    .font(CVZ.mono(13))
+                    .foregroundColor(CVZ.text)
+                    .tint(CVZ.accent)
+                    .textInputAutocapitalization(.sentences)
+                    .submitLabel(.send)
+                    .onSubmit(send)
+                    .padding(10)
+                    .background(CVZ.panel, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(CVZ.line, lineWidth: 1))
+
+                Button(action: send) {
+                    Image(systemName: sending ? "hourglass" : "arrow.up.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(canSend ? CVZ.accent : CVZ.textDim)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+            }
+        }
+    }
+
+    private var canSend: Bool {
+        !sending && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func send() {
+        let payload = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty, !sending else { return }
+        sending = true
+
+        var request = BackendConfig.request("/api/v1/shortcuts/command", method: "POST")
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["text": payload]
+        if !jobId.isEmpty { body["continue_job_id"] = jobId }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            DispatchQueue.main.async {
+                sending = false
+                if let error {
+                    onFeedback("✕ Gönderilemedi: \(error.localizedDescription)")
+                    return
+                }
+                guard let http = response as? HTTPURLResponse,
+                      (200...299).contains(http.statusCode) else {
+                    onFeedback("✕ Sunucu hatası")
+                    return
+                }
+                text = ""
+                onFeedback("✓ Komut gönderildi — SON İŞLER'de görünecek")
+            }
+        }.resume()
+    }
+}
+
 // SONRAKI AKSIYONLAR — terminal aksiyon satirlari + toast geri bildirimi
 struct CVZActionsView: View {
     let actions: [NextActionPayload]

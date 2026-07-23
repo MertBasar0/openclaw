@@ -1293,6 +1293,14 @@ struct JobDetailView: View {
                                 showToast(message)
                             }
                         }
+
+                        CVZCommandInput(
+                            jobId: jobId,
+                            needsInput: (report.reportMeta?.outcome == "needs_input"
+                                         || report.reportMeta?.outcome == "blocked")
+                        ) { message in
+                            showToast(message)
+                        }
                     }
                 }
                 .padding(16)
