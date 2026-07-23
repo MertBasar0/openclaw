@@ -112,6 +112,10 @@ struct CVZActionsView: View {
     }
 
     var body: some View {
+        // Gosterilecek aksiyon yoksa bos baslik cizme.
+        if visibleActions.isEmpty {
+            EmptyView()
+        } else {
         VStack(alignment: .leading, spacing: 8) {
             Rectangle().fill(CVZ.line).frame(height: 1)
             Text("SONRAKİ AKSİYONLAR")
@@ -145,6 +149,7 @@ struct CVZActionsView: View {
                     .opacity(usedActionIds.contains(action.id) ? 0.35 : 1)
                 }
             }
+        }
         }
     }
 

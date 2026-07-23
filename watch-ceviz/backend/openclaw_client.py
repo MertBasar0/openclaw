@@ -211,6 +211,9 @@ class OpenClawClient:
             "yalnızca kullanıcının davranışı gerekiyorsa user yaz (bu tür öneriler kullanıcıya bilgi olarak gösterilir, ajana geri gönderilmez). "
             "user türü next_action'da 'onaylayın/onayla' gibi seçim-bekleyen ifadeler KULLANMA — ortada onaylanacak bir şey yok; "
             "'Yeni komut verin: ...' kalıbıyla, kullanıcının ne söylemesi gerektiğini açıkça yaz. "
+            "Yapılacak bir sonraki adım YOKSA next_action'ı null bırak ve next_action_actor'ı da null yap. "
+            "'Yok.', 'Ek işlem gerekmiyor.', 'İşlem gerekmiyor.' gibi dolgu cümlelerini next_action olarak ASLA yazma — "
+            "bunlar buton haline gelip tekrar sana gönderiliyor ve kısır döngü yaratıyor; durumu anlatmak istiyorsan rapor bloğunda anlat. "
             "watch_summary tek cümle ve 160 karakter altında olsun. next_action net, uygulanabilir tek adım olsun. "
             "JSON dışında meta bloğunda başka açıklama yazma."
         )

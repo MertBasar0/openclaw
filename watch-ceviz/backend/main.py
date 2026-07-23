@@ -368,6 +368,38 @@ def build_handoff_copy(job: dict) -> str | None:
     return "Detay telefonda daha net."
 
 
+NO_OP_NEXT_ACTION_MARKERS = (
+    "işlem gerekmiyor",
+    "islem gerekmiyor",
+    "ek işlem",
+    "ek islem",
+    "gerek yok",
+    "gerekmiyor",
+    "yapılacak bir şey yok",
+    "yapilacak bir sey yok",
+    "bir şey yapmaya gerek",
+    "aksiyon gerekmiyor",
+    "herhangi bir işlem",
+    "no action",
+    "not required",
+)
+
+
+def is_no_op_next_action(text: str) -> bool:
+    """Ajan bazen 'Yok.' / 'Ek işlem gerekmiyor.' gibi dolgu cumleleri
+    next_action olarak uretiyor ve kendini agent sanip tiklanabilir hale
+    getiriyordu; dokununca bu metin komut olarak geri gonderilip kisir
+    dongu yaratiyordu. Modele guvenme, deterministik sus."""
+    compact = " ".join(clean_text(text).lower().split()).strip(" .!:;")
+    if not compact:
+        return True
+    if compact in {"yok", "none", "-", "n/a", "na", "hayır", "hayir"}:
+        return True
+    if len(compact) < 12:
+        return True
+    return any(marker in compact for marker in NO_OP_NEXT_ACTION_MARKERS)
+
+
 def build_next_actions(job: dict) -> list[dict[str, str | None]]:
     actions: list[dict[str, str | None]] = []
     seen: set[tuple[str, str | None, str]] = set()
@@ -408,7 +440,7 @@ def build_next_actions(job: dict) -> list[dict[str, str | None]]:
     for action in get_explicit_next_actions(job):
         append_action(action)
 
-    if next_action:
+    if next_action and not is_no_op_next_action(next_action):
         append_action({
             "id": "suggested-next-action",
             "label": trim_watch_text(next_action, max_len=80),
