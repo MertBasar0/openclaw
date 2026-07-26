@@ -317,7 +317,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
 
         if !isProcessing {
             isProcessing = true
-            responseText = "İşleniyor… (bekleyen sonuç kontrol ediliyor)"
+            responseText = NSLocalizedString("Working… (checking for a pending result)", comment: "")
         }
         pollingJobId = jobId
 
@@ -335,7 +335,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             stopResultPolling()
             DispatchQueue.main.async {
                 self.isProcessing = false
-                self.responseText += "\n(Sonuç hâlâ hazırlanıyor — İşler sekmesinden kontrol edebilirsin.)"
+                self.responseText += NSLocalizedString("\n(Still working — check the Jobs tab.)", comment: "")
             }
             return
         }
@@ -364,7 +364,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             DispatchQueue.main.async {
                 self.pollErrorCount += 1
                 if self.pollErrorCount >= 3 {
-                    self.responseText = "Sonuç aktarılamıyor: \(error.localizedDescription)"
+                    self.responseText = String(format: NSLocalizedString("Cannot receive result: %@", comment: ""), error.localizedDescription)
                 }
             }
         })
@@ -425,7 +425,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
                 self.handoffJobId = nil
                 self.handoffState = .idle
                 self.handoffPreview = nil
-                self.responseText = "✕ Kayıt gönderilemedi: çok uzun (\(data.count / 1024)KB). Daha kısa konuşup tekrar dene."
+                self.responseText = String(format: NSLocalizedString("✕ Recording too long to send (%dKB). Speak briefly and try again.", comment: ""), data.count / 1024)
                 WKInterfaceDevice.current().play(.failure)
             }
             return
@@ -461,7 +461,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
                       self.pollingJobId == nil else { return }
                 self.isProcessing = false
                 self.queueCommand(audioBase64: audioBase64)
-                self.responseText = "Telefondan yanıt alınamadı; komut kuyruğa alındı. iPhone'da Ceviz'i açıp saatte tekrar dene."
+                self.responseText = NSLocalizedString("No reply from iPhone; command queued. Open Ceviz on iPhone and try again.", comment: "")
             }
         }
 

@@ -42,10 +42,10 @@ enum CVZ {
 
     static func statusTag(_ status: String) -> String {
         switch status {
-        case "completed": return "[TAMAM]"
-        case "failed": return "[HATA]"
-        case "running": return "[ÇALIŞIYOR]"
-        case "queued": return "[SIRADA]"
+        case "completed": return NSLocalizedString("[DONE]", comment: "job status tag")
+        case "failed": return NSLocalizedString("[FAILED]", comment: "job status tag")
+        case "running": return NSLocalizedString("[RUNNING]", comment: "job status tag")
+        case "queued": return NSLocalizedString("[QUEUED]", comment: "job status tag")
         default: return "[\(status.uppercased())]"
         }
     }

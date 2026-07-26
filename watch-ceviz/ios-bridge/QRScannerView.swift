@@ -59,7 +59,7 @@ struct QRScannerView: UIViewControllerRepresentable {
             super.viewDidLoad()
             view.backgroundColor = .black
             let label = UILabel()
-            label.text = "Bu cihazda QR tarama desteklenmiyor.\nAdres ve token'ı elle gir."
+            label.text = NSLocalizedString("QR scanning is not supported on this device.\nEnter the URL and token manually.", comment: "")
             label.numberOfLines = 0
             label.textAlignment = .center
             label.textColor = .white

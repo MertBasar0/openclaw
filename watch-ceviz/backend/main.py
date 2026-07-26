@@ -613,49 +613,91 @@ def build_preview_sections(job: dict) -> list[dict[str, str]]:
 
 
 
+# Rapor iskeleti kullanicinin dilinde uretilir; ajan icerigi zaten
+# locale'e gore geliyor, cerceve de ona uymali.
+REPORT_STRINGS = {
+    "en": {
+        "category": "Category", "watch_summary": "Watch summary",
+        "handoff": "Hand off to phone", "yes": "Yes", "no": "No",
+        "transcript": "Transcript", "none": "None", "stt_source": "STT source",
+        "stt_note": "STT note", "running_title": "Job running",
+        "running_body": "This job is currently running on OpenClaw.",
+        "elapsed": "Elapsed", "seconds": "seconds",
+        "refresh_hint": "Tap Refresh to see the latest status.",
+        "failed_title": "Failed", "detail": "Detail",
+        "no_error_detail": "No error detail available.",
+        "report_title": "Report", "result": "Result",
+        "no_result": "No result data.",
+        "footer": "Note: this report was produced from a real OpenClaw CLI call via the backend.",
+    },
+    "tr": {
+        "category": "Kategori", "watch_summary": "Saat özeti",
+        "handoff": "Telefona devret", "yes": "Evet", "no": "Hayır",
+        "transcript": "Transkript", "none": "Yok", "stt_source": "STT kaynağı",
+        "stt_note": "STT notu", "running_title": "Görev Çalışıyor",
+        "running_body": "Görev şu anda OpenClaw üzerinde işleniyor.",
+        "elapsed": "Geçen süre", "seconds": "saniye",
+        "refresh_hint": "Güncel durumu görmek için Yenile butonuna dokunun.",
+        "failed_title": "Hata", "detail": "Detay",
+        "no_error_detail": "Hata detayı bulunamadı.",
+        "report_title": "Rapor", "result": "İşlem Sonucu",
+        "no_result": "Sonuç verisi bulunamadı.",
+        "footer": "Not: Bu rapor backend üzerinden gerçek OpenClaw CLI çağrısının çıktısından üretildi.",
+    },
+}
+
+
+def report_strings(job: dict) -> dict:
+    locale = str(job.get("locale") or "").strip()
+    code = locale.replace("_", "-").split("-")[0].lower() if locale else "en"
+    return REPORT_STRINGS.get(code, REPORT_STRINGS["en"])
+
+
 def build_job_report(job: dict) -> tuple[str, str]:
+    t = report_strings(job)
     report_meta = build_report_meta(job)
     category_text = f"[{report_meta['category']}]"
     watch_summary = report_meta["watch_summary"]
     requires_phone_handoff = report_meta["requires_phone_handoff"]
-    transcript = (job.get("transcript") or "").strip() or "Yok"
+    transcript = (job.get("transcript") or "").strip() or t["none"]
     stt_source = job.get("stt_source") or "unknown"
     stt_error = (job.get("stt_error") or "").strip()
+    elapsed = f"{t['elapsed']}: {job['elapsed_seconds']} {t['seconds']}."
 
     meta_lines = [
-        f"Kategori: {category_text}",
-        f"Saat özeti: {watch_summary}",
-        f"Telefona devret: {'Evet' if requires_phone_handoff else 'Hayır'}",
-        f"Transkript: {transcript}",
-        f"STT kaynağı: {stt_source}",
+        f"{t['category']}: {category_text}",
+        f"{t['watch_summary']}: {watch_summary}",
+        f"{t['handoff']}: {t['yes'] if requires_phone_handoff else t['no']}",
+        f"{t['transcript']}: {transcript}",
+        f"{t['stt_source']}: {stt_source}",
     ]
     if stt_error:
-        meta_lines.append(f"STT notu: {stt_error}")
+        meta_lines.append(f"{t['stt_note']}: {stt_error}")
 
     if job["status"] == "running":
         return (
-            f"Görev Çalışıyor: {job['name']}",
+            f"{t['running_title']}: {job['name']}",
             "\n".join(meta_lines)
-            + f"\n\nGörev şu anda OpenClaw üzerinde işleniyor...\nGeçen süre: {job['elapsed_seconds']} saniye.\n\nLütfen güncel durumu görmek için Yenile butonuna dokunun.",
+            + f"\n\n{t['running_body']}\n{elapsed}\n\n{t['refresh_hint']}",
         )
 
     if job["status"] == "failed":
-        detail = job.get("phone_report") or job.get("canned_result") or "Hata detayı bulunamadı."
+        detail = job.get("phone_report") or job.get("canned_result") or t["no_error_detail"]
         return (
-            f"Hata: {job['name']}",
+            f"{t['failed_title']}: {job['name']}",
             "\n".join(meta_lines)
-            + "\n\nDetay:\n"
+            + f"\n\n{t['detail']}:\n"
             + detail
-            + f"\n\nİşlem süresi: {job['elapsed_seconds']} saniye.",
+            + f"\n\n{elapsed}",
         )
 
-    detail = job.get("phone_report") or job.get("canned_result") or "Sonuç verisi bulunamadı."
+    detail = job.get("phone_report") or job.get("canned_result") or t["no_result"]
     return (
-        f"Rapor: {job['name']}",
+        f"{t['report_title']}: {job['name']}",
         "\n".join(meta_lines)
-        + "\n\nİşlem Sonucu:\n"
+        + f"\n\n{t['result']}:\n"
         + detail
-        + f"\n\nİşlem süresi: {job['elapsed_seconds']} saniye.\n\nNot: Bu rapor backend üzerinden gerçek OpenClaw CLI çağrısının çıktısından üretildi.",
+        + f"\n\n{elapsed}\n\n{t['footer']}",
     )
 
 
@@ -867,6 +909,7 @@ def create_openclaw_job(
     job = {
         "id": new_job_id,
         "conversation_id": conversation_id,
+        "locale": locale,
         "name": effective_transcript or client_timestamp or "Shortcut Command",
         "status": "running",
         "created_at": time.time(),

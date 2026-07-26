@@ -94,11 +94,11 @@ struct HandoffOpenPanel: View {
         VStack(spacing: 3) {
             Button(action: action) {
                 HStack {
-                    Text("→ IPHONE'DA AÇ")
+                    Text("→ OPEN ON IPHONE")
                         .font(CVZ.mono(10.5, .semibold))
                         .foregroundColor(CVZ.accent)
                     Spacer()
-                    Text("rapor hazır")
+                    Text("report ready")
                         .font(CVZ.mono(9))
                         .foregroundColor(CVZ.textDim)
                 }
@@ -111,7 +111,7 @@ struct HandoffOpenPanel: View {
             .disabled(!isReachable)
 
             if !isReachable {
-                Text("iPhone erişilebilir olmalı")
+                Text("iPhone must be reachable")
                     .font(CVZ.mono(9))
                     .foregroundColor(CVZ.textDim)
             } else if !subtitle.isEmpty {
@@ -129,15 +129,15 @@ struct JobContinuationBadge: View {
     var compact: Bool = false
 
     var body: some View {
-        HandoffSectionContainer(title: "iPhone'da devamı var", systemImage: "iphone", compact: compact) {
+        HandoffSectionContainer(title: NSLocalizedString("More on iPhone", comment: ""), systemImage: "iphone", compact: compact) {
             if let firstSection = preview?.sectionSnippets.first {
                 HandoffSectionCard(section: firstSection, lineLimit: compact ? 1 : 2, compact: true)
             } else {
                 HandoffMessageCard(
                     eyebrow: "IPHONE",
-                    title: "Devam hazır",
+                    title: NSLocalizedString("Continuation ready", comment: ""),
                     systemImage: "arrow.triangle.branch",
-                    message: "Tam raporu telefonda açın.",
+                    message: NSLocalizedString("Open the full report on your phone.", comment: ""),
                     lineLimit: 2,
                     compact: true
                 )

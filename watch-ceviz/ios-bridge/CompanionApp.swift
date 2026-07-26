@@ -283,7 +283,7 @@ struct HomeView: View {
                     .tracking(1.5)
                     .foregroundColor(CVZ.text)
                 Spacer()
-                Text(link.isReachable ? "▮ WATCH BAĞLI" : "▮ WATCH BAĞLI DEĞİL")
+                Text(link.isReachable ? "▮ WATCH LINKED" : "▮ WATCH NOT LINKED")
                     .font(CVZ.mono(11, .semibold))
                     .foregroundColor(link.isReachable ? CVZ.accent : CVZ.err)
                     .lineLimit(1)
@@ -304,15 +304,15 @@ struct HomeView: View {
                             metaText: pending.badgeText,
                             title: pending.title,
                             summary: pending.subtitle,
-                            buttonTitle: "DEVAM ET — RAPORU AÇ →",
+                            buttonTitle: "CONTINUE — OPEN REPORT →",
                             action: router.activatePendingRouteIfNeeded
                         )
                     } else if let last = router.lastContinuation {
                         CVZContinuationCard(
-                            metaText: "son devam",
+                            metaText: "last continuation",
                             title: last.title,
                             summary: last.subtitle,
-                            buttonTitle: "TEKRAR AÇ →",
+                            buttonTitle: "OPEN AGAIN →",
                             action: router.reopenLastContinuation
                         )
                     } else {
@@ -320,10 +320,10 @@ struct HomeView: View {
                             Image(systemName: "applewatch")
                                 .font(.system(size: 44, weight: .thin))
                                 .foregroundColor(Color(red: 0.18, green: 0.216, blue: 0.2))
-                            Text("WATCH BEKLENİYOR_")
+                            Text("WAITING FOR WATCH_")
                                 .font(CVZ.mono(11, .semibold))
                                 .foregroundColor(CVZ.textDim)
-                            Text("Saatten sesli komut verin; iş tamamlanınca devam kartı burada belirir.")
+                            Text("Speak a command on your watch; when the job finishes a continuation card appears here.")
                                 .font(.system(size: 12.5))
                                 .foregroundColor(CVZ.textDim)
                                 .multilineTextAlignment(.center)
@@ -336,7 +336,7 @@ struct HomeView: View {
                     if !recentJobs.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Rectangle().fill(CVZ.line).frame(height: 1)
-                            Text("SON İŞLER")
+                            Text("RECENT JOBS")
                                 .font(CVZ.mono(10, .semibold))
                                 .tracking(1.4)
                                 .foregroundColor(CVZ.textDim)
@@ -739,15 +739,19 @@ struct ReportBodySectionBuilder {
     }
 
     private var analysisContent: String {
+        // Backend rapor iskeleti kullanicinin dilinde uretiliyor; her iki
+        // dildeki bolum basliklarini da tani.
+        let detailPrefixes = ["İşlem Sonucu:", "Detay:", "Result:", "Detail:"]
         let detailBlock = normalizedBlocks.first { block in
-            block.hasPrefix("İşlem Sonucu:") || block.hasPrefix("Detay:")
+            detailPrefixes.contains { block.hasPrefix($0) }
         }
 
         if let detailBlock {
-            return detailBlock
-                .replacingOccurrences(of: "İşlem Sonucu:\n", with: "")
-                .replacingOccurrences(of: "Detay:\n", with: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            var cleaned = detailBlock
+            for prefix in detailPrefixes {
+                cleaned = cleaned.replacingOccurrences(of: "\(prefix)\n", with: "")
+            }
+            return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         if normalizedBlocks.count > 1 {
@@ -1252,13 +1256,13 @@ struct JobDetailView: View {
                     isLoading = true
                     fetchReport()
                 }) {
-                    Text("YENİLE ↺")
+                    Text("REFRESH ↺")
                         .font(CVZ.mono(12, .semibold))
                         .foregroundColor(CVZ.accent)
                 }
                 .buttonStyle(.plain)
                 Button(action: onClose) {
-                    Text("KAPAT ✕")
+                    Text("CLOSE ✕")
                         .font(CVZ.mono(12, .semibold))
                         .foregroundColor(CVZ.accent)
                 }
@@ -1285,7 +1289,7 @@ struct JobDetailView: View {
                         titleBlock(report)
 
                         if let watchSummary = bridgeSummaryText {
-                            CVZSectionView(eyebrow: "SAAT ÖZETİ", content: watchSummary, emphasized: true)
+                            CVZSectionView(eyebrow: "WATCH SUMMARY", content: watchSummary, emphasized: true)
                         }
 
                         ForEach(reportBodySections) { section in
@@ -1338,7 +1342,7 @@ struct JobDetailView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background(CVZ.accentBg, in: RoundedRectangle(cornerRadius: 4))
-            Text(activeContinuation?.source == .watch ? "sesli komut" : "rapor")
+            Text(activeContinuation?.source == .watch ? "voice command" : "report")
                 .font(CVZ.mono(10.5))
                 .foregroundColor(CVZ.textDim)
             Spacer()
@@ -1358,7 +1362,7 @@ struct JobDetailView: View {
                 // Kosu durumu ile SONUC durumu ayri: is yapilamadiysa
                 // [TAMAM] yerine gercegi soyleyen turuncu cip goster.
                 if let outcome = report.reportMeta?.outcome, outcome == "blocked" || outcome == "needs_input" {
-                    Text(outcome == "needs_input" ? "[GİRDİ BEKLİYOR]" : "[YAPILAMADI]")
+                    Text(outcome == "needs_input" ? NSLocalizedString("[NEEDS INPUT]", comment: "") : NSLocalizedString("[BLOCKED]", comment: ""))
                         .font(CVZ.mono(10.5, .semibold))
                         .foregroundColor(CVZ.warn)
                         .padding(.horizontal, 8)
@@ -1368,17 +1372,17 @@ struct JobDetailView: View {
                     CVZStatusChip(status: report.reportMeta?.status ?? report.status, size: 10.5)
                 }
                 if let severity = report.reportMeta?.severity, !severity.isEmpty {
-                    CVZMetaChip(text: "ÖNEM:\(turkishSeverity(severity))")
+                    CVZMetaChip(text: "SEV:\(localizedSeverity(severity))")
                 }
             }
         }
     }
 
-    private func turkishSeverity(_ severity: String) -> String {
+    private func localizedSeverity(_ severity: String) -> String {
         switch severity.lowercased() {
-        case "low": return "DÜŞÜK"
-        case "medium", "med": return "ORTA"
-        case "high": return "YÜKSEK"
+        case "low": return NSLocalizedString("LOW", comment: "")
+        case "medium", "med": return NSLocalizedString("MED", comment: "")
+        case "high": return NSLocalizedString("HIGH", comment: "")
         default: return severity.uppercased()
         }
     }

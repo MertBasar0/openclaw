@@ -19,13 +19,13 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("AYARLAR")
+                Text("SETTINGS")
                     .font(CVZ.mono(12, .semibold))
                     .tracking(1.5)
                     .foregroundColor(CVZ.text)
                 Spacer()
                 Button(action: { dismiss() }) {
-                    Text("KAPAT ✕")
+                    Text("CLOSE ✕")
                         .font(CVZ.mono(12, .semibold))
                         .foregroundColor(CVZ.accent)
                 }
@@ -40,7 +40,7 @@ struct SettingsView: View {
                         HStack {
                             Image(systemName: "qrcode.viewfinder")
                                 .font(.system(size: 15))
-                            Text("QR İLE EŞLEŞ")
+                            Text("PAIR WITH QR")
                                 .font(CVZ.mono(12, .semibold))
                             Spacer()
                         }
@@ -53,13 +53,13 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Text("Kurulum scriptinin bastığı QR'ı okut — adres ve token otomatik dolar.")
+                    Text("Scan the QR printed by the install script — URL and token fill in automatically.")
                         .font(.system(size: 11.5))
                         .foregroundColor(CVZ.textDim)
 
                     fieldBlock(
-                        label: "SUNUCU ADRESİ",
-                        hint: "Watch Ceviz backend'inin HTTPS adresi (kurulum çıktısındaki URL).",
+                        label: "SERVER URL",
+                        hint: "HTTPS address of the Watch Ceviz backend (from the install output).",
                         placeholder: "https://makine.tailnet.ts.net/ceviz"
                     ) {
                         TextField("", text: $urlText)
@@ -69,8 +69,8 @@ struct SettingsView: View {
                     }
 
                     fieldBlock(
-                        label: "ERİŞİM TOKEN'I",
-                        hint: "Backend'in WATCH_CEVIZ_AUTH_TOKEN değeri.",
+                        label: "ACCESS TOKEN",
+                        hint: "The backend WATCH_CEVIZ_AUTH_TOKEN value.",
                         placeholder: "token"
                     ) {
                         SecureField("", text: $tokenText)
@@ -79,7 +79,7 @@ struct SettingsView: View {
                     }
 
                     Button(action: runTest) {
-                        Text(testState == .testing ? "TEST EDİLİYOR_" : "BAĞLANTIYI TEST ET")
+                        Text(testState == .testing ? "TESTING_" : "TEST CONNECTION")
                             .font(CVZ.mono(12, .semibold))
                             .foregroundColor(CVZ.text)
                             .frame(maxWidth: .infinity)
@@ -103,7 +103,7 @@ struct SettingsView: View {
                     }
 
                     Button(action: save) {
-                        Text("KAYDET")
+                        Text("SAVE")
                             .font(CVZ.mono(12, .semibold))
                             .foregroundColor(CVZ.accent)
                             .frame(maxWidth: .infinity)
@@ -113,7 +113,7 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Text("Boş bırakılan alanlar geliştirme varsayılanına döner. Token, backend systemd servisindeki WATCH_CEVIZ_AUTH_TOKEN değeriyle aynı olmalı.")
+                    Text(NSLocalizedString("Empty fields fall back to the development default. The token must match WATCH_CEVIZ_AUTH_TOKEN in the backend service.", comment: ""))
                         .font(.system(size: 12))
                         .foregroundColor(CVZ.textDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -128,9 +128,9 @@ struct SettingsView: View {
                 if let url = URL(string: scanned), let pair = BackendConfig.applyPairing(url) {
                     urlText = pair.url
                     tokenText = pair.token
-                    testState = .success("QR okundu — kaydetmeyi unutma")
+                    testState = .success(NSLocalizedString("QR scanned — remember to save", comment: ""))
                 } else {
-                    testState = .failure("Geçersiz QR (ceviz://pair bekleniyor)")
+                    testState = .failure(NSLocalizedString("Invalid QR (expected ceviz://pair)", comment: ""))
                 }
             }
         }
@@ -168,7 +168,7 @@ struct SettingsView: View {
 
     private func runTest() {
         guard let url = URL(string: candidateBaseURL + "/api/v1/jobs/active") else {
-            testState = .failure("Geçersiz adres")
+            testState = .failure(NSLocalizedString("Invalid URL", comment: ""))
             return
         }
         testState = .testing
@@ -186,16 +186,16 @@ struct SettingsView: View {
                     return
                 }
                 guard let http = response as? HTTPURLResponse else {
-                    testState = .failure("Yanıt alınamadı")
+                    testState = .failure(NSLocalizedString("No response", comment: ""))
                     return
                 }
                 switch http.statusCode {
                 case 200:
-                    testState = .success("Bağlantı tamam")
+                    testState = .success(NSLocalizedString("Connection OK", comment: ""))
                 case 401:
-                    testState = .failure("Token reddedildi (401)")
+                    testState = .failure(NSLocalizedString("Token rejected (401)", comment: ""))
                 default:
-                    testState = .failure("Sunucu \(http.statusCode) döndü")
+                    testState = .failure(String(format: NSLocalizedString("Server returned %d", comment: ""), http.statusCode))
                 }
             }
         }.resume()

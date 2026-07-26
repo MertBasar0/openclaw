@@ -7,7 +7,7 @@ struct JobsListView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text("İŞLER")
+                    Text("JOBS")
                         .font(CVZ.mono(9.5, .semibold))
                         .tracking(1)
                         .foregroundColor(CVZ.accent)
@@ -16,7 +16,7 @@ struct JobsListView: View {
                 .padding(.bottom, 4)
 
                 if sessionManager.activeJobs.isEmpty {
-                    Text("Aktif iş yok")
+                    Text("No active jobs")
                         .font(CVZ.mono(10.5))
                         .foregroundColor(CVZ.textDim)
                         .padding(.top, 12)

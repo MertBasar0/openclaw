@@ -114,14 +114,14 @@ struct CVZCommandInput: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Rectangle().fill(CVZ.line).frame(height: 1)
-            Text(needsInput ? "KOMUTU DÜZELT" : "DEVAM ET")
+            Text(needsInput ? "FIX COMMAND" : "FOLLOW UP")
                 .font(CVZ.mono(10, .semibold))
                 .tracking(1.4)
                 .foregroundColor(needsInput ? CVZ.accent : CVZ.textDim)
                 .padding(.top, 10)
 
             if needsInput {
-                Text("Sesli komut doğru anlaşılmadıysa doğrusunu buraya yazabilirsin.")
+                Text("If the voice command was misheard, type the correct one here.")
                     .font(.system(size: 12))
                     .foregroundColor(CVZ.textDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -170,16 +170,16 @@ struct CVZCommandInput: View {
             DispatchQueue.main.async {
                 sending = false
                 if let error {
-                    onFeedback("✕ Gönderilemedi: \(error.localizedDescription)")
+                    onFeedback(String(format: NSLocalizedString("✕ Could not send: %@", comment: ""), error.localizedDescription))
                     return
                 }
                 guard let http = response as? HTTPURLResponse,
                       (200...299).contains(http.statusCode) else {
-                    onFeedback("✕ Sunucu hatası")
+                    onFeedback(NSLocalizedString("✕ Server error", comment: ""))
                     return
                 }
                 text = ""
-                onFeedback("✓ Komut gönderildi — SON İŞLER'de görünecek")
+                onFeedback(NSLocalizedString("✓ Command sent — it will appear in RECENT JOBS", comment: ""))
             }
         }.resume()
     }
@@ -205,7 +205,7 @@ struct CVZActionsView: View {
         } else {
         VStack(alignment: .leading, spacing: 8) {
             Rectangle().fill(CVZ.line).frame(height: 1)
-            Text("SONRAKİ AKSİYONLAR")
+            Text("NEXT ACTIONS")
                 .font(CVZ.mono(10, .semibold))
                 .tracking(1.4)
                 .foregroundColor(CVZ.textDim)
@@ -290,20 +290,20 @@ struct CVZActionsView: View {
             if let target = action.target, let url = URL(string: target) {
                 _ = router.open(url: url, source: .deepLink, presentImmediately: true)
             } else {
-                onFeedback("✕ Geçersiz bağlantı")
+                onFeedback(NSLocalizedString("✕ Invalid link", comment: ""))
             }
         case "open_url":
             if let target = action.target, let url = URL(string: target) {
                 UIApplication.shared.open(url)
             } else {
-                onFeedback("✕ Geçersiz URL")
+                onFeedback(NSLocalizedString("✕ Invalid URL", comment: ""))
             }
         case "copy":
             if let target = action.target, !target.isEmpty {
                 UIPasteboard.general.string = target
-                onFeedback("✓ Panoya kopyalandı")
+                onFeedback(NSLocalizedString("✓ Copied to clipboard", comment: ""))
             } else {
-                onFeedback("✕ Kopyalanacak içerik yok")
+                onFeedback(NSLocalizedString("✕ Nothing to copy", comment: ""))
             }
         case "api_call":
             performApiCall(action)
@@ -323,7 +323,7 @@ struct CVZActionsView: View {
         var body: [String: Any] = ["text": text, "locale": Locale.current.identifier]
         if !jobId.isEmpty { body["continue_job_id"] = jobId }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        onFeedback("→ OpenClaw'a gönderiliyor…")
+        onFeedback(NSLocalizedString("→ Sending to OpenClaw…", comment: ""))
 
         Task {
             do {
@@ -333,11 +333,11 @@ struct CVZActionsView: View {
                     throw URLError(.badServerResponse)
                 }
                 await MainActor.run {
-                    onFeedback("✓ Öneri iş olarak başlatıldı — SON İŞLER'de görünecek")
+                    onFeedback(NSLocalizedString("✓ Suggestion started as a job — it will appear in RECENT JOBS", comment: ""))
                 }
             } catch {
                 await MainActor.run {
-                    onFeedback("✕ Gönderilemedi: \(error.localizedDescription)")
+                    onFeedback(String(format: NSLocalizedString("✕ Could not send: %@", comment: ""), error.localizedDescription))
                 }
             }
         }
@@ -346,7 +346,7 @@ struct CVZActionsView: View {
     private func performApiCall(_ action: NextActionPayload) {
         guard let target = action.target, !target.isEmpty,
               let url = resolvedApiCallURL(from: target) else {
-            onFeedback("✕ Eksik/geçersiz aksiyon hedefi")
+            onFeedback(NSLocalizedString("✕ Missing or invalid action target", comment: ""))
             return
         }
 
@@ -380,7 +380,7 @@ struct CVZActionsView: View {
                 }
             } catch {
                 await MainActor.run {
-                    onFeedback("✕ Aksiyon başarısız: \(error.localizedDescription)")
+                    onFeedback(String(format: NSLocalizedString("✕ Action failed: %@", comment: ""), error.localizedDescription))
                 }
             }
         }

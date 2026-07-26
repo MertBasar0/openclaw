@@ -1,7 +1,13 @@
 name: CevizWatch
+knownRegions:
+  - en
+  - tr
+  - Base
 options:
   bundleIdPrefix: com.mertbasar
   generateEmptyDirectories: true
+  # Temel dil Ingilizce (hedef pazar); Turkce ceviri olarak sunulur.
+  developmentLanguage: en
   deploymentTarget:
     iOS: "16.0"
     watchOS: "9.0"

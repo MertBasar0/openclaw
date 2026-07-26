@@ -13,19 +13,19 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
         case .granted:
             beginRecording(session: session)
         case .denied:
-            lastError = "Mikrofon izni reddedilmiş. Watch ayarlarından izin ver."
+            lastError = NSLocalizedString("Microphone access denied. Allow it in Watch settings.", comment: "")
         case .undetermined:
             session.requestRecordPermission { granted in
                 DispatchQueue.main.async {
                     if granted {
                         self.beginRecording(session: session)
                     } else {
-                        self.lastError = "Mikrofon izni verilmedi."
+                        self.lastError = NSLocalizedString("Microphone permission was not granted.", comment: "")
                     }
                 }
             }
         @unknown default:
-            lastError = "Bilinmeyen mikrofon izin durumu."
+            lastError = NSLocalizedString("Unknown microphone permission state.", comment: "")
         }
     }
 
@@ -54,18 +54,18 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
                 if recorder.record() {
                     audioRecorder = recorder
                 } else {
-                    lastError = "Kayıt başlatılamadı (recorder.record() false döndü)."
+                    lastError = NSLocalizedString("Could not start recording.", comment: "")
                 }
             }
         } catch {
-            lastError = "Kayıt kurulumu başarısız: \(error.localizedDescription)"
+            lastError = String(format: NSLocalizedString("Recording setup failed: %@", comment: ""), error.localizedDescription)
         }
     }
 
     func stopRecording() -> String? {
         guard let recorder = audioRecorder else {
             if lastError == nil {
-                lastError = "Kayıt hiç başlamamıştı (izin diyaloğu sırasında durdurulmuş olabilir). Tekrar dene."
+                lastError = NSLocalizedString("Recording never started (it may have been stopped during the permission prompt). Try again.", comment: "")
             }
             return nil
         }
@@ -76,7 +76,7 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
               let data = try? Data(contentsOf: url),
               !data.isEmpty else {
             if lastError == nil {
-                lastError = "Ses dosyası boş ya da okunamadı."
+                lastError = NSLocalizedString("The audio file is empty or unreadable.", comment: "")
             }
             return nil
         }

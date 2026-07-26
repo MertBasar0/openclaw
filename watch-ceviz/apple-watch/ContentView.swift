@@ -27,12 +27,12 @@ struct ContentView: View {
     var body: some View {
         TabView {
             voiceTab
-                .tabItem { Label("Ses", systemImage: "mic") }
+                .tabItem { Label("Voice", systemImage: "mic") }
 
             NavigationView {
                 JobsListView(sessionManager: sessionManager)
             }
-            .tabItem { Label("İşler", systemImage: "list.bullet") }
+            .tabItem { Label("Jobs", systemImage: "list.bullet") }
         }
         .background(CVZ.bg)
         .onAppear {
@@ -71,7 +71,7 @@ struct ContentView: View {
                 if stage != .recording, stage != .processing,
                    let last = sessionManager.lastResultAt,
                    context.date.timeIntervalSince(last) < WatchSessionManager.continuationWindow {
-                    Text("↩ devam")
+                    Text("↩ follow-up")
                         .font(CVZ.mono(9, .semibold))
                         .foregroundColor(CVZ.accent)
                         .padding(.horizontal, 6)
@@ -92,16 +92,16 @@ struct ContentView: View {
     private var statusRow: some View {
         HStack {
             if isRecording {
-                Text("● KAYIT")
+                Text("● REC")
                     .font(CVZ.mono(9.5, .semibold))
                     .foregroundColor(CVZ.err)
             } else {
-                Text(sessionManager.isReachable ? "▮ BAĞLI" : "▮ BAĞLI DEĞİL")
+                Text(sessionManager.isReachable ? "▮ LINKED" : "▮ NO LINK")
                     .font(CVZ.mono(9.5, .semibold))
                     .foregroundColor(sessionManager.isReachable ? CVZ.accent : CVZ.err)
             }
             Spacer()
-            Text("İŞLER →")
+            Text("JOBS →")
                 .font(CVZ.mono(9.5, .semibold))
                 .foregroundColor(CVZ.textDim)
         }
@@ -111,12 +111,12 @@ struct ContentView: View {
     private var lastAnswerSection: some View {
         VStack(alignment: .leading, spacing: 3) {
             Rectangle().fill(CVZ.line).frame(height: 1)
-            Text("SON CEVAP")
+            Text("LAST REPLY")
                 .font(CVZ.mono(8.5, .semibold))
                 .tracking(1)
                 .foregroundColor(CVZ.accent)
             ScrollView {
-                Text(stage == .idle ? "Henüz komut yok — mikrofona dokunup konuşun." : sessionManager.responseText)
+                Text(stage == .idle ? NSLocalizedString("No commands yet — tap the mic and speak.", comment: "") : sessionManager.responseText)
                     .font(CVZ.mono(11))
                     .lineSpacing(3)
                     .foregroundColor(stage == .idle ? CVZ.textDim : CVZ.text)
@@ -131,11 +131,11 @@ struct ContentView: View {
         VStack(spacing: 3) {
             Button(action: { sessionManager.openHandoff() }) {
                 HStack {
-                    Text("→ IPHONE'DA AÇ")
+                    Text("→ OPEN ON IPHONE")
                         .font(CVZ.mono(10.5, .semibold))
                         .foregroundColor(CVZ.accent)
                     Spacer()
-                    Text("rapor hazır")
+                    Text("report ready")
                         .font(CVZ.mono(9))
                         .foregroundColor(CVZ.textDim)
                 }
@@ -147,7 +147,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .disabled(!sessionManager.isReachable)
 
-            Text(sessionManager.isReachable ? "✓ bilek titreşimi gönderildi" : "iPhone erişilebilir olmalı")
+            Text(sessionManager.isReachable ? "✓ wrist haptic sent" : "iPhone must be reachable")
                 .font(CVZ.mono(9))
                 .foregroundColor(CVZ.textDim)
         }
@@ -183,7 +183,7 @@ struct ContentView: View {
             ProgressView()
                 .tint(CVZ.accent)
                 .scaleEffect(1.2)
-            Text("YORUMLANIYOR_")
+            Text("THINKING_")
                 .font(CVZ.mono(10.5, .semibold))
                 .foregroundColor(CVZ.accent)
                 .opacity(pulse ? 1 : 0.35)
@@ -216,9 +216,9 @@ struct ContentView: View {
 
     private var hintText: String {
         switch stage {
-        case .recording: return "bitirmek için dokun"
-        case .processing: return "işleniyor…"
-        default: return "PTT · dokun, konuş"
+        case .recording: return NSLocalizedString("tap to finish", comment: "")
+        case .processing: return NSLocalizedString("working…", comment: "")
+        default: return NSLocalizedString("PTT · tap, speak", comment: "")
         }
     }
 
@@ -248,7 +248,7 @@ struct ContentView: View {
         if let base64Audio = recorder.stopRecording() {
             sessionManager.sendAudioCommand(audioBase64: base64Audio)
         } else {
-            sessionManager.responseText = recorder.lastError ?? "Ses yakalanamadı"
+            sessionManager.responseText = recorder.lastError ?? NSLocalizedString("Could not capture audio", comment: "")
         }
     }
 }
