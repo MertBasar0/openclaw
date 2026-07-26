@@ -31,6 +31,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Ceviz, sesli komutlarını kaydetmek için mikrofonu kullanır.
+        INFOPLIST_KEY_NSCameraUsageDescription: Ceviz, backend eşleşme QR kodunu okumak için kamerayı kullanır.
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         CODE_SIGNING_ALLOWED: "YES"
         TARGETED_DEVICE_FAMILY: "1"

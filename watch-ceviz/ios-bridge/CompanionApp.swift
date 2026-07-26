@@ -257,6 +257,10 @@ struct CompanionApp: App {
                     }
                 }
                 .onOpenURL { url in
+                    // ceviz://pair — QR'i Kamera uygulamasiyla okuyunca da eslessin.
+                    if url.host == "pair", BackendConfig.applyPairing(url) != nil {
+                        return
+                    }
                     _ = router.open(url: url, source: .deepLink, presentImmediately: true)
                 }
             }

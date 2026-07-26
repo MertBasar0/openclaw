@@ -1,13 +1,14 @@
 import SwiftUI
 
 /// Backend baglanti ayarlari: sunucu adresi + erisim token'i.
-/// Kurulum scripti bu degerleri uretir; kullanici buraya girer.
+/// Kurulum scripti bu degerleri uretir; kullanici QR ile eslesir ya da girer.
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var urlText: String = UserDefaults.standard.string(forKey: BackendConfig.urlDefaultsKey) ?? ""
-    @State private var tokenText: String = UserDefaults.standard.string(forKey: BackendConfig.tokenDefaultsKey) ?? ""
+    @State private var tokenText: String = BackendConfig.token
     @State private var testState: TestState = .idle
+    @State private var showScanner = false
 
     private enum TestState: Equatable {
         case idle, testing
@@ -35,6 +36,27 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    Button(action: { showScanner = true }) {
+                        HStack {
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.system(size: 15))
+                            Text("QR İLE EŞLEŞ")
+                                .font(CVZ.mono(12, .semibold))
+                            Spacer()
+                        }
+                        .foregroundColor(CVZ.accent)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity)
+                        .background(CVZ.accentBg, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(CVZ.accent, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+
+                    Text("Kurulum scriptinin bastığı QR'ı okut — adres ve token otomatik dolar.")
+                        .font(.system(size: 11.5))
+                        .foregroundColor(CVZ.textDim)
+
                     fieldBlock(
                         label: "SUNUCU ADRESİ",
                         hint: "Watch Ceviz backend'inin HTTPS adresi (kurulum çıktısındaki URL).",
@@ -100,6 +122,18 @@ struct SettingsView: View {
             }
         }
         .background(CVZ.bg.ignoresSafeArea())
+        .sheet(isPresented: $showScanner) {
+            QRScannerView { scanned in
+                showScanner = false
+                if let url = URL(string: scanned), let pair = BackendConfig.applyPairing(url) {
+                    urlText = pair.url
+                    tokenText = pair.token
+                    testState = .success("QR okundu — kaydetmeyi unutma")
+                } else {
+                    testState = .failure("Geçersiz QR (ceviz://pair bekleniyor)")
+                }
+            }
+        }
     }
 
     private func fieldBlock<Field: View>(
@@ -168,8 +202,8 @@ struct SettingsView: View {
     }
 
     private func save() {
-        UserDefaults.standard.set(urlText.trimmingCharacters(in: .whitespacesAndNewlines), forKey: BackendConfig.urlDefaultsKey)
-        UserDefaults.standard.set(tokenText.trimmingCharacters(in: .whitespacesAndNewlines), forKey: BackendConfig.tokenDefaultsKey)
+        BackendConfig.setBaseURL(urlText)
+        BackendConfig.setToken(tokenText)
         dismiss()
     }
 }

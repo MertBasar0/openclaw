@@ -1,0 +1,6 @@
+# Watch Ceviz backend — CPU çekirdeği. GPU için install.sh ayrıca
+# nvidia-cublas-cu12 + nvidia-cudnn-cu12 kurar.
+faster-whisper==1.2.1
+ctranslate2==4.7.2
+numpy==2.4.6
+qrcode==7.4.2
