@@ -166,6 +166,32 @@ class OpenClawClient:
         contents = Path(log_path).read_text(encoding="utf-8", errors="replace")
         return contents[-max_chars:].strip()
 
+    # Cihaz dili -> (dil adi, hedef dilde vurgulu direktif). Prompt iskeleti
+    # Turkce kalir (tum davranis kurallari orada test edildi) ama CIKTI dili
+    # kullanicinin cihaz diline gore belirlenir.
+    LANGUAGE_DIRECTIVES = {
+        "tr": ("Türkçe", "Tüm çıktıyı Türkçe üret."),
+        "en": ("English", "IMPORTANT: Write every part of your answer in English."),
+        "de": ("Deutsch", "WICHTIG: Antworte vollständig auf Deutsch."),
+        "fr": ("Français", "IMPORTANT : rédige toute ta réponse en français."),
+        "es": ("Español", "IMPORTANTE: escribe toda tu respuesta en español."),
+        "it": ("Italiano", "IMPORTANTE: scrivi tutta la risposta in italiano."),
+        "nl": ("Nederlands", "BELANGRIJK: schrijf je volledige antwoord in het Nederlands."),
+        "pt": ("Português", "IMPORTANTE: escreva toda a resposta em português."),
+    }
+
+    def _language_block(self, payload: dict[str, Any]) -> str:
+        locale = str(payload.get("locale") or "").strip()
+        code = locale.replace("_", "-").split("-")[0].lower() if locale else "tr"
+        name, emphatic = self.LANGUAGE_DIRECTIVES.get(
+            code, (locale or code, f"IMPORTANT: Write your entire answer in the user's language ({locale or code}).")
+        )
+        return (
+            f"ÇIKTI DİLİ: {name} (kullanıcının cihaz dili). Rapor bloğu, watch_summary, "
+            f"next_action ve tüm serbest metinler bu dilde olmalı; alan adları/JSON anahtarları değişmez.\n"
+            f"{emphatic}\n"
+        )
+
     def _build_prompt(self, payload: dict[str, Any]) -> str:
         audio_format = payload.get("format", "unknown")
         client_timestamp = payload.get("client_timestamp", "unknown")
@@ -194,7 +220,8 @@ class OpenClawClient:
             f"{stt_error_line}"
             f"{transcript_line}"
             f"{continuation_block}\n"
-            "Lütfen Türkçe yanıt ver. Eğer gerçek transkript yoksa bunu açıkça söyle ve en güvenli bir sonraki adımı öner. "
+            f"{self._language_block(payload)}"
+            "Eğer gerçek transkript yoksa bunu açıkça söyle ve en güvenli bir sonraki adımı öner. "
             "Transkript bozuk/anlamsız görünüyorsa TAHMİNLE İŞLEM YAPMA: ne anladığını tek cümleyle söyle, "
             "requires_phone_handoff=true yap ve next_action olarak düzeltilmiş komutu onaylatmayı öner. "
             "watch_summary HER ZAMAN somut olsun: tam olarak ne yapıldığını veya neden yapılmadığını söyle; "
@@ -210,7 +237,8 @@ class OpenClawClient:
             "next_action_actor: next_action'ı AJAN kendisi çalıştırabilecekse agent yaz ve next_action'ı komut kipinde üret; "
             "yalnızca kullanıcının davranışı gerekiyorsa user yaz (bu tür öneriler kullanıcıya bilgi olarak gösterilir, ajana geri gönderilmez). "
             "user türü next_action'da 'onaylayın/onayla' gibi seçim-bekleyen ifadeler KULLANMA — ortada onaylanacak bir şey yok; "
-            "'Yeni komut verin: ...' kalıbıyla, kullanıcının ne söylemesi gerektiğini açıkça yaz. "
+            "bunun yerine kullanıcının ne söylemesi gerektiğini çıktı dilinde açık bir yönerge olarak yaz "
+            "(TR: 'Yeni komut verin: ...', EN: 'Say this instead: ...'). "
             "Yapılacak bir sonraki adım YOKSA next_action'ı null bırak ve next_action_actor'ı da null yap. "
             "'Yok.', 'Ek işlem gerekmiyor.', 'İşlem gerekmiyor.' gibi dolgu cümlelerini next_action olarak ASLA yazma — "
             "bunlar buton haline gelip tekrar sana gönderiliyor ve kısır döngü yaratıyor; durumu anlatmak istiyorsan rapor bloğunda anlat. "

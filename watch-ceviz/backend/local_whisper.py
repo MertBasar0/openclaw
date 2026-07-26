@@ -81,7 +81,11 @@ def warmup() -> str:
 def transcribe_bytes(audio_bytes: bytes, audio_format: str = "m4a", language: str | None = None) -> str:
     """Base64'ten cozulmus ses baytlarini metne cevir. Bos string = transkript yok."""
     model = _load_model()
-    lang = (language or os.environ.get("WATCH_CEVIZ_WHISPER_LANGUAGE", "tr") or "tr").strip() or None
+    # "auto" ya da bos: Whisper dili kendi algilasin (yabanci kullanicilar
+    # icin sart — sabit "tr" Ingilizce konusmayi anlamsiz metne cevirirdi).
+    lang = (language or os.environ.get("WATCH_CEVIZ_WHISPER_LANGUAGE", "auto") or "").strip().lower()
+    if lang in {"", "auto"}:
+        lang = None
     suffix = "." + (audio_format or "m4a").lstrip(".")
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(audio_bytes)

@@ -23,9 +23,19 @@ class WatchSTT:
         self.api_key = os.environ.get("OPENAI_API_KEY", "").strip()
         self.base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
         self.model = os.environ.get("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
-        self.language = os.environ.get("OPENAI_STT_LANGUAGE", "tr").strip()
+        self.language = os.environ.get("OPENAI_STT_LANGUAGE", "").strip()
         # STT motoru: auto (once lokal whisper, yoksa openai) | local | openai
         self.engine = os.environ.get("WATCH_CEVIZ_STT_ENGINE", "auto").strip().lower() or "auto"
+
+    @staticmethod
+    def language_from_payload(payload: dict[str, Any]) -> str | None:
+        """Istemcinin gonderdigi locale'den ("en-US", "tr-TR") dil kodu cikar.
+        Yoksa None → Whisper otomatik algilar."""
+        locale = str(payload.get("locale") or "").strip()
+        if not locale:
+            return None
+        code = locale.replace("_", "-").split("-")[0].lower()
+        return code or None
 
     def transcribe_watch_payload(self, payload: dict[str, Any]) -> TranscriptionResult:
         provided_transcript = (payload.get("transcript") or "").strip()
@@ -53,7 +63,9 @@ class WatchSTT:
             if local_whisper is not None and local_whisper.is_available():
                 try:
                     text = (local_whisper.transcribe_bytes(
-                        audio_bytes, payload.get("format", "m4a"), self.language or "tr"
+                        audio_bytes,
+                        payload.get("format", "m4a"),
+                        self.language_from_payload(payload) or self.language or None,
                     ) or "").strip()
                     if text:
                         return TranscriptionResult(transcript=text, source=f"local-whisper:{local_whisper.active_device()}")

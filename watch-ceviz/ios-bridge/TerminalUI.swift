@@ -162,7 +162,7 @@ struct CVZCommandInput: View {
 
         var request = BackendConfig.request("/api/v1/shortcuts/command", method: "POST")
         request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = ["text": payload]
+        var body: [String: Any] = ["text": payload, "locale": Locale.current.identifier]
         if !jobId.isEmpty { body["continue_job_id"] = jobId }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
@@ -320,7 +320,7 @@ struct CVZActionsView: View {
         request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
         // continue_job_id: backend onceki isin baglamini prompt'a ekler;
         // oneri metni tek basina anlamsiz kalmasin.
-        var body: [String: Any] = ["text": text]
+        var body: [String: Any] = ["text": text, "locale": Locale.current.identifier]
         if !jobId.isEmpty { body["continue_job_id"] = jobId }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         onFeedback("→ OpenClaw'a gönderiliyor…")

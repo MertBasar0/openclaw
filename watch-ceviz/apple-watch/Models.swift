@@ -5,11 +5,15 @@ struct WatchCommandRequest: Codable {
     let audioData: String
     let format: String
     let clientTimestamp: String?
+    /// Cihaz dili ("en-US", "tr-TR"). Backend hem konusma tanimayi hem de
+    /// ajanin cevap dilini buna gore secer.
+    var locale: String? = Locale.current.identifier
 
     enum CodingKeys: String, CodingKey {
         case audioData = "audio_data"
         case format
         case clientTimestamp = "client_timestamp"
+        case locale
     }
 }
 

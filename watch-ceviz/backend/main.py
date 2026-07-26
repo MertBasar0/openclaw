@@ -826,6 +826,7 @@ def create_openclaw_job(
     stt_error: str = "",
     continue_job: dict | None = None,
     approved_suggestion: bool = False,
+    locale: str = "",
 ) -> dict:
     effective_transcript = transcript.strip()
 
@@ -847,6 +848,7 @@ def create_openclaw_job(
         "transcript": effective_transcript,
         "_stt_source": source,
         "_stt_error": stt_error,
+        "locale": locale,
     }
     if continue_job is not None:
         invocation_payload["_continuation_context"] = build_continuation_context(
@@ -1296,6 +1298,7 @@ Content-Type: application/json
                 client_timestamp=client_timestamp,
                 continue_job=continue_job,
                 approved_suggestion=approved_suggestion,
+                locale=str(payload.get("locale") or "") if isinstance(payload, dict) else "",
             )
             wait_for_job_completion(job, parse_wait_seconds(payload, query))
 
@@ -1332,6 +1335,7 @@ Content-Type: application/json
                 source=stt_result.source,
                 client_timestamp=payload.get("client_timestamp"),
                 stt_error=stt_result.error or "",
+                locale=str(payload.get("locale") or ""),
             )
             resp_payload = build_watch_command_response(job)
 
