@@ -1158,6 +1158,7 @@ Content-Type: application/json
             deep_link = build_handoff_deep_link(job_id) if derive_job_handoff(job) else None
             resp_payload = {
                 "job_id": job_id,
+                "conversation_id": job.get("conversation_id") or "",
                 "status": job["status"],
                 "report_title": report_title,
                 "report_content": report_content,

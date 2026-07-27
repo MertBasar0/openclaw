@@ -135,6 +135,7 @@ typealias ReportBodySectionPayload = StructuredSectionPayload
 
 struct ActiveJob: Codable, Identifiable {
     let id: String
+    var conversationId: String?
     let name: String
     var status: String
     let elapsedSeconds: Int
@@ -150,6 +151,7 @@ struct ActiveJob: Codable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id
+        case conversationId = "conversation_id"
         case name
         case status
         case elapsedSeconds = "elapsed_seconds"

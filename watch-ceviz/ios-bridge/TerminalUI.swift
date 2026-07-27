@@ -106,6 +106,7 @@ struct CVZContinuationCard: View {
 struct CVZCommandInput: View {
     let jobId: String
     let needsInput: Bool
+    var router: AppRouter? = nil
     let onFeedback: (String) -> Void
 
     @State private var text: String = ""
@@ -166,7 +167,7 @@ struct CVZCommandInput: View {
         if !jobId.isEmpty { body["continue_job_id"] = jobId }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { _, response, error in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 sending = false
                 if let error {
@@ -180,6 +181,16 @@ struct CVZCommandInput: View {
                 }
                 text = ""
                 onFeedback(NSLocalizedString("✓ Command sent — it will appear in RECENT JOBS", comment: ""))
+
+                // Yeni ise gec: kullanici zincirin devamini takip etsin,
+                // eski raporda kalip "yeni is nerede?" demesin.
+                if let router,
+                   let data,
+                   let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let newJobId = payload["job_id"] as? String,
+                   let url = URL(string: "ceviz://job/\(newJobId)") {
+                    _ = router.open(url: url, source: .deepLink, presentImmediately: true)
+                }
             }
         }.resume()
     }

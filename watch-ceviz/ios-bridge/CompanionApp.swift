@@ -253,7 +253,11 @@ struct CompanionApp: App {
                     case .home:
                         HomeView(router: router)
                     case .jobReport(let id):
+                        // .id(id) sart: kimlik degismezse SwiftUI ayni view'i
+                        // yeniden kullanir, @State eski raporu tutar ve
+                        // onAppear tetiklenmez → yeni is yerine eskisi acilir.
                         JobDetailView(jobId: id, router: router, onClose: router.dismissToHome)
+                            .id(id)
                     }
                 }
                 .onOpenURL { url in
@@ -653,6 +657,7 @@ struct ReportBridgeSection: View {
 
 struct JobReportResponse: Codable {
     let jobId: String
+    var conversationId: String?
     let status: String
     let reportTitle: String
     let reportContent: String
@@ -668,6 +673,7 @@ struct JobReportResponse: Codable {
     
     enum CodingKeys: String, CodingKey {
         case jobId = "job_id"
+        case conversationId = "conversation_id"
         case status
         case reportTitle = "report_title"
         case reportContent = "report_content"
@@ -1288,6 +1294,12 @@ struct JobDetailView: View {
                     } else if let report = report {
                         titleBlock(report)
 
+                        ChainNavigator(
+                            currentJobId: jobId,
+                            conversationId: report.conversationId ?? "",
+                            router: router
+                        )
+
                         if let watchSummary = bridgeSummaryText {
                             CVZSectionView(eyebrow: "WATCH SUMMARY", content: watchSummary, emphasized: true)
                         }
@@ -1305,7 +1317,8 @@ struct JobDetailView: View {
                         CVZCommandInput(
                             jobId: jobId,
                             needsInput: (report.reportMeta?.outcome == "needs_input"
-                                         || report.reportMeta?.outcome == "blocked")
+                                         || report.reportMeta?.outcome == "blocked"),
+                            router: router
                         ) { message in
                             showToast(message)
                         }
