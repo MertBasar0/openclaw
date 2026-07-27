@@ -26,6 +26,7 @@ import {
   currentClaudeSessionCatalogConfig,
   listBoundClaudeSessions,
   resolveClaudeCatalogCreateSession,
+  resolveClaudeCliRoutedModelId,
 } from "./session-catalog-runtime.js";
 import {
   CLAUDE_CLI_NODE_RUN_COMMAND,
@@ -67,6 +68,7 @@ const MAX_CATALOG_METADATA_SCAN_BYTES = 64 * 1024 * 1024;
 const TRANSCRIPT_READ_CHUNK_BYTES = 128 * 1024;
 const MAX_TRANSCRIPT_SCAN_BYTES = 64 * 1024 * 1024;
 const MAX_TRANSCRIPT_PAGE_BYTES = 20 * 1024 * 1024;
+const CLI_ENTRYPOINTS = new Set(["cli", "sdk-cli"]);
 
 const NODE_INVOKE_TIMEOUT_MS = 30_000;
 // Catalog refresh is fail-soft: one unhealthy machine must not hold the whole sidebar.
@@ -244,6 +246,10 @@ function parsePullRequestSummary(value: unknown): SessionCatalogPullRequestSumma
     throw new Error("Claude node returned an invalid pull request summary");
   }
   return { numbers: numbers as number[], state };
+}
+
+function isCliEntrypoint(value: unknown): value is string {
+  return typeof value === "string" && CLI_ENTRYPOINTS.has(value);
 }
 
 function timestampMs(value: unknown): number | undefined {
@@ -553,15 +559,15 @@ async function discoverCliRecords(
             aiTitle = optionalString(raw.aiTitle, 500) ?? aiTitle;
             return false;
           }
-          if (typeof raw.entrypoint === "string" && raw.entrypoint !== "sdk-cli") {
+          if (typeof raw.entrypoint === "string" && !isCliEntrypoint(raw.entrypoint)) {
             return true;
           }
-          if (raw.entrypoint === "sdk-cli" && raw.isSidechain === true) {
+          if (isCliEntrypoint(raw.entrypoint) && raw.isSidechain === true) {
             sidechainIds.add(sessionId);
             return true;
           }
           if (
-            raw.entrypoint !== "sdk-cli" ||
+            !isCliEntrypoint(raw.entrypoint) ||
             raw.type !== "user" ||
             !isRecord(raw.message) ||
             raw.message.role !== "user"
@@ -1450,7 +1456,12 @@ async function continueClaudeSession(
     }
     const history = await readBoundedClaudeHistory({ runtime: api.runtime, hostId, threadId });
     const config = currentClaudeSessionCatalogConfig(api);
-    const model = CLAUDE_CLI_DEFAULT_MODEL_REF.slice(`${CLAUDE_CLI_BACKEND_ID}/`.length);
+    const adoptingAgentId = resolveDefaultAgentId(config);
+    // Adopt onto the model this agent actually routes to the CLI backend; the
+    // packaged default may not be routed or allowed in an existing config.
+    const model =
+      resolveClaudeCliRoutedModelId(config, adoptingAgentId) ??
+      CLAUDE_CLI_DEFAULT_MODEL_REF.slice(`${CLAUDE_CLI_BACKEND_ID}/`.length);
     const marker = {
       sourceThreadId: threadId,
       ...(hostId !== CLAUDE_LOCAL_SESSION_HOST_ID ? { sourceHostId: hostId } : {}),
@@ -1585,9 +1596,9 @@ export function registerClaudeSessionCatalog(api: OpenClawPluginApi): void {
     label: "Claude Code",
     resolveCreateSession: ({ agentId }) => resolveClaudeCatalogCreateSession(api, agentId),
     list: async (query) => {
-      const adopted = listBoundClaudeSessions(api);
+      const adopted = listBoundClaudeSessions(api, query.sessionEntries);
       const localCliAvailable = catalogTerminal.isClaudeCliAvailable();
-      const { onHost, ...gatewayQuery } = query;
+      const { onHost, sessionEntries: _sessionEntries, ...gatewayQuery } = query;
       const mapHost = (host: ClaudeSessionCatalogHost) =>
         toGenericClaudeHost(host, adopted, localCliAvailable);
       const result = await listClaudeSessionCatalog({
