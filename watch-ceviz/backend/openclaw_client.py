@@ -112,6 +112,90 @@ class OpenClawClient:
             next_action_actor=structured.get("next_action_actor"),
         )
 
+    # --- Canli durum enjeksiyonu ---------------------------------------
+    # Saat komutlari kendi session'inda calisiyor (agent:<id>:main), TUI /
+    # webchat isleri baska session'da. Bu yuzden ajan "ne uzerinde
+    # calisiyorsun?" sorusuna kendi transkriptinden bakip "is yok" diyor,
+    # zorlandiginda hafizadan eski isleri anlatiyordu. Cozum: session
+    # indeksinden CANLI durumu okuyup prompt'a gercek veri olarak vermek.
+
+    @staticmethod
+    def _last_user_message(session_path: Path, max_tail: int = 200_000) -> str:
+        """Buyuk transkriptleri bastan okumamak icin yalnizca kuyrugu tara."""
+        try:
+            size = session_path.stat().st_size
+            with session_path.open("rb") as fh:
+                if size > max_tail:
+                    fh.seek(size - max_tail)
+                    fh.readline()  # yarim satiri at
+                raw = fh.read().decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+        latest = ""
+        for line in raw.splitlines():
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            message = obj.get("message") if isinstance(obj.get("message"), dict) else obj
+            if not isinstance(message, dict) or message.get("role") != "user":
+                continue
+            content = message.get("content")
+            if isinstance(content, list):
+                content = " ".join(
+                    str(part.get("text", "")) for part in content if isinstance(part, dict)
+                )
+            text = " ".join(str(content or "").split())
+            if text:
+                latest = text
+        return latest
+
+    def collect_live_status(self, limit: int = 4, window_hours: float = 24.0) -> list[str]:
+        own_key = f"agent:{self.agent}:main"
+        try:
+            index_path = Path.home() / ".openclaw" / "agents" / self.agent / "sessions" / "sessions.json"
+            data = json.loads(index_path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+
+        now_ms = time.time() * 1000
+        rows: list[tuple[float, str, dict]] = []
+        for key, info in (data.items() if isinstance(data, dict) else []):
+            if not isinstance(info, dict):
+                continue
+            updated = info.get("updatedAt") or info.get("lastActivity") or 0
+            if not isinstance(updated, (int, float)) or updated <= 0:
+                continue
+            if (now_ms - updated) > window_hours * 3600 * 1000:
+                continue
+            rows.append((updated, key, info))
+
+        rows.sort(reverse=True)
+        sessions_dir = Path.home() / ".openclaw" / "agents" / self.agent / "sessions"
+        lines: list[str] = []
+        for updated, key, info in rows[:limit]:
+            minutes = max(0, int((now_ms - updated) / 60000))
+            when = f"{minutes} dk önce" if minutes < 60 else f"{minutes // 60} sa önce"
+            origin = info.get("origin") if isinstance(info.get("origin"), dict) else {}
+            surface = str(origin.get("surface") or origin.get("provider") or "bilinmeyen")
+            if key == own_key:
+                surface += " (bu saat kanalı)"
+
+            summary = ""
+            session_id = info.get("sessionId")
+            if session_id:
+                summary = self._last_user_message(sessions_dir / f"{session_id}.jsonl")
+            # Saat komutlari uzun prompt sarmalayicisi; kisalt.
+            if summary.startswith("Bu istek Apple Watch"):
+                summary = "(saatten gelen sesli komut)"
+            if len(summary) > 160:
+                summary = summary[:159].rstrip() + "…"
+
+            lines.append(f"- {surface} · {when}: {summary or '(içerik okunamadı)'}")
+
+        return lines
+
     def collect_background_activity(self, started_at: float, log_path: str) -> list[str]:
         """Is sirasinda arkada ne oldu: kullanilan araclar + alt ajanlar.
 
@@ -207,6 +291,24 @@ class OpenClawClient:
         )
         continuation = (payload.get("_continuation_context") or "").strip()
         continuation_block = f"\n{continuation}\n" if continuation else ""
+
+        # Saat kendi session'inda calisir; makinede olan biteni gormesi icin
+        # canli durumu prompt'a gercek veri olarak koy.
+        try:
+            live = self.collect_live_status()
+        except Exception:
+            live = []
+        live_block = ""
+        if live:
+            live_block = (
+                "\nCANLI DURUM (bu makinedeki oturumların son etkinliği — gerçek veri, "
+                "senin transkriptinde görünmese de geçerli):\n"
+                + "\n".join(live)
+                + "\nBu listeyi 'ne üzerinde çalışıyorsun / aktif işler neler' türü sorularda "
+                "BİRİNCİL kaynak olarak kullan. Kendi konuşma geçmişinde iş görmüyorsan 'iş yok' "
+                "deme; buradaki oturumlara bak. Hafızadaki/eski notlardaki işleri güncel işmiş "
+                "gibi sunma — yalnızca burada listelenenler güncel.\n"
+            )
         stt_status_line = f"STT kaynağı: {stt_source}\n"
         stt_error_line = f"STT fallback nedeni: {stt_error}\n" if stt_error else ""
 
@@ -219,7 +321,8 @@ class OpenClawClient:
             f"{stt_status_line}"
             f"{stt_error_line}"
             f"{transcript_line}"
-            f"{continuation_block}\n"
+            f"{continuation_block}"
+            f"{live_block}\n"
             f"{self._language_block(payload)}"
             "Eğer gerçek transkript yoksa bunu açıkça söyle ve en güvenli bir sonraki adımı öner. "
             "Transkript bozuk/anlamsız görünüyorsa TAHMİNLE İŞLEM YAPMA: ne anladığını tek cümleyle söyle, "
