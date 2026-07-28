@@ -16,7 +16,7 @@ export type DelegationCapability = "full" | "report_only";
  * gate themselves: the embedded attempt and the Gateway surfaces, whose
  * loopback grant is the tool universe for CLI backends.
  */
-export type DelegationCapabilitySurface = "embedded" | "loopback" | "http";
+type DelegationCapabilitySurface = "embedded" | "loopback" | "http";
 
 const NEW_DELEGATION_TOOL_NAMES = new Set([
   "codex_session_send",
