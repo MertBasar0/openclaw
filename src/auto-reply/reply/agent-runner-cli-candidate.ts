@@ -5,6 +5,7 @@ import {
   getCliSessionBinding,
   shouldClearFailedCliSessionBinding,
 } from "../../agents/cli-session.js";
+import { resolveDelegationCapability } from "../../agents/delegation-capability.js";
 import type { RunEmbeddedAgentParams } from "../../agents/embedded-agent-runner/run/params.js";
 import type { FastModeAutoProgressState } from "../../agents/fast-mode.js";
 import {
@@ -349,6 +350,13 @@ export async function runCliFallbackCandidate(params: {
             currentInboundEventKind: turn.followupRun.currentInboundEventKind,
             currentInboundContext: turn.followupRun.currentInboundContext,
             inputProvenance: turn.followupRun.run.inputProvenance,
+            // Only reached from runAgentFallbackCandidates, so this attempt is
+            // a fallback by construction; the embedded candidate derives the
+            // same bit from the resolved runtime's fallbackActive.
+            delegationCapability: resolveDelegationCapability({
+              fallbackActive: true,
+              inputProvenance: turn.followupRun.run.inputProvenance,
+            }),
             modelProvider: params.provider,
             provider: params.cliExecutionProvider,
             execOverrides: turn.followupRun.run.execOverrides,
