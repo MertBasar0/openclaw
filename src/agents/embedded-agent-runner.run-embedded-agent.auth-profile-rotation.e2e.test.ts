@@ -954,8 +954,7 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       );
       runEmbeddedAttemptMock.mockResolvedValueOnce(
         makeAttempt({
-          promptError: new Error("insufficient credits"),
-          promptErrorSource: "prompt",
+          terminal: { kind: "failed", source: "prompt", error: new Error("insufficient credits") },
         }),
       );
 
