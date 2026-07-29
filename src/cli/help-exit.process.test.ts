@@ -13,8 +13,9 @@ import { registerSubCliByName } from "./program/register.subclis.js";
 
 const execFileAsync = promisify(execFile);
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
-// Fork CI uses shared hosted runners where cold TSX startup can exceed 30 seconds.
-const CHILD_PROCESS_TIMEOUT_MS = 45_000;
+// This is a deadlock guard, not a startup SLO. Fork CI can take over a minute
+// to cold-load the CLI graph on shared hosted runners, while still exiting correctly.
+const CHILD_PROCESS_TIMEOUT_MS = 120_000;
 const LAZY_GROUP_HELP_CASES = [
   { group: "backup", usageCommand: "backup", registry: "core" },
   { group: "capability", usageCommand: "infer|capability", registry: "subcli" },
@@ -206,7 +207,9 @@ type CliProcessFailure = Error & {
 };
 describe("CLI help process exit", () => {
   it("exits promptly after root --help", async () => {
-    const result = await runCliProcess({ args: ["--help"], forbidTlsImport: true });
+    // Keep this precomputed-help case off plugin discovery; plugin-sensitive root help is covered
+    // separately, so the shared child timeout remains a deadlock guard rather than a startup SLO.
+    const result = await runCliProcess({ args: ["--help"], config: {}, forbidTlsImport: true });
 
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Usage: openclaw [options] [command]");
@@ -456,6 +459,9 @@ describe("JSON console style process output", () => {
         await runCliProcess({
           args: ["openclaw-json-console-missing-command", modifier],
           config: loggingConfig,
+          // The fake command cannot belong to a bundled plugin. Avoid cold plugin
+          // discovery so this subprocess measures structured validation, not fleet load.
+          env: { OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1" },
         });
       } catch (error) {
         failure = error as CliProcessFailure;

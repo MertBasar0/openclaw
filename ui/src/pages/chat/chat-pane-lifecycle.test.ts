@@ -14,7 +14,7 @@ import type { ApplicationContext } from "../../app/context.ts";
 import { createInitialUserMessageHandoff } from "../../app/initial-user-message-handoff.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
 import { createTestChatPane, type TestChatPane } from "./chat-pane.test-support.ts";
-import type { ChatPageHost } from "./chat-state.ts";
+import type { ChatPageHost } from "./chat-state-host.ts";
 import {
   dismissConfirmedActionPopovers,
   openChatRewindConfirmation,
@@ -45,7 +45,11 @@ describe("chat pane first-turn attachment lifecycle", () => {
     } as unknown as GatewayBrowserClient;
     const context = {
       basePath: "",
-      gateway: { snapshot: { client, hello: null } },
+      gateway: {
+        snapshot: { client, hello: null },
+        subscribe: vi.fn(() => vi.fn()),
+        subscribeEvents: vi.fn(() => vi.fn()),
+      },
       config: {
         current: {
           assistantIdentity: {

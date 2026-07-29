@@ -204,7 +204,9 @@ export function hasSyntheticLocalProviderAuthConfig(params: {
   if (authConfig.hasExplicitProviderApiKeyConfig(providerConfig)) {
     return false;
   }
-  return Boolean(providerConfig.baseUrl && authConfig.isLocalBaseUrl(providerConfig.baseUrl));
+  return Boolean(
+    providerConfig.baseUrl && authConfig.isLocalAuthProviderBaseUrl(providerConfig.baseUrl),
+  );
 }
 
 function listProviderSyntheticAuthRefs(params: {
