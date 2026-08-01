@@ -352,10 +352,15 @@ export async function runCliFallbackCandidate(params: {
             inputProvenance: turn.followupRun.run.inputProvenance,
             // Only reached from runAgentFallbackCandidates, so this attempt is
             // a fallback by construction; the embedded candidate derives the
-            // same bit from the resolved runtime's fallbackActive.
+            // same bit from the resolved runtime's fallbackActive. The tool
+            // inputs are passed from the same source the run itself uses, so
+            // this surface stays on the shared contract rather than assuming
+            // fallback state is the only restriction.
             delegationCapability: resolveDelegationCapability({
               fallbackActive: true,
               inputProvenance: turn.followupRun.run.inputProvenance,
+              disableTools: turn.opts?.disableTools,
+              toolsAllow: turn.opts?.toolsAllow,
             }),
             modelProvider: params.provider,
             provider: params.cliExecutionProvider,
