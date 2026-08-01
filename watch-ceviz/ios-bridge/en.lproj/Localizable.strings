@@ -57,3 +57,30 @@
 "[RUNNING]" = "[RUNNING]";
 "[QUEUED]" = "[QUEUED]";
 "CHAIN" = "CHAIN";
+
+/* demo mode */
+"demo.deploy.name" = "check the prod deploy";
+"demo.deploy.summary" = "Deploy #8841 is healthy: all checks green, error rate flat after rollout.";
+"demo.deploy.report" = "1. Status: build #8841 deployed to prod at 14:26; health checks passed on all three instances.\n\n2. What was checked: CI pipeline result, post-deploy health endpoint, error rate for the last 15 minutes.\n\n3. Suggested next step: keep the rollback plan ready for one more hour, then close the window.";
+"demo.rollback.name" = "prepare the rollback plan";
+"demo.rollback.summary" = "Rollback plan ready: previous build pinned, one command reverts the release.";
+"demo.rollback.report" = "1. Status: rollback to build #8840 prepared and verified in staging.\n\n2. What was checked: previous artifact availability, database migration reversibility.\n\n3. Suggested next step: no action needed unless the error rate rises.";
+"demo.pr.name" = "summarize pull request 128";
+"demo.pr.summary" = "PR #128 is ready: 4 files, tests pass, one naming nit left by the reviewer.";
+"demo.pr.report" = "1. Status: PR #128 \"cache the session index\" is approved and mergeable.\n\n2. What was checked: diff across 4 files, CI results, review comments.\n\n3. Suggested next step: rename the helper as the reviewer asked, then merge.";
+"demo.incident.name" = "what is happening with the checkout errors";
+"demo.incident.summary" = "Checkout 5xx rate rising since 15:02; payment provider timeouts suspected.";
+"demo.incident.report" = "1. Status: checkout error rate went from 0.2% to 3.1% at 15:02 and is still climbing.\n\n2. What was checked: gateway logs, provider status page, recent deploys (none in the window).\n\n3. Suggested next step: confirm whether to switch to the backup payment provider.";
+"demo.section.watch" = "Watch summary";
+"demo.section.analysis" = "Expanded analysis";
+"demo.section.agents" = "Subagents & tools";
+"demo.agents.body" = "Tools: bash, http (6 calls)\nSubagent: deploy-health-checker";
+"demo.action.grafana" = "OPEN THE GRAFANA BOARD ↗";
+"demo.action.rollback" = "PREPARE THE ROLLBACK PLAN";
+"demo.action.openpr" = "OPEN PULL REQUEST 128 ↗";
+"demo.action.logs" = "OPEN THE INCIDENT LOG ↗";
+"DEMO" = "DEMO";
+"DEMO MODE" = "DEMO MODE";
+"Show sample data without a backend. Useful before pairing, and required for app review." = "Show sample data without a backend. Useful before pairing, and required for app review.";
+"Demo mode — sample data" = "Demo mode — sample data";
+"Not available in demo mode" = "Not available in demo mode";

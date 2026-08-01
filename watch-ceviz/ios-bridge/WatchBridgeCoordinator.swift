@@ -86,12 +86,39 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
             return
         }
 
-        // 2. Forward to Backend
+        // 2. Demo modunda backend'e gitme, ornek sonucu don
+        if DemoMode.isActive {
+            let demo = DemoMode.watchReply(for: DemoMode.jobs.first?.id)
+            var payload = demo
+            payload["status"] = "completed"
+            payload["summary_text"] = demo["summary"] ?? ""
+            if let data = try? JSONSerialization.data(withJSONObject: payload) {
+                replyHandler(data)
+            } else {
+                replyWithError(message: "demo", replyHandler: replyHandler)
+            }
+            return
+        }
+
+        // 3. Forward to Backend
         forwardToBackend(request: requestPayload, replyHandler: replyHandler)
     }
     
     /// Handles dictionary messages for fetching data like active jobs.
     func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
+        // Demo modunda saat de ornek veriyle calissin (App Review esli
+        // cihazda denerse bos ekran gormesin).
+        if DemoMode.isActive {
+            let action = message["action"] as? String
+            if action == "fetch_jobs" {
+                replyHandler(safeReply(DemoMode.jobsReplyForWatch))
+                return
+            }
+            if action == "summarize_job" || action == "cancel_job" {
+                replyHandler(safeReply(DemoMode.watchReply(for: message["job_id"] as? String)))
+                return
+            }
+        }
         if message["action"] as? String == "fetch_jobs" {
             fetchActiveJobs(replyHandler: replyHandler)
         } else if message["action"] as? String == "cancel_job", let jobId = message["job_id"] as? String {

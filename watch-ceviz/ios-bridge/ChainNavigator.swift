@@ -96,6 +96,10 @@ struct ChainNavigator: View {
 
     private func load() {
         guard !conversationId.isEmpty else { return }
+        if DemoMode.isActive {
+            chain = DemoMode.jobs.filter { ($0.conversationId ?? "") == conversationId }
+            return
+        }
         URLSession.shared.dataTask(with: BackendConfig.request("/api/v1/jobs/active")) { data, _, _ in
             guard let data,
                   let decoded = try? JSONDecoder().decode(ActiveJobsResponse.self, from: data) else { return }

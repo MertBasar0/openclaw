@@ -287,6 +287,14 @@ struct HomeView: View {
                     .tracking(1.5)
                     .foregroundColor(CVZ.text)
                 Spacer()
+                if DemoMode.isActive {
+                    Text("DEMO")
+                        .font(CVZ.mono(10, .semibold))
+                        .foregroundColor(CVZ.warn)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(CVZ.warnBg, in: RoundedRectangle(cornerRadius: 3))
+                }
                 Text(link.isReachable ? "▮ WATCH LINKED" : "▮ WATCH NOT LINKED")
                     .font(CVZ.mono(11, .semibold))
                     .foregroundColor(link.isReachable ? CVZ.accent : CVZ.err)
@@ -400,6 +408,10 @@ struct HomeView: View {
     /// Saat ne durumda olursa olsun sonuc telefonda her zaman gorulebilsin:
     /// Home, is listesini backend'den dogrudan ceker.
     private func fetchRecentJobs() {
+        if DemoMode.isActive {
+            recentJobs = Array(DemoMode.jobs.suffix(4).reversed())
+            return
+        }
         URLSession.shared.dataTask(with: BackendConfig.request("/api/v1/jobs/active")) { data, _, _ in
             guard let data,
                   let decoded = try? JSONDecoder().decode(ActiveJobsResponse.self, from: data) else { return }
@@ -1525,6 +1537,12 @@ struct JobDetailView: View {
     }
     
     private func fetchReport() {
+        if DemoMode.isActive {
+            report = DemoMode.report(for: jobId)
+            errorMessage = report == nil ? NSLocalizedString("Not available in demo mode", comment: "") : nil
+            isLoading = false
+            return
+        }
         let reportRequest = BackendConfig.request("/api/v1/jobs/\(jobId)/report")
 
         URLSession.shared.dataTask(with: reportRequest) { data, response, error in

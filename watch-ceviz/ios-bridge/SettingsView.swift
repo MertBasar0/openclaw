@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var tokenText: String = BackendConfig.token
     @State private var testState: TestState = .idle
     @State private var showScanner = false
+    @State private var demoOn: Bool = DemoMode.isExplicit
 
     private enum TestState: Equatable {
         case idle, testing
@@ -56,6 +57,23 @@ struct SettingsView: View {
                     Text("Scan the QR printed by the install script — URL and token fill in automatically.")
                         .font(.system(size: 11.5))
                         .foregroundColor(CVZ.textDim)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle(isOn: $demoOn) {
+                            Text("DEMO MODE")
+                                .font(CVZ.mono(10, .semibold))
+                                .tracking(1.4)
+                                .foregroundColor(CVZ.accent)
+                        }
+                        .tint(CVZ.accent)
+                        .onChange(of: demoOn) { newValue in
+                            DemoMode.setExplicit(newValue)
+                        }
+                        Text("Show sample data without a backend. Useful before pairing, and required for app review.")
+                            .font(.system(size: 11.5))
+                            .foregroundColor(CVZ.textDim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
                     fieldBlock(
                         label: "SERVER URL",
@@ -167,6 +185,10 @@ struct SettingsView: View {
     }
 
     private func runTest() {
+        if demoOn {
+            testState = .success(NSLocalizedString("Demo mode — sample data", comment: ""))
+            return
+        }
         guard let url = URL(string: candidateBaseURL + "/api/v1/jobs/active") else {
             testState = .failure(NSLocalizedString("Invalid URL", comment: ""))
             return

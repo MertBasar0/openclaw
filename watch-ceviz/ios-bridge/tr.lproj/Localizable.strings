@@ -57,3 +57,30 @@
 "[RUNNING]" = "[ÇALIŞIYOR]";
 "[QUEUED]" = "[SIRADA]";
 "CHAIN" = "ZİNCİR";
+
+/* demo mode */
+"demo.deploy.name" = "prod deploy'u kontrol et";
+"demo.deploy.summary" = "Deploy #8841 sağlıklı: tüm kontroller yeşil, yayın sonrası hata oranı sabit.";
+"demo.deploy.report" = "1. Kısa durum: build #8841 saat 14:26'da prod'a çıktı; üç instance'ta da sağlık kontrolleri geçti.\n\n2. Ne kontrol edildi: CI hattı sonucu, yayın sonrası sağlık ucu, son 15 dakikanın hata oranı.\n\n3. Önerilen sonraki adım: rollback planını bir saat daha hazır tut, sonra pencereyi kapat.";
+"demo.rollback.name" = "rollback planını hazırla";
+"demo.rollback.summary" = "Rollback planı hazır: önceki build sabitlendi, tek komutla sürüm geri alınıyor.";
+"demo.rollback.report" = "1. Kısa durum: build #8840'a dönüş hazırlandı ve staging'de doğrulandı.\n\n2. Ne kontrol edildi: önceki artefaktın erişilebilirliği, veritabanı göçünün geri alınabilirliği.\n\n3. Önerilen sonraki adım: hata oranı yükselmedikçe işlem gerekmiyor.";
+"demo.pr.name" = "128 numaralı pull request'i özetle";
+"demo.pr.summary" = "PR #128 hazır: 4 dosya, testler geçiyor, incelemede tek isimlendirme notu kalmış.";
+"demo.pr.report" = "1. Kısa durum: \"session indeksini önbellekle\" başlıklı PR #128 onaylı ve birleştirilebilir.\n\n2. Ne kontrol edildi: 4 dosyalık fark, CI sonuçları, inceleme yorumları.\n\n3. Önerilen sonraki adım: incelemede istenen yardımcı fonksiyon adını değiştir, sonra birleştir.";
+"demo.incident.name" = "ödeme hatalarında ne oluyor";
+"demo.incident.summary" = "Ödeme 5xx oranı 15:02'den beri yükseliyor; sağlayıcı zaman aşımından şüpheleniliyor.";
+"demo.incident.report" = "1. Kısa durum: ödeme hata oranı 15:02'de %0,2'den %3,1'e çıktı ve yükselmeye devam ediyor.\n\n2. Ne kontrol edildi: ağ geçidi logları, sağlayıcı durum sayfası, son yayınlar (bu aralıkta yok).\n\n3. Önerilen sonraki adım: yedek ödeme sağlayıcısına geçilip geçilmeyeceğini onayla.";
+"demo.section.watch" = "Saat özeti";
+"demo.section.analysis" = "Ayrıntılı analiz";
+"demo.section.agents" = "Alt ajanlar & araçlar";
+"demo.agents.body" = "Araçlar: bash, http (6 çağrı)\nAlt ajan: deploy-health-checker";
+"demo.action.grafana" = "GRAFANA PANOSUNU AÇ ↗";
+"demo.action.rollback" = "ROLLBACK PLANINI HAZIRLA";
+"demo.action.openpr" = "PULL REQUEST 128'İ AÇ ↗";
+"demo.action.logs" = "OLAY LOGUNU AÇ ↗";
+"DEMO" = "DEMO";
+"DEMO MODE" = "DEMO MODU";
+"Show sample data without a backend. Useful before pairing, and required for app review." = "Backend olmadan örnek veri gösterir. Eşleşmeden önce ve uygulama incelemesi için kullanışlıdır.";
+"Demo mode — sample data" = "Demo modu — örnek veri";
+"Not available in demo mode" = "Demo modunda kullanılamaz";

@@ -159,6 +159,11 @@ struct CVZCommandInput: View {
     private func send() {
         let payload = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !payload.isEmpty, !sending else { return }
+        if DemoMode.isActive {
+            text = ""
+            onFeedback(NSLocalizedString("Demo mode — sample data", comment: ""))
+            return
+        }
         sending = true
 
         var request = BackendConfig.request("/api/v1/shortcuts/command", method: "POST")
@@ -327,6 +332,10 @@ struct CVZActionsView: View {
     }
 
     private func sendSuggestionAsCommand(_ text: String) {
+        if DemoMode.isActive {
+            onFeedback(NSLocalizedString("Demo mode — sample data", comment: ""))
+            return
+        }
         var request = BackendConfig.request("/api/v1/shortcuts/command", method: "POST")
         request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
         // continue_job_id: backend onceki isin baglamini prompt'a ekler;
@@ -355,6 +364,10 @@ struct CVZActionsView: View {
     }
 
     private func performApiCall(_ action: NextActionPayload) {
+        if DemoMode.isActive {
+            onFeedback(NSLocalizedString("Demo mode — sample data", comment: ""))
+            return
+        }
         guard let target = action.target, !target.isEmpty,
               let url = resolvedApiCallURL(from: target) else {
             onFeedback(NSLocalizedString("✕ Missing or invalid action target", comment: ""))
