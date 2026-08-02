@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>Ceviz — Privacy Policy | Basar Labs</title>
+    <meta
+        name="description"
+        content="Privacy policy for Ceviz, the Apple Watch and iPhone control surface for your self-hosted OpenClaw agent."
+    >
+    <meta property="og:title" content="Ceviz — Privacy Policy">
+    <meta
+        property="og:description"
+        content="Ceviz collects no personal data. Your commands go to a backend you run on your own machine."
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://basarlabs.com.tr/ceviz/privacy/">
+    <meta name="theme-color" content="#080b10">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        .legal {
+            max-width: 760px;
+            padding: 60px 0 100px;
+        }
+        .legal h1 {
+            font-size: clamp(2.4rem, 6vw, 3.6rem);
+            margin-bottom: 16px;
+        }
+        .legal .updated {
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin-bottom: 44px;
+        }
+        .legal .summary {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface);
+            padding: 22px 24px;
+            margin-bottom: 48px;
+        }
+        .legal .summary p {
+            margin: 0;
+            color: var(--text);
+        }
+        .legal h2 {
+            margin-top: 44px;
+            margin-bottom: 12px;
+            font-size: 1.25rem;
+            letter-spacing: -0.02em;
+        }
+        .legal p,
+        .legal li {
+            color: var(--muted);
+        }
+        .legal ul {
+            padding-left: 20px;
+        }
+        .legal li {
+            margin-bottom: 8px;
+        }
+        .legal strong {
+            color: var(--text);
+            font-weight: 600;
+        }
+        .legal a {
+            color: var(--accent);
+        }
+        .lang-switch {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 40px;
+        }
+        .lang-switch button {
+            padding: 7px 14px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            background: transparent;
+            color: var(--muted);
+            font: inherit;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        .lang-switch button[aria-selected="true"] {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        [hidden] {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <header class="site-header">
+        <a class="brand" href="/" aria-label="Basar Labs">basar<span class="brand-labs">labs</span><span class="brand-caret" aria-hidden="true"></span></a>
+        <nav>
+            <a href="/">Home</a>
+        </nav>
+    </header>
+
+    <main class="legal">
+        <div class="lang-switch" role="tablist" aria-label="Language">
+            <button type="button" role="tab" data-lang="en" aria-selected="true">English</button>
+            <button type="button" role="tab" data-lang="tr" aria-selected="false">Türkçe</button>
+        </div>
+
+        <section data-lang-section="en">
+            <h1>Ceviz — Privacy Policy</h1>
+            <p class="updated">Last updated: 2 August 2026</p>
+
+            <div class="summary">
+                <p><strong>Ceviz collects no personal data.</strong> We operate no servers that receive your content. Your voice commands and results travel between your own devices and a backend you run on your own machine.</p>
+            </div>
+
+            <h2>What the app sends, and where</h2>
+            <p>When you record a voice command on your Apple Watch, the audio is passed to your paired iPhone and forwarded to the backend you configured — a server you run on your own machine, reachable only over your own private network. Your voice recordings, transcripts, job results and reports stay between your devices and that machine. They are never sent to Basar Labs.</p>
+
+            <h2>Speech recognition</h2>
+            <p>By default, speech is transcribed locally on your own machine. A third-party speech service is used only if you explicitly configure one with your own API key. That choice, and any data it involves, is yours to make and control.</p>
+
+            <h2>What is stored on your device</h2>
+            <ul>
+                <li>The <strong>server address</strong> you enter is stored in the app's local settings.</li>
+                <li>The <strong>access token</strong> is stored in the iOS Keychain.</li>
+            </ul>
+            <p>Neither value is transmitted anywhere except to the backend you configured.</p>
+
+            <h2>Permissions</h2>
+            <ul>
+                <li><strong>Microphone</strong> — used only to record voice commands that you start.</li>
+                <li><strong>Camera</strong> — used only to scan the pairing QR code printed by your own install script.</li>
+            </ul>
+
+            <h2>Analytics and tracking</h2>
+            <p>The app contains no analytics, advertising, or tracking SDKs. We do not profile you and we do not share data with third parties, because we do not receive any.</p>
+
+            <h2>Demo Mode</h2>
+            <p>With no backend configured, the app runs in Demo Mode: it shows built-in sample data and makes no network requests for content.</p>
+
+            <h2>Children</h2>
+            <p>Ceviz is a developer tool and is not directed at children.</p>
+
+            <h2>Changes</h2>
+            <p>If this policy changes, the updated version will be published on this page with a new date.</p>
+
+            <h2>Contact</h2>
+            <p>Questions about this policy: <a href="mailto:mert@basarlabs.com.tr">mert@basarlabs.com.tr</a></p>
+        </section>
+
+        <section data-lang-section="tr" hidden>
+            <h1>Ceviz — Gizlilik Politikası</h1>
+            <p class="updated">Son güncelleme: 2 Ağustos 2026</p>
+
+            <div class="summary">
+                <p><strong>Ceviz kişisel veri toplamaz.</strong> İçeriğinizi alan herhangi bir sunucu işletmiyoruz. Sesli komutlarınız ve sonuçlar, kendi cihazlarınızla kendi makinenizde çalıştırdığınız sunucu arasında kalır.</p>
+            </div>
+
+            <h2>Uygulama ne gönderir, nereye</h2>
+            <p>Apple Watch'ta bir sesli komut kaydettiğinizde ses, eşli iPhone'unuza aktarılır ve yapılandırdığınız sunucuya iletilir — bu sunucu kendi makinenizde çalışır ve yalnızca kendi özel ağınızdan erişilebilir. Ses kayıtlarınız, transkriptleriniz, iş sonuçlarınız ve raporlarınız cihazlarınızla o makine arasında kalır. Basar Labs'a hiçbir zaman gönderilmez.</p>
+
+            <h2>Konuşma tanıma</h2>
+            <p>Varsayılan olarak konuşma kendi makinenizde çözülür. Üçüncü taraf bir konuşma servisi yalnızca kendi API anahtarınızla açıkça yapılandırırsanız kullanılır. Bu tercih ve kapsadığı veriler tamamen sizin kontrolünüzdedir.</p>
+
+            <h2>Cihazınızda ne saklanır</h2>
+            <ul>
+                <li>Girdiğiniz <strong>sunucu adresi</strong> uygulamanın yerel ayarlarında saklanır.</li>
+                <li><strong>Erişim token'ı</strong> iOS Keychain'de saklanır.</li>
+            </ul>
+            <p>İkisi de yapılandırdığınız sunucu dışında hiçbir yere iletilmez.</p>
+
+            <h2>İzinler</h2>
+            <ul>
+                <li><strong>Mikrofon</strong> — yalnızca sizin başlattığınız sesli komutları kaydetmek için kullanılır.</li>
+                <li><strong>Kamera</strong> — yalnızca kendi kurulum scriptinizin gösterdiği eşleşme QR kodunu okumak için kullanılır.</li>
+            </ul>
+
+            <h2>Analitik ve izleme</h2>
+            <p>Uygulamada analitik, reklam veya izleme SDK'sı yoktur. Sizi profillemiyoruz ve üçüncü taraflarla veri paylaşmıyoruz; çünkü hiçbir veri almıyoruz.</p>
+
+            <h2>Demo Modu</h2>
+            <p>Yapılandırılmış bir sunucu yokken uygulama Demo Modu'nda çalışır: yerleşik örnek veriyi gösterir ve içerik için ağ isteği yapmaz.</p>
+
+            <h2>Çocuklar</h2>
+            <p>Ceviz bir geliştirici aracıdır ve çocuklara yönelik değildir.</p>
+
+            <h2>Değişiklikler</h2>
+            <p>Bu politika değişirse güncel sürüm yeni tarihiyle bu sayfada yayımlanır.</p>
+
+            <h2>İletişim</h2>
+            <p>Bu politikayla ilgili sorular: <a href="mailto:mert@basarlabs.com.tr">mert@basarlabs.com.tr</a></p>
+        </section>
+    </main>
+
+    <footer>
+        <p>© 2026 Basar Labs</p>
+        <a href="mailto:mert@basarlabs.com.tr">
+            mert@basarlabs.com.tr
+        </a>
+    </footer>
+
+    <script>
+        (function () {
+            var buttons = document.querySelectorAll('.lang-switch button');
+            var sections = document.querySelectorAll('[data-lang-section]');
+
+            function select(lang) {
+                buttons.forEach(function (b) {
+                    b.setAttribute('aria-selected', String(b.dataset.lang === lang));
+                });
+                sections.forEach(function (s) {
+                    s.hidden = s.dataset.langSection !== lang;
+                });
+                document.documentElement.lang = lang;
+            }
+
+            buttons.forEach(function (b) {
+                b.addEventListener('click', function () {
+                    select(b.dataset.lang);
+                });
+            });
+
+            if ((navigator.language || '').toLowerCase().indexOf('tr') === 0) {
+                select('tr');
+            }
+        })();
+    </script>
+</body>
+</html>
