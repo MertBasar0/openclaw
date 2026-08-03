@@ -43,6 +43,7 @@ import {
   DEFAULT_EMPTY_RESPONSE_RETRY_LIMIT,
   DEFAULT_REASONING_ONLY_RETRY_LIMIT,
 } from "./run/incomplete-turn.js";
+import { measureEmbeddedAgentPreparation } from "./run/preparation-timing.js";
 import { handleRetryLimitExhaustion } from "./run/retry-limit.js";
 import { prepareEmbeddedRunRuntime } from "./run/runtime-preparation.js";
 import { createEmbeddedRunSessionPromptState } from "./run/session-prompt-state.js";
@@ -77,20 +78,25 @@ export async function runPreparedEmbeddedLoop(
   const { maybeEmitFastModeAutoResetBestEffort, notifyExecutionPhase } = input.progressController;
   const { laneTaskAbortController } = input.laneController;
   let startupStagesEmitted = false;
-  const preparedRuntime = await prepareEmbeddedRunRuntime({
-    runParams: params,
-    provider,
-    modelId,
-    agentDir,
-    workspaceDir: resolvedWorkspace,
-    globalLane,
-    hookRunner,
-    hookContext: hookCtx,
-    markStartupStage: (stage) => startupStages.mark(stage),
-    notifyExecutionPhase,
-    fallbackConfigured,
-    preparedModelRuntime: input.preparedModelRuntime,
-  });
+  const preparedRuntime = await measureEmbeddedAgentPreparation(
+    "runtime",
+    () =>
+      prepareEmbeddedRunRuntime({
+        runParams: params,
+        provider,
+        modelId,
+        agentDir,
+        workspaceDir: resolvedWorkspace,
+        globalLane,
+        hookRunner,
+        hookContext: hookCtx,
+        markStartupStage: (stage) => startupStages.mark(stage),
+        notifyExecutionPhase,
+        fallbackConfigured,
+        preparedModelRuntime: input.preparedModelRuntime,
+      }),
+    { config: params.config },
+  );
   provider = preparedRuntime.provider;
   modelId = preparedRuntime.modelId;
   const {
@@ -255,10 +261,15 @@ export async function runPreparedEmbeddedLoop(
   // Resolve the context engine once and reuse across retries to avoid
   // repeated initialization/connection overhead per attempt.
   ensureContextEnginesInitialized();
-  const contextEngine = await resolveContextEngine(params.config, {
-    agentDir,
-    workspaceDir: resolvedWorkspace,
-  });
+  const contextEngine = await measureEmbeddedAgentPreparation(
+    "context-engine",
+    () =>
+      resolveContextEngine(params.config, {
+        agentDir,
+        workspaceDir: resolvedWorkspace,
+      }),
+    { config: params.config },
+  );
   const resolveContextEnginePluginId = () => resolveContextEngineOwnerPluginId(contextEngine);
   startupStages.mark("context-engine");
   notifyExecutionPhase("context_engine", { provider, model: modelId });
@@ -273,8 +284,6 @@ export async function runPreparedEmbeddedLoop(
     let authRetryPending = false;
     let accumulatedReplayState = createEmbeddedRunReplayState();
     let latestMcpAppChannelView: McpAppChannelView | undefined;
-    // Hoisted so the retry-limit error path can use the most recent API total.
-    let lastTurnTotal: number | undefined;
     while (true) {
       refreshPreparedRuntimeSnapshot();
       if (runLoopIterations >= MAX_RUN_LOOP_ITERATIONS) {
@@ -306,7 +315,6 @@ export async function runPreparedEmbeddedLoop(
             ...outerContextTokenMeta,
             usageAccumulator,
             lastRunPromptUsage,
-            lastTurnTotal,
           }),
           replayInvalid: accumulatedReplayState.replayInvalid ? true : undefined,
           livenessState: "blocked",
@@ -358,7 +366,6 @@ export async function runPreparedEmbeddedLoop(
         bootstrapPromptWarningSignaturesSeen,
         usageAccumulator,
         lastRunPromptUsage,
-        lastTurnTotal,
         idleTimeoutBreakerState,
         contextRecoveryState,
         replayState: accumulatedReplayState,
@@ -371,13 +378,11 @@ export async function runPreparedEmbeddedLoop(
         bootstrapPromptWarningSignaturesSeen =
           normalizedAttempt.bootstrapPromptWarningSignaturesSeen;
         lastRunPromptUsage = normalizedAttempt.lastRunPromptUsage;
-        lastTurnTotal = normalizedAttempt.lastTurnTotal;
         accumulatedReplayState = normalizedAttempt.replayState;
         continue;
       }
       bootstrapPromptWarningSignaturesSeen = normalizedAttempt.bootstrapPromptWarningSignaturesSeen;
       lastRunPromptUsage = normalizedAttempt.lastRunPromptUsage;
-      lastTurnTotal = normalizedAttempt.lastTurnTotal;
       accumulatedReplayState = normalizedAttempt.replayState;
       const {
         attempt,
@@ -411,7 +416,6 @@ export async function runPreparedEmbeddedLoop(
         armPostCompactionGuard: () => postCompactionGuard.armPostCompaction(),
         usageAccumulator,
         lastRunPromptUsage,
-        lastTurnTotal,
         runtimeAuthRetry,
         codexAppServerRecoveryRetryAvailable,
         codexAppServerRecoveryRetries,
@@ -510,7 +514,6 @@ export async function runPreparedEmbeddedLoop(
           resolvedToolResultFormat,
         },
         lastRunPromptUsage,
-        lastTurnTotal,
         finalization: {
           preparedAttempt: dispatchedAttempt.preparedAttempt,
           harness: agentHarness,
@@ -529,7 +532,6 @@ export async function runPreparedEmbeddedLoop(
         finalizationAttempted: settledTurnFinalizationAttempted,
       } = finalizedTerminal;
       lastRunPromptUsage = finalizedTerminal.lastRunPromptUsage;
-      lastTurnTotal = finalizedTerminal.lastTurnTotal;
       if (finalizedTerminal.finalizationSucceeded) {
         assistantProfileFailureReason = null;
       }

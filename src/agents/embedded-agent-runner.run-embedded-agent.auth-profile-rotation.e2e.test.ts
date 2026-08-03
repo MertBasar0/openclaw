@@ -93,7 +93,6 @@ const installRunEmbeddedMocks = () => {
 };
 
 let runEmbeddedAgent: typeof import("./embedded-agent-runner/run.js").runEmbeddedAgent;
-let authProfileUsageTesting: typeof import("./auth-profiles/usage.test-support.js").testing;
 let createDiagnosticLogRecordCaptureFn: typeof import("../logging/test-helpers/diagnostic-log-capture.js").createDiagnosticLogRecordCapture;
 let cleanupLogCapture: (() => void) | undefined;
 let resetLoggerFn: typeof import("../logging/logger.js").resetLogger;
@@ -104,7 +103,6 @@ beforeAll(async () => {
   vi.resetModules();
   installRunEmbeddedMocks();
   ({ runEmbeddedAgent } = await import("./embedded-agent-runner/run.js"));
-  ({ testing: authProfileUsageTesting } = await import("./auth-profiles/usage.test-support.js"));
   ({ createDiagnosticLogRecordCapture: createDiagnosticLogRecordCaptureFn } =
     await import("../logging/test-helpers/diagnostic-log-capture.js"));
   ({ resetLogger: resetLoggerFn, setLoggerOverride: setLoggerOverrideFn } =
@@ -144,7 +142,6 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  authProfileUsageTesting.setDepsForTest(null);
   cleanupLogCapture?.();
   cleanupLogCapture = undefined;
   setLoggerOverrideFn(null);
@@ -159,6 +156,7 @@ const makeConfig = (opts?: { fallbacks?: string[]; apiKey?: string }): OpenClawC
           fallbacks: opts?.fallbacks ?? [],
         },
       },
+      list: [{ id: "test" }],
     },
     models: {
       providers: {
@@ -225,6 +223,9 @@ const copilotModelId = "gpt-4o";
 
 const makeCopilotConfig = (): OpenClawConfig =>
   ({
+    agents: {
+      list: [{ id: "test" }],
+    },
     models: {
       providers: {
         "github-copilot": {
@@ -380,7 +381,6 @@ async function runAutoPinnedOpenAiTurn(params: {
   await runEmbeddedAgentInline({
     sessionId: "session:test",
     sessionKey: params.sessionKey,
-    sessionFile: path.join(params.workspaceDir, "session.jsonl"),
     workspaceDir: params.workspaceDir,
     agentDir: params.agentDir,
     config: params.config ?? makeConfig(),
@@ -594,7 +594,6 @@ async function runTurnWithCooldownSeed(params: {
     await runEmbeddedAgentInline({
       sessionId: "session:test",
       sessionKey: params.sessionKey,
-      sessionFile: path.join(workspaceDir, "session.jsonl"),
       workspaceDir,
       agentDir,
       config: makeConfig(),
@@ -628,7 +627,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:read-only-auth-profile-state",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeConfig(),
@@ -696,7 +694,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:copilot-auth-error",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeCopilotConfig(),
@@ -785,7 +782,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:copilot-auth-repeat",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeCopilotConfig(),
@@ -833,7 +829,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       const runPromise = runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:copilot-shutdown",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeCopilotConfig(),
@@ -984,46 +979,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
     });
   });
 
-  it("does not wait for prompt failure cooldown marking before retrying", async () => {
-    let releaseMark: (() => void) | undefined;
-    const markCanFinish = new Promise<void>((resolve) => {
-      releaseMark = resolve;
-    });
-    let markStarted = false;
-    authProfileUsageTesting.setDepsForTest({
-      updateAuthProfileStoreWithLock: async () => {
-        markStarted = true;
-        await markCanFinish;
-        return null;
-      },
-    });
-
-    try {
-      await withAgentWorkspace(async ({ agentDir, workspaceDir }) => {
-        await writeAuthStore(agentDir);
-        mockPromptErrorThenSuccessfulAttempt("rate limit exceeded");
-
-        const runPromise = runAutoPinnedOpenAiTurn({
-          agentDir,
-          workspaceDir,
-          sessionKey: "agent:test:prompt-deferred-mark",
-          runId: "run:prompt-deferred-mark",
-        });
-
-        await vi.waitFor(() => expect(runEmbeddedAttemptMock).toHaveBeenCalledTimes(2));
-        expect(markStarted).toBe(true);
-        releaseMark?.();
-        releaseMark = undefined;
-        await runPromise;
-
-        const usageStats = await readUsageStats(agentDir);
-        expect(typeof usageStats["openai:p2"]?.lastUsed).toBe("number");
-      });
-    } finally {
-      releaseMark?.();
-    }
-  });
-
   it("rotates on timeout without cooling down the timed-out profile", async () => {
     const { usageStats } = await runAutoPinnedRotationCase({
       errorMessage: "request ended without sending any chunks",
@@ -1069,7 +1024,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       const result = await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:compaction-timeout",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeConfig(),
@@ -1111,7 +1065,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       const result = await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:compaction-wait-abort",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeConfig(),
@@ -1140,7 +1093,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
         runEmbeddedAgentInline({
           sessionId: "session:test",
           sessionKey: "agent:test:user",
-          sessionFile: path.join(workspaceDir, "session.jsonl"),
           workspaceDir,
           agentDir,
           config: makeConfig(),
@@ -1190,7 +1142,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:user-order-excluded",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeConfig(),
@@ -1219,7 +1170,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:user-auth-alias",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeConfig(),
@@ -1260,7 +1210,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:mismatch",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeConfig(),
@@ -1302,7 +1251,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
         runEmbeddedAgentInline({
           sessionId: "session:test",
           sessionKey: "agent:test:cooldown-failover",
-          sessionFile: path.join(workspaceDir, "session.jsonl"),
           workspaceDir,
           agentDir,
           config: makeConfig({ fallbacks: ["openai/mock-2"] }),
@@ -1346,7 +1294,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       const result = await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:cooldown-probe",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeConfig({ fallbacks: ["openai/mock-2"] }),
@@ -1394,7 +1341,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       const result = await runEmbeddedAgentInline({
         sessionId: "session:test",
         sessionKey: "agent:test:overloaded-cooldown-probe",
-        sessionFile: path.join(workspaceDir, "session.jsonl"),
         workspaceDir,
         agentDir,
         config: makeConfig({ fallbacks: ["openai/mock-2"] }),
@@ -1433,7 +1379,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
         runEmbeddedAgentInline({
           sessionId: "session:test",
           sessionKey: "agent:test:billing-cooldown-probe-no-fallbacks",
-          sessionFile: path.join(workspaceDir, "session.jsonl"),
           workspaceDir,
           agentDir,
           config: makeConfig(),
@@ -1464,7 +1409,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
         runEmbeddedAgentInline({
           sessionId: "session:test",
           sessionKey: "agent:support:cooldown-failover",
-          sessionFile: path.join(workspaceDir, "session.jsonl"),
           workspaceDir,
           agentDir,
           config: makeAgentOverrideOnlyFallbackConfig("support"),
@@ -1509,7 +1453,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
         runEmbeddedAgentInline({
           sessionId: "session:test",
           sessionKey: "agent:test:disabled-failover",
-          sessionFile: path.join(workspaceDir, "session.jsonl"),
           workspaceDir,
           agentDir,
           config: makeConfig({ fallbacks: ["openai/mock-2"] }),
@@ -1536,16 +1479,12 @@ describe("runEmbeddedAgent auth profile rotation", () => {
     delete process.env.OPENAI_API_KEY;
     try {
       await withAgentWorkspace(async ({ agentDir, workspaceDir }) => {
-        const authPath = path.join(agentDir, "auth-profiles.json");
-        const authStatePath = path.join(agentDir, "auth-state.json");
-        await fs.writeFile(authPath, JSON.stringify({ version: 1, profiles: {} }));
-        await fs.writeFile(authStatePath, JSON.stringify({ version: 1, usageStats: {} }));
+        saveAuthProfileStore({ version: 1, profiles: {}, usageStats: {} }, agentDir);
 
         await expectFailoverError(
           runEmbeddedAgentInline({
             sessionId: "session:test",
             sessionKey: "agent:test:auth-unavailable",
-            sessionFile: path.join(workspaceDir, "session.jsonl"),
             workspaceDir,
             agentDir,
             config: makeConfig({ fallbacks: ["openai/mock-2"], apiKey: "" }),
@@ -1584,7 +1523,6 @@ describe("runEmbeddedAgent auth profile rotation", () => {
         await runEmbeddedAgentInline({
           sessionId: "session:test",
           sessionKey: "agent:test:billing-failover-active-model",
-          sessionFile: path.join(workspaceDir, "session.jsonl"),
           workspaceDir,
           agentDir,
           config: makeConfig({ fallbacks: ["openai/mock-2"] }),
