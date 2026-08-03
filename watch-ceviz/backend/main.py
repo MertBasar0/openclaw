@@ -27,7 +27,7 @@ STATE_DIR = Path(os.environ.get("WATCH_CEVIZ_STATE_DIR", str(Path.home() / ".ope
 JOBS_STATE_PATH = STATE_DIR / "jobs.json"
 MAX_PERSISTED_JOBS = 50
 
-from openclaw_client import OpenClawClient
+from openclaw_client import OpenClawClient, OpenClawUnavailable
 from stt import WatchSTT
 
 openclaw_client = OpenClawClient()
@@ -896,8 +896,36 @@ def create_openclaw_job(
         invocation_payload["_continuation_context"] = build_continuation_context(
             continue_job, approved_suggestion=approved_suggestion
         )
-    invocation = openclaw_client.invoke_watch_command(invocation_payload)
     new_job_id = f"job-{uuid.uuid4().hex[:8]}"
+    try:
+        invocation = openclaw_client.invoke_watch_command(invocation_payload)
+    except OpenClawUnavailable as exc:
+        # Kurulum hatasi: isi 500 ile dusurme, konusan bir "failed" is uret
+        # ki kullanici saatte/telefonda sebebini gorsun.
+        logging.error("OpenClaw çağrılamadı: %s", exc)
+        failed_job = {
+            "id": new_job_id,
+            "conversation_id": conversation_id,
+            "locale": locale,
+            "name": effective_transcript or "Komut",
+            "status": "failed",
+            "created_at": time.time(),
+            "elapsed_seconds": 0,
+            "category": "kurulum",
+            "canned_result": str(exc),
+            "watch_summary": trim_watch_text(str(exc), 160),
+            "requires_phone_handoff": True,
+            "phone_report": str(exc),
+            "transcript": effective_transcript,
+            "stt_source": source,
+            "stt_error": stt_error,
+            "next_action": None,
+            "outcome": "blocked",
+            "next_action_actor": None,
+        }
+        jobs_db[new_job_id] = failed_job
+        save_jobs()
+        return failed_job
     initial_requires_phone_handoff = not bool(effective_transcript)
     summary_text = build_processing_summary(source, effective_transcript, stt_error)
     phone_report = (

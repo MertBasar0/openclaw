@@ -24,6 +24,10 @@ class TaskResult:
     next_action_actor: str | None = None
 
 
+class OpenClawUnavailable(RuntimeError):
+    """`openclaw` calistirilabiliri bulunamadi — kurulum/PATH sorunu."""
+
+
 @dataclass
 class InvocationHandle:
     command: list[str]
@@ -67,12 +71,20 @@ class OpenClawClient:
             "--message",
             prompt,
         ]
-        process = subprocess.Popen(  # noqa: S603
-            command,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
+        try:
+            process = subprocess.Popen(  # noqa: S603
+                command,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            log_file.close()
+            raise OpenClawUnavailable(
+                "OpenClaw CLI bulunamadı ('openclaw' PATH'te değil). "
+                "Watch Ceviz backend'i OpenClaw'ın kurulu olduğu makinede çalışmalı; "
+                "servis dosyasındaki PATH değişkeninin openclaw'ı içerdiğinden emin ol."
+            ) from exc
         log_file.close()
         return InvocationHandle(
             command=command,

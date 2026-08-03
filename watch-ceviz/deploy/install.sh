@@ -25,6 +25,17 @@ PIP="$VENV/bin/pip"
 
 echo "==> Watch Ceviz kurulumu: $APP_DIR"
 
+# --- 0) OpenClaw var mi? Backend onu calistiracak. ---
+if command -v openclaw >/dev/null 2>&1; then
+  echo "==> OpenClaw bulundu: $(command -v openclaw)"
+else
+  echo "!!  UYARI: 'openclaw' PATH'te bulunamadi."
+  echo "    Watch Ceviz komutlari OpenClaw CLI'ini calistirir; kurulum devam"
+  echo "    edecek ama komutlar 'OpenClaw CLI bulunamadi' hatasi verecek."
+  echo "    OpenClaw'i kur (https://openclaw.ai) ya da servis dosyasindaki"
+  echo "    PATH degiskenine openclaw'in dizinini ekle."
+fi
+
 # --- 1) venv + bagimliliklar ---
 if [ ! -x "$PY" ]; then
   echo "==> Python venv olusturuluyor"
@@ -99,7 +110,17 @@ else
 fi
 
 # --- 5) Tailscale yayini + URL ---
-BASE_URL="http://<bu-makinenin-adresi>:$PORT"
+# Tailscale yoksa bile kullanilabilir bir adres uret: yerel ag IP'si.
+# Minimal sistemlerde `ip`/`hostname` bulunmayabilir — hicbiri kurulumu
+# durdurmamali, en kotu ihtimalle yer tutucu adres basariz.
+LAN_IP=""
+if command -v ip >/dev/null 2>&1; then
+  LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1 || true)"
+fi
+if [ -z "$LAN_IP" ] && command -v hostname >/dev/null 2>&1; then
+  LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+fi
+BASE_URL="http://${LAN_IP:-<bu-makinenin-adresi>}:$PORT"
 if command -v tailscale >/dev/null 2>&1; then
   tailscale serve --bg --set-path=/ceviz "http://127.0.0.1:$PORT" >/dev/null 2>&1 || \
     tailscale serve --bg --https=443 --set-path /ceviz "http://127.0.0.1:$PORT" >/dev/null 2>&1 || true
