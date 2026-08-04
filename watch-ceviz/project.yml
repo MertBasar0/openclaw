@@ -29,27 +29,18 @@ targets:
       - path: ios-bridge
     settings:
       base:
-        GENERATE_INFOPLIST_FILE: YES
+        # Gercek Info.plist kullaniliyor: CFBundleURLTypes ve
+        # NSAppTransportSecurity gibi ic ice yapilar INFOPLIST_KEY_* build
+        # ayarlariyla yazilamiyor, sessizce dusuyordu.
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ios-bridge/Info.plist
         CURRENT_PROJECT_VERSION: $(APP_PROJECT_VERSION)
         MARKETING_VERSION: $(APP_MARKETING_VERSION)
         PRODUCT_BUNDLE_IDENTIFIER: com.mertbasar.cevizwatch
         PRODUCT_NAME: CevizBridge
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: Ceviz, sesli komutlarını kaydetmek için mikrofonu kullanır.
-        INFOPLIST_KEY_NSCameraUsageDescription: Ceviz, backend eşleşme QR kodunu okumak için kamerayı kullanır.
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         CODE_SIGNING_ALLOWED: "YES"
         TARGETED_DEVICE_FAMILY: "1"
-        INFOPLIST_KEY_CFBundleDisplayName: Ceviz
-        INFOPLIST_KEY_CFBundleName: CevizBridge
-        INFOPLIST_KEY_CFBundleShortVersionString: $(APP_MARKETING_VERSION)
-        INFOPLIST_KEY_CFBundleVersion: $(APP_PROJECT_VERSION)
-        INFOPLIST_KEY_CFBundleURLTypes:
-          - CFBundleURLSchemes:
-              - ceviz
-        INFOPLIST_KEY_NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: YES
     dependencies:
       - target: CevizWatchApp
         embed: true
