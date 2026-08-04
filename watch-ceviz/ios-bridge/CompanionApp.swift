@@ -1272,7 +1272,11 @@ struct JobDetailView: View {
 
     private var reportBodySections: [ReportBodySection] {
         guard let report else { return [] }
-        return ReportBodySectionBuilder(report: report, watchSummary: bridgeSummaryText).sections
+        let sections = ReportBodySectionBuilder(report: report, watchSummary: bridgeSummaryText).sections
+        // Saat ozeti zaten ustte vurgulu bolum olarak gosteriliyor; govde
+        // listesinde tekrar cizilmesin.
+        guard bridgeSummaryText != nil else { return sections }
+        return sections.filter { $0.id != "watch-summary" }
     }
     
     @State private var toastMessage: String?
