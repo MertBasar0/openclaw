@@ -1,0 +1,147 @@
+name: Ceviz Screenshots (Simulator)
+
+# App Store ekran goruntulerini uretir. Demo modu sayesinde veriler sabit:
+# simulatorde uygulama yapilandirilmamis oldugu icin kendiliginden demo
+# moduna duser ve her kosuda ayni ekranlar cikar. Ekranlar arasinda
+# gezinmek icin UI testi yerine `ceviz://job/<id>` deep link'leri kullanilir.
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "iPhone simulator model"
+        required: false
+        default: "iPhone 16 Pro Max"
+        type: string
+      language:
+        description: "Uygulama dili (en / tr)"
+        required: false
+        default: "en"
+        type: string
+
+concurrency:
+  group: ceviz-screenshots
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: Capture simulator screenshots
+    runs-on: macos-26
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: watch-ceviz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build iOS app for simulator
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project CevizWatch.xcodeproj \
+            -scheme CevizBridge \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build | tail -20
+          echo "APP_PATH=$PWD/build/dd/Build/Products/Release-iphonesimulator/CevizBridge.app" >> "$GITHUB_ENV"
+
+      - name: Boot simulator
+        id: boot
+        run: |
+          set -euo pipefail
+          DEVICE="${{ inputs.device || 'iPhone 16 Pro Max' }}"
+          # "iPhone 16 Pro Max (UDID) (Shutdown)" satirindan UDID'yi al.
+          UDID=$(xcrun simctl list devices available \
+            | grep -m1 -F "$DEVICE (" \
+            | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          if [ -z "$UDID" ]; then
+            echo "Cihaz bulunamadi: $DEVICE"
+            xcrun simctl list devices available | grep -i iphone
+            exit 1
+          fi
+          echo "Secilen cihaz: $DEVICE ($UDID)"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          # Durum cubugu App Store icin temiz gorunsun.
+          xcrun simctl status_bar "$UDID" override \
+            --time "09:41" --batteryState charged --batteryLevel 100 \
+            --cellularMode active --cellularBars 4 --wifiMode active --wifiBars 3 || true
+
+      - name: Install and launch (demo mode)
+        run: |
+          set -euo pipefail
+          xcrun simctl install "$UDID" "$APP_PATH"
+          LANG_CODE="${{ inputs.language || 'en' }}"
+          # Taze kurulumda token/sunucu yok -> DemoMode kendiliginden aktif.
+          xcrun simctl launch "$UDID" com.mertbasar.cevizwatch \
+            -AppleLanguages "($LANG_CODE)" -AppleLocale "${LANG_CODE}_US"
+          sleep 6
+
+      - name: Capture screens
+        run: |
+          set -euo pipefail
+          OUT="$PWD/build/screenshots"
+          mkdir -p "$OUT"
+
+          shot () {  # shot <dosya-adi>
+            sleep 3
+            xcrun simctl io "$UDID" screenshot --type=png "$OUT/$1.png"
+            echo "  yakalandi: $1.png"
+          }
+
+          open_job () {  # open_job <job-id> <dosya-adi>
+            xcrun simctl openurl "$UDID" "ceviz://job/$1"
+            shot "$2"
+          }
+
+          echo "== 1) Ana ekran (son isler) =="
+          shot "01-home"
+
+          echo "== 2) Deploy raporu (zincir gezinme gorunur) =="
+          open_job "job-demo-01" "02-report-deploy"
+
+          echo "== 3) Zincirin ikinci isi =="
+          open_job "job-demo-02" "03-report-chain"
+
+          echo "== 4) Incident (girdi bekliyor durumu) =="
+          open_job "job-demo-04" "04-report-incident"
+
+          echo "== 5) PR ozeti =="
+          open_job "job-demo-03" "05-report-pr"
+
+          ls -la "$OUT"
+
+      - name: Report image sizes
+        run: |
+          set -euo pipefail
+          cd build/screenshots
+          for f in *.png; do
+            SIZE=$(sips -g pixelWidth -g pixelHeight "$f" | awk '/pixel/{printf "%s ", $2}')
+            echo "  $f -> ${SIZE}"
+          done
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ceviz-screenshots-${{ inputs.language || 'en' }}
+          path: watch-ceviz/build/screenshots/*.png
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Shutdown simulator
+        if: always()
+        run: xcrun simctl shutdown "$UDID" || true
