@@ -151,6 +151,8 @@ jobs:
             xcrun simctl launch "$UDID" "$BUNDLE" \
               -AppleLanguages "($LANG_CODE)" -AppleLocale "${LANG_CODE}_US" \
               -cvzScreen "$1" >/dev/null
+            # Soguk baslangic + ilk render: kisa beklemede bos kare cikiyor.
+            sleep 7
             shot "$2"
           }
 
