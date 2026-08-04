@@ -57,17 +57,37 @@ jobs:
         run: |
           set -euo pipefail
           DEVICE="${{ inputs.device || 'iPhone 16 Pro Max' }}"
-          # "iPhone 16 Pro Max (UDID) (Shutdown)" satirindan UDID'yi al.
-          UDID=$(xcrun simctl list devices available \
-            | grep -m1 -F "$DEVICE (" \
-            | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          LIST=$(xcrun simctl list devices available)
+
+          echo "== Runner'daki iPhone simulatorleri =="
+          echo "$LIST" | grep -i "iPhone" || echo "  (hic iPhone yok)"
+          echo
+
+          # NOT: grep eslesme bulamazsa 1 doner; pipefail + set -e ile adim
+          # tani basmadan olur. Bu yuzden her secim denemesi `|| true` ile.
+          pick () { echo "$LIST" | grep -E "$1" | tail -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/' || true; }
+
+          UDID=$(echo "$LIST" | grep -m1 -F "$DEVICE (" | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/' || true)
+          CHOSEN="$DEVICE"
           if [ -z "$UDID" ]; then
-            echo "Cihaz bulunamadi: $DEVICE"
-            xcrun simctl list devices available | grep -i iphone
+            echo "!! '$DEVICE' yok — mevcut en buyuk Pro Max'e dusuluyor"
+            UDID=$(pick "iPhone .*Pro Max \(")
+            CHOSEN="en yeni Pro Max"
+          fi
+          if [ -z "$UDID" ]; then
+            echo "!! Pro Max de yok — herhangi bir iPhone'a dusuluyor"
+            UDID=$(pick "iPhone .*\(")
+            CHOSEN="herhangi bir iPhone"
+          fi
+          if [ -z "$UDID" ]; then
+            echo "Kullanilabilir iPhone simulatoru bulunamadi."
             exit 1
           fi
-          echo "Secilen cihaz: $DEVICE ($UDID)"
+
+          NAME=$(echo "$LIST" | grep -F "$UDID" | sed -E 's/^ *(.*) \([0-9A-Fa-f-]{36}\).*/\1/' | head -1)
+          echo "Secilen cihaz: $NAME ($CHOSEN) — $UDID"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
+          echo "DEVICE_NAME=$NAME" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           # Durum cubugu App Store icin temiz gorunsun.
