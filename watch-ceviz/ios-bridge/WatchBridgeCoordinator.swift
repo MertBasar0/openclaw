@@ -19,7 +19,10 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
     private override init() {
         super.init()
         notificationCenter.delegate = self
-        configureNotificationAuthorization()
+        // Bildirim izni acilista DEGIL, ilk gercek handoff bildiriminden
+        // hemen once istenir: kullanici daha hicbir sey yapmadan izin
+        // sormak hem kotu bir ilk izlenim hem de Apple'in onerdigi
+        // baglamsal isteme yaklasimina aykiri.
         if WCSession.isSupported() {
             let session = WCSession.default
             session.delegate = self
@@ -342,6 +345,9 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
 
     private func scheduleHandoffNotificationIfNeeded(for response: WatchCommandResponse) {
         guard let jobId = response.jobId, !jobId.isEmpty else { return }
+        // Ilk bildirim gerektiginde izni iste (notDetermined ise sorar,
+        // degilse hicbir sey yapmaz).
+        configureNotificationAuthorization()
         scheduleHandoffNotificationIfNeeded(
             jobId: jobId,
             requiresPhoneHandoff: response.requiresPhoneHandoff,
