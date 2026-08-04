@@ -52,21 +52,6 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Build iOS app for simulator
-        run: |
-          set -euo pipefail
-          xcodebuild \
-            -project CevizWatch.xcodeproj \
-            -scheme CevizBridge \
-            -configuration Release \
-            -sdk iphonesimulator \
-            -derivedDataPath build/dd \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            ASSETCATALOG_COMPILER_APPICON_NAME="" \
-            build | tail -20
-          echo "APP_PATH=$PWD/build/dd/Build/Products/Release-iphonesimulator/CevizBridge.app" >> "$GITHUB_ENV"
-
       - name: Boot simulator
         id: boot
         run: |
@@ -89,6 +74,28 @@ jobs:
           xcrun simctl status_bar "$UDID" override \
             --time "09:41" --batteryState charged --batteryLevel 100 \
             --cellularMode active --cellularBars 4 --wifiMode active --wifiBars 3 || true
+
+      - name: Build app for the booted simulator
+        run: |
+          set -euo pipefail
+          # -sdk yerine -destination: gomulu watch app'i Xcode kendiliginden
+          # watchsimulator icin derler (iOS SDK'sinda WatchKit yok).
+          xcodebuild \
+            -project CevizWatch.xcodeproj \
+            -scheme CevizBridge \
+            -configuration Release \
+            -destination "id=$UDID" \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ASSETCATALOG_COMPILER_APPICON_NAME="" \
+            build | tail -20
+          APP_PATH=$(find "$PWD/build/dd/Build/Products" -maxdepth 2 -name "CevizBridge.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "CevizBridge.app bulunamadi"; find "$PWD/build/dd/Build/Products" -maxdepth 2 | head -20; exit 1
+          fi
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          echo "Uygulama: $APP_PATH"
 
       - name: Install and launch (demo mode)
         run: |
