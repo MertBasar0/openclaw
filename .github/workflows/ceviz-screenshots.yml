@@ -63,6 +63,7 @@ jobs:
             -derivedDataPath build/dd \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            ASSETCATALOG_COMPILER_APPICON_NAME="" \
             build | tail -20
           echo "APP_PATH=$PWD/build/dd/Build/Products/Release-iphonesimulator/CevizBridge.app" >> "$GITHUB_ENV"
 
