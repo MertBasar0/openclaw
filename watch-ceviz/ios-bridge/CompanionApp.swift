@@ -245,6 +245,20 @@ struct CompanionApp: App {
         _ = WatchBridgeCoordinator.shared
     }
 
+    /// Ekran goruntusu otomasyonu icin acilista dogrudan bir ise git.
+    /// `-cvzScreen job-demo-01` seklinde gecilir. Yalnizca demo modunda
+    /// gecerlidir; gercek kullanicida hicbir etkisi yoktur. (simctl openurl
+    /// yerine bu kullaniliyor cunku iOS harici URL acmayi onay diyaloguyla
+    /// karsiliyor ve otomasyonda dokunacak kimse yok.)
+    private func applyLaunchRouteIfNeeded() {
+        guard DemoMode.isActive,
+              let screen = UserDefaults.standard.string(forKey: "cvzScreen")?
+                  .trimmingCharacters(in: .whitespacesAndNewlines),
+              !screen.isEmpty,
+              let url = URL(string: "ceviz://job/\(screen)") else { return }
+        _ = router.open(url: url, source: .deepLink, presentImmediately: true)
+    }
+
     var body: some Scene {
         WindowGroup {
             NavigationStack {
@@ -267,6 +281,7 @@ struct CompanionApp: App {
                     }
                     _ = router.open(url: url, source: .deepLink, presentImmediately: true)
                 }
+                .onAppear(perform: applyLaunchRouteIfNeeded)
             }
         }
     }

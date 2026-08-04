@@ -133,14 +133,24 @@ jobs:
           OUT="$PWD/build/screenshots"
           mkdir -p "$OUT"
 
+          LANG_CODE="${{ inputs.language || 'en' }}"
+          BUNDLE=com.mertbasar.cevizwatch
+
           shot () {  # shot <dosya-adi>
             sleep 3
             xcrun simctl io "$UDID" screenshot --type=png "$OUT/$1.png"
             echo "  yakalandi: $1.png"
           }
 
+          # simctl openurl "Open in Ceviz?" onay diyalogu aciyor ve
+          # otomasyonda dokunacak kimse olmadigi icin orada kilitleniyor.
+          # Bunun yerine uygulamayi istenen ekranda yeniden baslat.
           open_job () {  # open_job <job-id> <dosya-adi>
-            xcrun simctl openurl "$UDID" "ceviz://job/$1"
+            xcrun simctl terminate "$UDID" "$BUNDLE" >/dev/null 2>&1 || true
+            sleep 1
+            xcrun simctl launch "$UDID" "$BUNDLE" \
+              -AppleLanguages "($LANG_CODE)" -AppleLocale "${LANG_CODE}_US" \
+              -cvzScreen "$1" >/dev/null
             shot "$2"
           }
 
