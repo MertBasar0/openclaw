@@ -18,6 +18,14 @@ struct ChainNavigator: View {
     }
 
     var body: some View {
+        // onAppear'i EmptyView'a baglamak ise yaramaz (EmptyView gorunum
+        // hiyerarsisine katilmaz, olay hic tetiklenmez) — zincir bu yuzden
+        // hic yuklenmiyordu. Yukleme her zaman cizilen kapsayicida yapilir.
+        content.onAppear(perform: load)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if chain.count > 1, let index {
             VStack(alignment: .leading, spacing: 8) {
                 Rectangle().fill(CVZ.line).frame(height: 1)
@@ -67,9 +75,8 @@ struct ChainNavigator: View {
                     }
                 }
             }
-            .onAppear(perform: load)
         } else {
-            EmptyView().onAppear(perform: load)
+            Color.clear.frame(height: 0)
         }
     }
 
