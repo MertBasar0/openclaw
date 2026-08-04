@@ -6,6 +6,15 @@ name: Ceviz Screenshots (Simulator)
 # gezinmek icin UI testi yerine `ceviz://job/<id>` deep link'leri kullanilir.
 
 on:
+  # workflow_dispatch ancak workflow bir kez calistiktan sonra kullanilabilir
+  # (GitHub varsayilan branch'te gormedigi dosyayi dispatch etmiyor). Bu dar
+  # kapsamli push tetikleyicisi yalnizca bu dosya degistiginde calisir.
+  push:
+    branches:
+      - ceviz-watch-app-build
+    paths:
+      - ".github/workflows/ceviz-screenshots.yml"
+
   workflow_dispatch:
     inputs:
       device:
