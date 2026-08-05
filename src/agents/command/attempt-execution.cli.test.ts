@@ -3318,7 +3318,7 @@ describe("CLI attempt execution", () => {
   ])(
     "stamps the command-fallback CLI grant delegation capability for $label",
     async ({ isFallbackRetry, inputProvenance, expected }) => {
-      const runId = `run-command-fallback-delegation-${String(isFallbackRetry)}-${String(expected)}`;
+      const runId = `run-command-fallback-delegation-${String(isFallbackRetry)}-${expected}`;
       const sessionKey = `agent:main:direct:${runId}`;
       const sessionEntry: SessionEntry = {
         sessionId: `session-${runId}`,
