@@ -35,7 +35,7 @@ concurrency:
 jobs:
   screenshots:
     name: Capture simulator screenshots
-    runs-on: macos-26
+    runs-on: macos-latest
     timeout-minutes: 40
     defaults:
       run:
@@ -44,7 +44,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
+        run: |
+          set -euo pipefail
+          PINNED=/Applications/Xcode_26.4.1.app
+          if [ -d "$PINNED" ]; then
+            sudo xcode-select -s "$PINNED/Contents/Developer"
+          else
+            LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+            [ -n "$LATEST" ] || { echo "Xcode bulunamadi"; exit 1; }
+            echo "Sabitlenen Xcode yok, kullanilacak: $LATEST"
+            sudo xcode-select -s "$LATEST/Contents/Developer"
+          fi
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen

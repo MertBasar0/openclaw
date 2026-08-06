@@ -19,7 +19,9 @@ concurrency:
 jobs:
   build:
     name: Build CevizWatch IPA
-    runs-on: macos-26
+    # Sabit imaj etiketi (macos-26) bir gun runner atanmadan iptal edilmeye
+    # basladi; macos-latest her zaman desteklenen bir imaji gosterir.
+    runs-on: macos-latest
     timeout-minutes: 45
     defaults:
       run:
@@ -28,7 +30,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
+        run: |
+          set -euo pipefail
+          PINNED=/Applications/Xcode_26.4.1.app
+          if [ -d "$PINNED" ]; then
+            sudo xcode-select -s "$PINNED/Contents/Developer"
+          else
+            LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+            [ -n "$LATEST" ] || { echo "Xcode bulunamadi"; ls /Applications | head -30; exit 1; }
+            echo "Sabitlenen Xcode yok, kullanilacak: $LATEST"
+            sudo xcode-select -s "$LATEST/Contents/Developer"
+          fi
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen
