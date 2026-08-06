@@ -39,3 +39,4 @@
 "[FAILED]" = "[HATA]";
 "[RUNNING]" = "[ÇALIŞIYOR]";
 "[QUEUED]" = "[SIRADA]";
+"Result unavailable: %@" = "Sonuç alınamadı: %@";

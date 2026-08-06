@@ -35,6 +35,9 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     private var pollErrorCount = 0
     private var sendGeneration = 0
     private static let pendingJobDefaultsKey = "cvz.pendingJobId"
+    private static let pendingJobAtDefaultsKey = "cvz.pendingJobAt"
+    /// Bekleyen is kaydi bu sureden eskiyse anlamsizdir; diriltmeyiz.
+    private static let pendingJobMaxAge: TimeInterval = 15 * 60
 
     enum HandoffState: Equatable {
         case idle
@@ -292,6 +295,8 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         // watchOS uygulamayi tamamen oldurebilir; bekleyen isi diske yaz ki
         // yeniden acilista sonuc kurtarilabilsin.
         UserDefaults.standard.set(jobId, forKey: Self.pendingJobDefaultsKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.pendingJobAtDefaultsKey)
+        pollErrorCount = 0
         resultPollDeadline = Date().addingTimeInterval(180)
         startExtendedSession()
         resultPollTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
@@ -304,7 +309,16 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         resultPollTimer = nil
         resultPollDeadline = nil
         pollingJobId = nil
+        pollErrorCount = 0
+        // Diskteki kaydi da temizle. Aksi halde yarim kalan bir bekleme
+        // sonraki her acilista "isleniyor" ekranini diriltiyor.
+        clearPendingJob()
         stopExtendedSession()
+    }
+
+    private func clearPendingJob() {
+        UserDefaults.standard.removeObject(forKey: Self.pendingJobDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.pendingJobAtDefaultsKey)
     }
 
     /// watchOS bilek indiginde uygulamayi askiya alip poll timer'ini
@@ -314,6 +328,17 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     func resumeResultPollingIfNeeded() {
         let persisted = UserDefaults.standard.string(forKey: Self.pendingJobDefaultsKey)
         guard let jobId = pollingJobId ?? persisted else { return }
+
+        // Diskten geliyorsa yasini kontrol et: eski bir kayit ekrani bos
+        // yere "isleniyor"a dusurmesin.
+        if pollingJobId == nil {
+            let at = UserDefaults.standard.double(forKey: Self.pendingJobAtDefaultsKey)
+            let age = at > 0 ? Date().timeIntervalSince1970 - at : .greatestFiniteMagnitude
+            if age > Self.pendingJobMaxAge {
+                clearPendingJob()
+                return
+            }
+        }
 
         if !isProcessing {
             isProcessing = true
@@ -343,8 +368,21 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         guard WCSession.default.isReachable else { return }
 
         WCSession.default.sendMessage(["action": "summarize_job", "job_id": jobId], replyHandler: { reply in
+            // Backend "boyle bir is yok" diyorsa (servis yeniden basladi,
+            // is listeden dustu) sonsuza kadar yoklamanin anlami yok.
+            if let message = reply["error"] as? String {
+                DispatchQueue.main.async {
+                    self.pollErrorCount += 1
+                    if self.pollErrorCount >= 3 {
+                        self.stopResultPolling()
+                        self.isProcessing = false
+                        self.responseText = String(
+                            format: NSLocalizedString("Result unavailable: %@", comment: ""), message)
+                    }
+                }
+                return
+            }
             DispatchQueue.main.async { self.pollErrorCount = 0 }
-            if reply["error"] is String { return }
 
             let reportMeta = self.reportMeta(from: reply["report_meta"])
             let jobStatus = reportMeta?.status ?? (reply["status"] as? String) ?? ""
@@ -364,6 +402,8 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             DispatchQueue.main.async {
                 self.pollErrorCount += 1
                 if self.pollErrorCount >= 3 {
+                    self.stopResultPolling()
+                    self.isProcessing = false
                     self.responseText = String(format: NSLocalizedString("Cannot receive result: %@", comment: ""), error.localizedDescription)
                 }
             }

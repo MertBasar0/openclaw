@@ -39,3 +39,4 @@
 "[FAILED]" = "[FAILED]";
 "[RUNNING]" = "[RUNNING]";
 "[QUEUED]" = "[QUEUED]";
+"Result unavailable: %@" = "Result unavailable: %@";
