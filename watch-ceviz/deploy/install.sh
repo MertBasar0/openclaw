@@ -19,6 +19,7 @@ APP_DIR="$(dirname "$SCRIPT_DIR")"          # watch-ceviz/
 cd "$APP_DIR"
 
 PORT="${WATCH_CEVIZ_PORT:-8080}"
+NETWORK_MODE="${WATCH_CEVIZ_NETWORK_MODE:-auto}"
 VENV="$APP_DIR/.venv"
 PY="$VENV/bin/python"
 PIP="$VENV/bin/pip"
@@ -110,6 +111,29 @@ else
 fi
 
 # --- 5) Tailscale yayini + URL ---
+IS_WSL=0
+grep -qi microsoft /proc/version 2>/dev/null && IS_WSL=1
+WINDOWS_TS=0
+if [ "$IS_WSL" = 1 ] && command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -Command 'if (Get-Command tailscale -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }' >/dev/null 2>&1 && WINDOWS_TS=1 || true
+fi
+if [ "$NETWORK_MODE" = auto ] && [ -t 0 ]; then
+  echo "==> Baglanti yontemi: 1) Tailscale (onerilen)  2) Ayni Wi-Fi / Windows relay  3) Manuel"
+  read -r -p "Secim [1]: " choice
+  case "${choice:-1}" in 1) NETWORK_MODE=tailscale;; 2) NETWORK_MODE=relay;; 3) NETWORK_MODE=manual;; esac
+fi
+if [ "$NETWORK_MODE" = auto ]; then
+  if command -v tailscale >/dev/null 2>&1 || [ "$WINDOWS_TS" = 1 ]; then NETWORK_MODE=tailscale
+  elif [ "$IS_WSL" = 1 ]; then NETWORK_MODE=relay
+  else NETWORK_MODE=manual; fi
+fi
+install_windows_relay() {
+  local installer output
+  installer="$(wslpath -w "$SCRIPT_DIR/windows/install-relay.ps1")"
+  output="$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$installer" -Port "$PORT" | tr -d '\r')"
+  printf '%s\n' "$output" >&2
+  printf '%s\n' "$output" | sed -n 's/^CEVIZ_RELAY_URL=//p' | tail -1
+}
 # Tailscale yoksa bile kullanilabilir bir adres uret: yerel ag IP'si.
 # Minimal sistemlerde `ip`/`hostname` bulunmayabilir — hicbiri kurulumu
 # durdurmamali, en kotu ihtimalle yer tutucu adres basariz.
@@ -121,14 +145,25 @@ if [ -z "$LAN_IP" ] && command -v hostname >/dev/null 2>&1; then
   LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 fi
 BASE_URL="http://${LAN_IP:-<bu-makinenin-adresi>}:$PORT"
-if command -v tailscale >/dev/null 2>&1; then
+PAIRING_METHOD=manual
+if [ "$NETWORK_MODE" = tailscale ] && command -v tailscale >/dev/null 2>&1; then
   tailscale serve --bg --set-path=/ceviz "http://127.0.0.1:$PORT" >/dev/null 2>&1 || \
     tailscale serve --bg --https=443 --set-path /ceviz "http://127.0.0.1:$PORT" >/dev/null 2>&1 || true
   TS_HOST="$(tailscale status --json 2>/dev/null | "$PY" -c 'import json,sys; d=json.load(sys.stdin); print(d.get("Self",{}).get("DNSName","").rstrip("."))' 2>/dev/null || true)"
   [ -n "$TS_HOST" ] && BASE_URL="https://$TS_HOST/ceviz"
+  PAIRING_METHOD=tailscale
   echo "==> Tailscale serve: $BASE_URL"
+elif [ "$NETWORK_MODE" = tailscale ] && [ "$WINDOWS_TS" = 1 ]; then
+  RELAY_URL="$(install_windows_relay)"; BASE_URL="$RELAY_URL"
+  powershell.exe -NoProfile -Command "tailscale serve --bg --set-path=/ceviz $RELAY_URL" >/dev/null
+  TS_HOST="$(powershell.exe -NoProfile -Command '(tailscale status --json | ConvertFrom-Json).Self.DNSName.TrimEnd(".")' | tr -d '\r')"
+  [ -n "$TS_HOST" ] && BASE_URL="https://$TS_HOST/ceviz"
+  PAIRING_METHOD=tailscale
+elif [ "$NETWORK_MODE" = relay ] && [ "$IS_WSL" = 1 ]; then
+  BASE_URL="$(install_windows_relay)"; PAIRING_METHOD=relay
+  echo "==> Windows LAN relay: $BASE_URL"
 else
-  echo "==> Tailscale bulunamadi — telefonun backend'e ulasabilecegi bir URL girmen gerekecek"
+  echo "==> Manuel ag modu — erisilebilir backend adresini uygulamaya gir"
 fi
 
 # --- 6) Pairing QR + bilgi ---
@@ -136,10 +171,10 @@ echo ""
 echo "======================================================================"
 echo "  Kurulum tamam. Telefonda Ceviz > Ayarlar > QR Tara ile oku:"
 echo "======================================================================"
-"$PY" - "$BASE_URL" "$TOKEN" <<'PYEOF'
+"$PY" - "$BASE_URL" "$TOKEN" "$PAIRING_METHOD" <<'PYEOF'
 import sys, urllib.parse
-base, token = sys.argv[1], sys.argv[2]
-uri = "ceviz://pair?u=" + urllib.parse.quote(base, safe="") + "&t=" + urllib.parse.quote(token, safe="")
+base, token, method = sys.argv[1], sys.argv[2], sys.argv[3]
+uri = "ceviz://pair?u=" + urllib.parse.quote(base, safe="") + "&t=" + urllib.parse.quote(token, safe="") + "&m=" + urllib.parse.quote(method, safe="")
 try:
     import qrcode
     qr = qrcode.QRCode(border=1)

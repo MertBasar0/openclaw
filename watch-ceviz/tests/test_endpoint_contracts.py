@@ -390,6 +390,8 @@ class EndpointContractTests(unittest.TestCase):
             requires_phone_handoff=False,
             phone_report="Bugünün öncelikleri çıkarıldı.",
             next_action="İlk öncelikten başla.",
+            outcome="completed",
+            next_action_actor="backend",
         )
 
         with mock.patch.object(

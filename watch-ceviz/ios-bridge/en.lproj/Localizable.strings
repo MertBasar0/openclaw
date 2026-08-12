@@ -3,6 +3,13 @@
 "SETTINGS" = "SETTINGS";
 "CLOSE ✕" = "CLOSE ✕";
 "SAVE" = "SAVE";
+"HOW WILL YOU CONNECT?" = "HOW WILL YOU CONNECT?";
+"TAILSCALE" = "TAILSCALE";
+"SAME WI-FI" = "SAME WI-FI";
+"MANUAL" = "MANUAL";
+"Recommended. Securely reach your OpenClaw machine from any network. Install Tailscale on the computer and phone, then run the installer in Tailscale mode." = "Recommended. Securely reach your OpenClaw machine from any network. Install Tailscale on the computer and phone, then run the installer in Tailscale mode.";
+"For WSL2 on the same Wi-Fi. The installer adds a Windows relay; both devices must remain on the same local network." = "For WSL2 on the same Wi-Fi. The installer adds a Windows relay; both devices must remain on the same local network.";
+"For your own VPN, tunnel or reverse proxy. Enter its HTTPS URL and the token printed by the installer." = "For your own VPN, tunnel or reverse proxy. Enter its HTTPS URL and the token printed by the installer.";
 "PAIR WITH QR" = "PAIR WITH QR";
 "Scan the QR printed by the install script — URL and token fill in automatically." = "Scan the QR printed by the install script — URL and token fill in automatically.";
 "SERVER URL" = "SERVER URL";

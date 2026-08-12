@@ -3,6 +3,13 @@
 "SETTINGS" = "AYARLAR";
 "CLOSE ✕" = "KAPAT ✕";
 "SAVE" = "KAYDET";
+"HOW WILL YOU CONNECT?" = "NASIL BAĞLANACAKSIN?";
+"TAILSCALE" = "TAILSCALE";
+"SAME WI-FI" = "AYNI WI-FI";
+"MANUAL" = "MANUEL";
+"Recommended. Securely reach your OpenClaw machine from any network. Install Tailscale on the computer and phone, then run the installer in Tailscale mode." = "Önerilen yöntem. OpenClaw makinenize her ağdan güvenle erişin. Bilgisayara ve telefona Tailscale kurup kurulumu Tailscale modunda çalıştırın.";
+"For WSL2 on the same Wi-Fi. The installer adds a Windows relay; both devices must remain on the same local network." = "Aynı Wi-Fi'daki WSL2 kurulumu için. Kurulum Windows relay'i ekler; iki cihaz da aynı yerel ağda kalmalıdır.";
+"For your own VPN, tunnel or reverse proxy. Enter its HTTPS URL and the token printed by the installer." = "Kendi VPN, tunnel veya reverse proxy'niz için. HTTPS adresini ve kurulumun bastığı token'ı girin.";
 "PAIR WITH QR" = "QR İLE EŞLEŞ";
 "Scan the QR printed by the install script — URL and token fill in automatically." = "Kurulum scriptinin bastığı QR'ı okut — adres ve token otomatik dolar.";
 "SERVER URL" = "SUNUCU ADRESİ";

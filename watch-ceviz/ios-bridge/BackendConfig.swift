@@ -9,6 +9,7 @@ import Foundation
 /// "Authorization: Bearer <token>" ister.
 enum BackendConfig {
     static let urlDefaultsKey = "cvz.backendURL"
+    static let connectionMethodKey = "cvz.connectionMethod"
     static let tokenDefaultsKey = "cvz.backendToken"   // eski UserDefaults konumu (migrasyon)
     static let tokenKeychainKey = "backendToken"
     static let developmentBaseURL = "https://koltiginmasaustu.tail0289bf.ts.net/ceviz"
@@ -56,6 +57,11 @@ enum BackendConfig {
         setBaseURL(u)
         setToken(t)
         return (u, t)
+    }
+
+    static func pairingMethod(_ url: URL) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first(where: { $0.name == "m" })?.value
     }
 
     static func url(_ path: String) -> URL {

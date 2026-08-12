@@ -17,11 +17,19 @@ Script şunları yapar:
 Telefonda: **Ceviz → Ayarlar (dişli) → QR İLE EŞLEŞ** → scriptin bastığı QR'ı okut → **BAĞLANTIYI TEST ET** → **KAYDET**.
 Token telefonda Keychain'de saklanır; uygulama silinip yeniden kurulsa bile kalır.
 
+### Bağlantı modu
+
+- `WATCH_CEVIZ_NETWORK_MODE=tailscale`: önerilen; farklı ağlardan özel tailnet erişimi.
+- `WATCH_CEVIZ_NETWORK_MODE=relay`: WSL2 + Windows için aynı Wi-Fi LAN relay'i; Windows UAC onayı ister.
+- `WATCH_CEVIZ_NETWORK_MODE=manual`: kendi VPN/tunnel/reverse proxy adresinizi kullanın.
+- `auto` (varsayılan): interaktif terminalde seçim sorar; CI/non-interactive kurulumda uygun yöntemi algılar.
+
 ## Ortam değişkenleri (opsiyonel)
 
 | Değişken | Varsayılan | Açıklama |
 |---|---|---|
 | `WATCH_CEVIZ_PORT` | `8080` | Backend portu |
+| `WATCH_CEVIZ_NETWORK_MODE` | `auto` | `tailscale`, `relay`, `manual` veya otomatik seçim |
 | `WATCH_CEVIZ_WHISPER_MODEL` | GPU'da `large-v3`, CPU'da `small` | STT modeli |
 | `WATCH_CEVIZ_WHISPER_LANGUAGE` | `tr` | STT dili |
 | `OPENCLAW_WATCH_AGENT` | `main` | Komutların gideceği OpenClaw ajanı |

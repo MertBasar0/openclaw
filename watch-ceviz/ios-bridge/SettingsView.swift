@@ -10,6 +10,18 @@ struct SettingsView: View {
     @State private var testState: TestState = .idle
     @State private var showScanner = false
     @State private var demoOn: Bool = DemoMode.isExplicit
+    @State private var connectionMethod = ConnectionMethod(rawValue: UserDefaults.standard.string(forKey: BackendConfig.connectionMethodKey) ?? "tailscale") ?? .tailscale
+
+    private enum ConnectionMethod: String, CaseIterable {
+        case tailscale, relay, manual
+        var title: LocalizedStringKey { switch self { case .tailscale: "TAILSCALE"; case .relay: "SAME WI-FI"; case .manual: "MANUAL" } }
+        var icon: String { switch self { case .tailscale: "lock.shield"; case .relay: "wifi"; case .manual: "slider.horizontal.3" } }
+        var help: LocalizedStringKey { switch self {
+        case .tailscale: "Recommended. Securely reach your OpenClaw machine from any network. Install Tailscale on the computer and phone, then run the installer in Tailscale mode."
+        case .relay: "For WSL2 on the same Wi-Fi. The installer adds a Windows relay; both devices must remain on the same local network."
+        case .manual: "For your own VPN, tunnel or reverse proxy. Enter its HTTPS URL and the token printed by the installer."
+        } }
+    }
 
     private enum TestState: Equatable {
         case idle, testing
@@ -37,6 +49,25 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("HOW WILL YOU CONNECT?").font(CVZ.mono(10, .semibold)).tracking(1.4).foregroundColor(CVZ.accent)
+                        HStack(spacing: 6) {
+                            ForEach(ConnectionMethod.allCases, id: \.rawValue) { method in
+                                Button { connectionMethod = method } label: {
+                                    VStack(spacing: 5) {
+                                        Image(systemName: method.icon)
+                                        Text(method.title).font(CVZ.mono(9, .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                                    }.foregroundColor(connectionMethod == method ? CVZ.accent : CVZ.textDim)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 9)
+                                    .background(connectionMethod == method ? CVZ.accentBg : CVZ.panel, in: RoundedRectangle(cornerRadius: 6))
+                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(connectionMethod == method ? CVZ.accent : CVZ.line, lineWidth: 1))
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                        Text(connectionMethod.help).font(.system(size: 11.5)).foregroundColor(CVZ.textDim).fixedSize(horizontal: false, vertical: true)
+                        Text(connectionMethod == .tailscale ? "Run: WATCH_CEVIZ_NETWORK_MODE=tailscale bash deploy/install.sh" : connectionMethod == .relay ? "Run in WSL2: WATCH_CEVIZ_NETWORK_MODE=relay bash deploy/install.sh" : "Run: WATCH_CEVIZ_NETWORK_MODE=manual bash deploy/install.sh")
+                            .font(CVZ.mono(10)).foregroundColor(CVZ.text)
+                    }
                     Button(action: { showScanner = true }) {
                         HStack {
                             Image(systemName: "qrcode.viewfinder")
@@ -144,6 +175,9 @@ struct SettingsView: View {
             QRScannerView { scanned in
                 showScanner = false
                 if let url = URL(string: scanned), let pair = BackendConfig.applyPairing(url) {
+                    if let method = BackendConfig.pairingMethod(url), let parsed = ConnectionMethod(rawValue: method) {
+                        connectionMethod = parsed
+                    }
                     urlText = pair.url
                     tokenText = pair.token
                     testState = .success(NSLocalizedString("QR scanned — remember to save", comment: ""))
@@ -226,6 +260,7 @@ struct SettingsView: View {
     private func save() {
         BackendConfig.setBaseURL(urlText)
         BackendConfig.setToken(tokenText)
+        UserDefaults.standard.set(connectionMethod.rawValue, forKey: BackendConfig.connectionMethodKey)
         dismiss()
     }
 }
