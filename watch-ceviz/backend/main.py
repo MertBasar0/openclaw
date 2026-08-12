@@ -800,11 +800,13 @@ def load_jobs() -> None:
 
     restored = 0
     recovered = 0
+    state_changed = False
     for job in data.get("jobs", []):
         if not isinstance(job, dict) or not job.get("id"):
             continue
         invocation = job.get("invocation")
         if job.get("status") in {"running", "processing", "queued"}:
+            state_changed = True
             log_path = (invocation or {}).get("log_path")
             result = None
             if log_path and Path(log_path).exists():
@@ -838,6 +840,10 @@ def load_jobs() -> None:
 
     if restored:
         logging.info("İş geçmişi yüklendi: %d iş (%d tanesi loglardan kurtarıldı)", restored, recovered)
+    if state_changed:
+        # Yeniden baslatmada canli process'i olmayan islerin duzeltilmis
+        # durumunu hemen kalicilastir; sonraki acilista hayalet running olmasin.
+        save_jobs()
 
 
 def build_continuation_context(prev_job: dict, *, approved_suggestion: bool) -> str:

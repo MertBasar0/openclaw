@@ -1,6 +1,7 @@
 import copy
 import json
 import sys
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -417,6 +418,33 @@ class EndpointContractTests(unittest.TestCase):
         self.assertEqual(payload["shortcut_text"], "Bugünün üç önceliği hazır.")
         self.assertEqual(payload["phone_report"], "Bugünün öncelikleri çıkarıldı.")
         self.assertEqual(payload["next_action"], "İlk öncelikten başla.")
+
+    def test_load_jobs_persists_interrupted_status_after_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "jobs.json"
+            state_path.write_text(json.dumps({"jobs": [{
+                "id": "job-interrupted",
+                "status": "running",
+                "created_at": 1,
+                "canned_result": "İşleniyor.",
+                "watch_summary": "İşleniyor.",
+                "invocation": {"log_path": str(Path(tmp) / "missing.log")},
+            }]}), encoding="utf-8")
+
+            main.jobs_db.clear()
+            with mock.patch.object(main, "STATE_DIR", Path(tmp)), \
+                 mock.patch.object(main, "JOBS_STATE_PATH", state_path):
+                main.load_jobs()
+
+            restored = main.jobs_db["job-interrupted"]
+            self.assertEqual(restored["status"], "failed")
+            self.assertEqual(restored["outcome"], "blocked")
+            self.assertNotIn("invocation", restored)
+
+            persisted = json.loads(state_path.read_text(encoding="utf-8"))["jobs"][0]
+            self.assertEqual(persisted["status"], "failed")
+            self.assertEqual(persisted["outcome"], "blocked")
+            self.assertNotIn("invocation", persisted)
 
     def test_shortcut_command_rejects_empty_text(self) -> None:
         req = request.Request(

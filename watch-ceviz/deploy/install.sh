@@ -54,6 +54,11 @@ if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
   SITE="$("$PY" -c 'import site; print(site.getsitepackages()[0])')"
   LD_LIBS="$SITE/nvidia/cublas/lib:$SITE/nvidia/cudnn/lib"
   WHISPER_MODEL="${WATCH_CEVIZ_WHISPER_MODEL:-large-v3}"
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ollama 2>/dev/null; then
+    echo "!!  UYARI: Ollama ve Ceviz Whisper ayni WSL GPU'sunu kullanabilir."
+    echo "    Bellek baskisi gorursen Ollama otomatik baslatmasini kapat veya"
+    echo "    WATCH_CEVIZ_WHISPER_MODEL=small ile Ceviz'i yeniden kur."
+  fi
 else
   echo "==> GPU yok — CPU modu (model=$WHISPER_MODEL)"
 fi
@@ -130,7 +135,8 @@ fi
 install_windows_relay() {
   local installer output
   installer="$(wslpath -w "$SCRIPT_DIR/windows/install-relay.ps1")"
-  output="$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$installer" -Port "$PORT" | tr -d '\r')"
+  output="$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$installer" -Port "$PORT" \
+    -Distro "${WSL_DISTRO_NAME:-Ubuntu}" | tr -d '\r')"
   printf '%s\n' "$output" >&2
   printf '%s\n' "$output" | sed -n 's/^CEVIZ_RELAY_URL=//p' | tail -1
 }
