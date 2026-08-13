@@ -155,9 +155,43 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
             }
         } else {
             replyHandler(["error": "Unknown action"])
+
         }
     }
     
+
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        guard userInfo["action"] as? String == "open_handoff",
+              let urlValue = userInfo["url"] as? String,
+              let url = URL(string: urlValue) else { return }
+
+        let jobId = (userInfo["job_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? url.pathComponents.dropFirst().first
+            ?? "handoff"
+
+        Task { @MainActor in
+            let details = self.continuationDetails(for: url)
+            _ = AppRouter.shared.open(
+                url: url,
+                source: .watch,
+                presentImmediately: UIApplication.shared.applicationState == .active,
+                details: details
+            )
+        }
+
+        configureNotificationAuthorization()
+        scheduleHandoffNotificationIfNeeded(
+            jobId: jobId,
+            requiresPhoneHandoff: true,
+            deepLinkValue: url.absoluteString,
+            title: "Ceviz report ready",
+            summaryText: "Open the report requested from your Apple Watch.",
+            handoffReason: nil,
+            nextAction: nil,
+            signatureSeed: "watch-button"
+        )
+    }
+
     private func performJobAction(jobId: String, actionPath: String, replyHandler: @escaping ([String : Any]) -> Void) {
         let actionURL = BackendConfig.url("/api/v1/jobs/\(jobId)/\(actionPath)")
         var request = URLRequest(url: actionURL)

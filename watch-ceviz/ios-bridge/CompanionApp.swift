@@ -408,6 +408,7 @@ struct HomeView: View {
         }
         .onChange(of: homeScenePhase) { phase in
             if phase == .active {
+                router.activatePendingRouteIfNeeded()
                 fetchRecentJobs()
             }
         }

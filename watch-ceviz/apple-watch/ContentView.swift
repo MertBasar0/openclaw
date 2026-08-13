@@ -124,34 +124,29 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxHeight: 62)
+            .frame(minHeight: 54, maxHeight: 92)
         }
     }
 
     private var handoffPanel: some View {
-        VStack(spacing: 3) {
-            Button(action: { sessionManager.openHandoff() }) {
-                HStack {
-                    Text("→ OPEN ON IPHONE")
-                        .font(CVZ.mono(10.5, .semibold))
-                        .foregroundColor(CVZ.accent)
-                    Spacer()
-                    Text("report ready")
-                        .font(CVZ.mono(9))
-                        .foregroundColor(CVZ.textDim)
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 8)
-                .background(CVZ.accentBg, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(CVZ.accent, lineWidth: 1))
+        Button(action: { sessionManager.openHandoff() }) {
+            HStack(spacing: 5) {
+                Image(systemName: sessionManager.handoffState == .ready ? "iphone.and.arrow.forward" : "checkmark")
+                Text(sessionManager.handoffState == .ready
+                     ? NSLocalizedString("OPEN DETAILS", comment: "")
+                     : NSLocalizedString("SENT TO IPHONE", comment: ""))
+                Spacer()
+                Image(systemName: "chevron.right")
             }
-            .buttonStyle(.plain)
-            .disabled(!sessionManager.isReachable)
-
-            Text(sessionManager.isReachable ? "✓ wrist haptic sent" : "iPhone must be reachable")
-                .font(CVZ.mono(9))
-                .foregroundColor(CVZ.textDim)
+            .font(CVZ.mono(9.5, .semibold))
+            .foregroundColor(CVZ.accent)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(CVZ.accentBg, in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(CVZ.accent, lineWidth: 1))
         }
+        .buttonStyle(.plain)
+        .disabled(sessionManager.handoffState != .ready)
     }
 
     private var recordingArea: some View {

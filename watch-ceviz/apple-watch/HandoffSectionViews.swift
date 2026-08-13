@@ -108,10 +108,9 @@ struct HandoffOpenPanel: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(CVZ.accent, lineWidth: 1))
             }
             .buttonStyle(.plain)
-            .disabled(!isReachable)
 
             if !isReachable {
-                Text("iPhone must be reachable")
+                Text(NSLocalizedString("Will notify iPhone when delivered", comment: ""))
                     .font(CVZ.mono(9))
                     .foregroundColor(CVZ.textDim)
             } else if !subtitle.isEmpty {

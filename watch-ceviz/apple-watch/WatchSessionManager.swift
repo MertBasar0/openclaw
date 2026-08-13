@@ -411,15 +411,31 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     }
 
     func openHandoff(url explicitUrl: String? = nil, jobId: String? = nil) {
-        guard let url = explicitUrl ?? handoffUrl, WCSession.default.isReachable else { return }
-        WCSession.default.sendMessage(["action": "open_handoff", "url": url]) { reply in
+        guard let url = explicitUrl ?? handoffUrl else { return }
+        let resolvedJobId = jobId ?? handoffJobId
+        let payload: [String: Any] = [
+            "action": "open_handoff",
+            "url": url,
+            "job_id": resolvedJobId ?? "",
+        ]
+
+        guard WCSession.default.isReachable else {
+            WCSession.default.transferUserInfo(payload)
             DispatchQueue.main.async {
-                if let jobId {
-                    self.handoffJobId = jobId
+                if let resolvedJobId { self.handoffJobId = resolvedJobId }
+                self.handoffState = .pendingOnPhone
+            }
+            return
+        }
+
+        WCSession.default.sendMessage(payload) { reply in
+            DispatchQueue.main.async {
+                if let resolvedJobId {
+                    self.handoffJobId = resolvedJobId
                 }
                 if let error = reply["error"] as? String {
                     self.handoffState = .ready
-                    self.responseText = "Handoff error: \(error)"
+                    print("Handoff error: \(error)")
                     return
                 }
 
@@ -427,16 +443,15 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
                 switch status {
                 case "pending":
                     self.handoffState = .pendingOnPhone
-                    self.responseText = "Ready on iPhone"
                 default:
                     self.handoffState = .openedOnPhone
-                    self.responseText = "Opened on iPhone"
                 }
             }
         } errorHandler: { error in
+            WCSession.default.transferUserInfo(payload)
             DispatchQueue.main.async {
-                self.handoffState = .ready
-                self.responseText = "Handoff error: \(error.localizedDescription)"
+                self.handoffState = .pendingOnPhone
+                print("Immediate handoff unavailable; queued: \(error.localizedDescription)")
             }
         }
     }

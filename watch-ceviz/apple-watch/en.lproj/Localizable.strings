@@ -14,6 +14,8 @@
 "✓ wrist haptic sent" = "✓ wrist haptic sent";
 "iPhone must be reachable" = "iPhone must be reachable";
 "THINKING_" = "THINKING_";
+"OPEN DETAILS" = "OPEN DETAILS";
+"SENT TO IPHONE" = "SENT TO IPHONE";
 "tap to finish" = "tap to finish";
 "working…" = "working…";
 "PTT · tap, speak" = "PTT · tap, speak";
@@ -44,3 +46,4 @@
 "[RUNNING]" = "[RUNNING]";
 "[QUEUED]" = "[QUEUED]";
 "Result unavailable: %@" = "Result unavailable: %@";
+"Will notify iPhone when delivered" = "Will notify iPhone when delivered";

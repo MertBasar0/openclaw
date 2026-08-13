@@ -14,6 +14,8 @@
 "✓ wrist haptic sent" = "✓ bilek titreşimi gönderildi";
 "iPhone must be reachable" = "iPhone erişilebilir olmalı";
 "THINKING_" = "YORUMLANIYOR_";
+"OPEN DETAILS" = "DETAYLARI A\U00C7";
+"SENT TO IPHONE" = "IPHONE'A G\U00D6NDER\U0130LD\U0130";
 "tap to finish" = "bitirmek için dokun";
 "working…" = "işleniyor…";
 "PTT · tap, speak" = "PTT · dokun, konuş";
@@ -44,3 +46,4 @@
 "[RUNNING]" = "[ÇALIŞIYOR]";
 "[QUEUED]" = "[SIRADA]";
 "Result unavailable: %@" = "Sonuç alınamadı: %@";
+"Will notify iPhone when delivered" = "Ula\U015F\U0131nca iPhone'a bildirim gider";
