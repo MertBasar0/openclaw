@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -58,7 +59,40 @@ class OpenClawClient:
         )
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _assert_source_runtime_ready() -> None:
+        """Reject commands while a source checkout has a partial dist build."""
+        executable = shutil.which("openclaw")
+        if not executable:
+            return
+        try:
+            launcher = Path(executable).resolve()
+            package_root = launcher.parent
+            if not (package_root / ".git").exists():
+                return
+            runtime_entry = package_root / "dist" / "session-store.runtime.js"
+            if not runtime_entry.exists():
+                raise OpenClawUnavailable(
+                    "OpenClaw is being rebuilt and is not ready yet. "
+                    "Wait for the gateway to become ready, then resend the command."
+                )
+            probe = subprocess.run(  # noqa: S603
+                ["node", "--input-type=module", "--eval", f'import({json.dumps(runtime_entry.as_uri())})'],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if probe.returncode != 0:
+                raise OpenClawUnavailable(
+                    "OpenClaw runtime files are incomplete during a rebuild. "
+                    "Wait for the gateway to become ready, then resend the command."
+                )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise OpenClawUnavailable(f"OpenClaw runtime preflight failed: {exc}") from exc
+
     def invoke_watch_command(self, payload: dict[str, Any]) -> InvocationHandle:
+        self._assert_source_runtime_ready()
         prompt = self._build_prompt(payload)
         log_path = self.runtime_dir / f"watch-job-{uuid.uuid4().hex}.log"
         log_file = log_path.open("w", encoding="utf-8")

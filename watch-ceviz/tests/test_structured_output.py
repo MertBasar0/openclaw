@@ -2,13 +2,14 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 import main  # noqa: E402
-from openclaw_client import OpenClawClient  # noqa: E402
+from openclaw_client import OpenClawClient, OpenClawUnavailable  # noqa: E402
 
 
 class OpenClawClientStructuredOutputTests(unittest.TestCase):
@@ -27,6 +28,18 @@ class OpenClawClientStructuredOutputTests(unittest.TestCase):
         json.dump(payload, handle, ensure_ascii=False)
         handle.close()
         return handle.name
+
+    def test_source_runtime_preflight_rejects_partial_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package_root = Path(tmp)
+            (package_root / ".git").mkdir()
+            launcher = package_root / "openclaw"
+            launcher.touch()
+
+            with mock.patch("openclaw_client.shutil.which", return_value=str(launcher)):
+                with self.assertRaisesRegex(OpenClawUnavailable, "not ready yet"):
+                    self.client._assert_source_runtime_ready()
+
 
     def test_extract_result_prefers_structured_blocks(self) -> None:
         text = """
