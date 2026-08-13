@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var recordingSeconds = 0
     @State private var recordingTimer: Timer?
     @State private var pulse = false
+    @State private var recordingWasCancelled = false
 
     private enum VoiceStage {
         case idle, recording, processing, result
@@ -195,26 +196,41 @@ struct ContentView: View {
     }
 
     private var micButton: some View {
-        Button(action: {
-            if isRecording { stop() } else { start() }
-        }) {
-            Image(systemName: isRecording ? "mic.fill" : "mic")
-                .font(.system(size: 24))
-                .foregroundColor(isRecording ? CVZ.err : CVZ.accent)
-                .frame(width: 58, height: 58)
-                .background(
-                    Circle().fill(isRecording ? CVZ.err.opacity(0.16) : CVZ.panel)
-                )
-                .overlay(
-                    Circle().stroke(isRecording ? CVZ.err : CVZ.accent, lineWidth: 1.5)
-                )
+        HStack(spacing: 18) {
+            if isRecording {
+                Button(action: cancelRecording) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(CVZ.err)
+                        .frame(width: 50, height: 50)
+                        .background(Circle().fill(CVZ.err.opacity(0.12)))
+                        .overlay(Circle().stroke(CVZ.err, lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Discard recording"))
+            }
+
+            Button(action: { isRecording ? stop() : start() }) {
+                Image(systemName: isRecording ? "arrow.up" : "mic")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(CVZ.accent)
+                    .frame(width: 58, height: 58)
+                    .background(Circle().fill(CVZ.panel))
+                    .overlay(Circle().stroke(CVZ.accent, lineWidth: 1.5))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                Text(NSLocalizedString(
+                    isRecording ? "Send recording" : "Start recording", comment: ""
+                ))
+            )
         }
-        .buttonStyle(.plain)
         .disabled(stage == .processing)
         .opacity(stage == .processing ? 0.35 : 1)
     }
 
     private var hintText: String {
+        if recordingWasCancelled { return NSLocalizedString("Recording discarded", comment: "") }
         switch stage {
         case .recording: return NSLocalizedString("tap to finish", comment: "")
         case .processing: return NSLocalizedString("working…", comment: "")
@@ -223,6 +239,7 @@ struct ContentView: View {
     }
 
     private func start() {
+        recordingWasCancelled = false
         isRecording = true
         // Bilek indiginde watchOS uygulamayi askiya alip kaydi ~1 sn'de
         // kesiyor; kayit boyunca extended runtime ile uyanik tut.
@@ -250,6 +267,17 @@ struct ContentView: View {
         } else {
             sessionManager.responseText = recorder.lastError ?? NSLocalizedString("Could not capture audio", comment: "")
         }
+    }
+
+    private func cancelRecording() {
+        isRecording = false
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        recordingSeconds = 0
+        recorder.cancelRecording()
+        sessionManager.stopExtendedSession()
+        recordingWasCancelled = true
+        WKInterfaceDevice.current().play(.click)
     }
 }
 

@@ -20,6 +20,10 @@
 "Could not capture audio" = "Could not capture audio";
 "↩ follow-up" = "↩ follow-up";
 "No active jobs" = "No active jobs";
+"Recording discarded" = "Recording discarded";
+"Discard recording" = "Discard recording";
+"Send recording" = "Send recording";
+"Start recording" = "Start recording";
 "More on iPhone" = "More on iPhone";
 "Continuation ready" = "Continuation ready";
 "Open the full report on your phone." = "Open the full report on your phone.";

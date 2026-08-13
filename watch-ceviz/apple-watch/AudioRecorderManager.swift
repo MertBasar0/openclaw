@@ -83,4 +83,24 @@ class AudioRecorderManager: NSObject, ObservableObject, AVAudioRecorderDelegate 
 
         return data.base64EncodedString()
     }
+
+    func cancelRecording() {
+        audioRecorder?.stop()
+        audioRecorder = nil
+
+        if let url = recordingURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        recordingURL = nil
+        lastError = nil
+
+        do {
+            try AVAudioSession.sharedInstance().setActive(
+                false,
+                options: .notifyOthersOnDeactivation
+            )
+        } catch {
+            // The recording is already discarded; session cleanup is best effort.
+        }
+    }
 }

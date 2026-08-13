@@ -20,6 +20,10 @@
 "Could not capture audio" = "Ses yakalanamadı";
 "↩ follow-up" = "↩ devam";
 "No active jobs" = "Aktif iş yok";
+"Recording discarded" = "Kayd\U0131 silindi";
+"Discard recording" = "Kayd\U0131 sil";
+"Send recording" = "Kayd\U0131 g\U00F6nder";
+"Start recording" = "Kayd\U0131 ba\U015Flat";
 "More on iPhone" = "iPhone'da devamı var";
 "Continuation ready" = "Devam hazır";
 "Open the full report on your phone." = "Tam raporu telefonda açın.";
