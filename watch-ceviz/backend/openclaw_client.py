@@ -50,8 +50,12 @@ class OpenClawClient:
         self,
         agent: str | None = None,
         runtime_dir: str | os.PathLike[str] | None = None,
+        command_timeout_seconds: int | None = None,
     ) -> None:
         self.agent = agent or os.environ.get("OPENCLAW_WATCH_AGENT", "main")
+        self.command_timeout_seconds = command_timeout_seconds or int(
+            os.environ.get("OPENCLAW_WATCH_COMMAND_TIMEOUT_SECONDS", "3600")
+        )
         self.runtime_dir = Path(
             runtime_dir
             or os.environ.get("OPENCLAW_WATCH_RUNTIME_DIR")
@@ -102,6 +106,8 @@ class OpenClawClient:
             "--agent",
             self.agent,
             "--json",
+            "--timeout",
+            str(self.command_timeout_seconds),
             "--message",
             prompt,
         ]

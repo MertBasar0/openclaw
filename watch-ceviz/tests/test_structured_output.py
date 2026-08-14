@@ -29,6 +29,23 @@ class OpenClawClientStructuredOutputTests(unittest.TestCase):
         handle.close()
         return handle.name
 
+    def test_invoke_uses_extended_gateway_timeout(self) -> None:
+        client = OpenClawClient(
+            runtime_dir=tempfile.mkdtemp(),
+            command_timeout_seconds=3600,
+        )
+        fake_process = mock.Mock()
+        with mock.patch.object(client, "_assert_source_runtime_ready"), mock.patch.object(
+            client, "_build_prompt", return_value="test prompt"
+        ), mock.patch("openclaw_client.subprocess.Popen", return_value=fake_process) as popen:
+            client.invoke_watch_command({})
+
+        command = popen.call_args.args[0]
+        timeout_index = command.index("--timeout")
+        self.assertEqual(command[timeout_index + 1], "3600")
+        self.assertEqual(command.count("--timeout"), 1)
+
+
     def test_source_runtime_preflight_rejects_partial_build(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package_root = Path(tmp)
