@@ -340,6 +340,10 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             }
         }
 
+        // A suspended timer keeps its old in-memory deadline. Refresh it before
+        // the immediate recovery poll so wake-up never discards a finished job
+        // merely because the device slept longer than the original window.
+        resultPollDeadline = Date().addingTimeInterval(120)
         if !isProcessing {
             isProcessing = true
             responseText = NSLocalizedString("Working… (checking for a pending result)", comment: "")

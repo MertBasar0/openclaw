@@ -294,6 +294,9 @@ struct HomeView: View {
     @State private var showSettings = false
     @State private var recentJobs: [ActiveJob] = []
 
+    private let jobsRefreshTimer = Timer.publish(every: 5, on: .main, in: .common)
+        .autoconnect()
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -409,6 +412,11 @@ struct HomeView: View {
         .onChange(of: homeScenePhase) { phase in
             if phase == .active {
                 router.activatePendingRouteIfNeeded()
+                fetchRecentJobs()
+            }
+        }
+        .onReceive(jobsRefreshTimer) { _ in
+            if homeScenePhase == .active {
                 fetchRecentJobs()
             }
         }
