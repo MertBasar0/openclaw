@@ -18,6 +18,13 @@ from stt import TranscriptionResult  # noqa: E402
 
 class EndpointContractTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.state_tmp = tempfile.TemporaryDirectory()
+        self.state_dir_patcher = mock.patch.object(main, "STATE_DIR", Path(self.state_tmp.name))
+        self.state_path_patcher = mock.patch.object(
+            main, "JOBS_STATE_PATH", Path(self.state_tmp.name) / "jobs.json"
+        )
+        self.state_dir_patcher.start()
+        self.state_path_patcher.start()
         self.original_jobs_db = copy.deepcopy(main.jobs_db)
         main.jobs_db.update({
             "job-101": {
@@ -58,6 +65,9 @@ class EndpointContractTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.server.shutdown()
+        self.state_path_patcher.stop()
+        self.state_dir_patcher.stop()
+        self.state_tmp.cleanup()
         self.server.server_close()
         self.thread.join(timeout=2)
         main.jobs_db.clear()
@@ -338,6 +348,37 @@ class EndpointContractTests(unittest.TestCase):
             "suggested-next-action",
         ])
 
+    def test_watch_command_reuses_job_for_duplicate_audio(self) -> None:
+        fake_invocation = SimpleNamespace(
+            process=mock.Mock(),
+            log_path="/tmp/fake-idempotent-watch-job.log",
+            prompt="test prompt",
+            command=["openclaw", "agent"],
+            started_at=123.0,
+        )
+        audio = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="
+
+        with mock.patch.object(
+            main.stt_client,
+            "transcribe_watch_payload",
+            return_value=TranscriptionResult(transcript="tek kez calistir", source="test", error=""),
+        ) as transcribe, mock.patch.object(
+            main.openclaw_client,
+            "invoke_watch_command",
+            return_value=fake_invocation,
+        ) as invoke:
+            first_status, first = self._post_json(
+                "/api/v1/watch/command", {"audio_data": audio, "format": "aac"}
+            )
+            second_status, second = self._post_json(
+                "/api/v1/watch/command", {"audio_data": audio, "format": "aac"}
+            )
+
+        self.assertEqual(first_status, 200)
+        self.assertEqual(second_status, 200)
+        self.assertEqual(first["job_id"], second["job_id"])
+        self.assertEqual(transcribe.call_count, 1)
+        self.assertEqual(invoke.call_count, 1)
     def test_shortcut_command_accepts_text_and_returns_pollable_shape(self) -> None:
         fake_invocation = SimpleNamespace(
             process=mock.Mock(),

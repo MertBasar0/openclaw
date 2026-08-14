@@ -26,6 +26,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
 
     static let continuationWindow: TimeInterval = 180
     @Published var handoffState: HandoffState = .idle
+    private var isDrainingCommandQueue = false
     @Published var handoffPreview: HandoffPreview? = nil
 
     private var extendedSession: WKExtendedRuntimeSession?
@@ -613,7 +614,9 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     } 
 
     func processQueue() { 
-        guard WCSession.default.isReachable, !pendingCommands.isEmpty else { return } 
+        guard WCSession.default.isReachable, !pendingCommands.isEmpty,
+              !isDrainingCommandQueue else { return }
+        isDrainingCommandQueue = true
         
         let commandsToProcess = pendingCommands 
         DispatchQueue.main.async { 
@@ -625,6 +628,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         func sendNext(index: Int) {
             guard index < commandsToProcess.count else {
                 DispatchQueue.main.async {
+                    self.isDrainingCommandQueue = false
                     self.fetchJobs()
                 }
                 return

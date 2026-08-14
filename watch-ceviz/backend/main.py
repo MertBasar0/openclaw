@@ -1,3 +1,4 @@
+import hashlib
 import hmac
 import json
 import logging
@@ -1388,7 +1389,6 @@ Content-Type: application/json
         elif path == "/api/v1/watch/command":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
-
             try:
                 payload = json.loads(body)
             except json.JSONDecodeError:
@@ -1405,17 +1405,34 @@ Content-Type: application/json
                 self.wfile.write(json.dumps({"error": "Validation failed", "details": errors}).encode("utf-8"))
                 return
 
-            stt_result = stt_client.transcribe_watch_payload(payload)
-            effective_transcript = stt_result.transcript.strip()
-
-            job = create_openclaw_job(
-                transcript=effective_transcript,
-                source=stt_result.source,
-                client_timestamp=payload.get("client_timestamp"),
-                stt_error=stt_result.error or "",
-                locale=str(payload.get("locale") or ""),
+            audio_fingerprint = hashlib.sha256(payload["audio_data"].encode("utf-8")).hexdigest()
+            duplicate_job = next(
+                (
+                    candidate
+                    for candidate in sorted(
+                        jobs_db.values(), key=lambda item: item.get("created_at", 0), reverse=True
+                    )
+                    if candidate.get("audio_fingerprint") == audio_fingerprint
+                    and time.time() - candidate.get("created_at", 0) < 30 * 60
+                ),
+                None,
             )
-            resp_payload = build_watch_command_response(job)
+            if duplicate_job is not None:
+                logging.warning("Duplicate watch audio suppressed; returning %s", duplicate_job["id"])
+                resp_payload = build_watch_command_response(duplicate_job)
+            else:
+                stt_result = stt_client.transcribe_watch_payload(payload)
+                effective_transcript = stt_result.transcript.strip()
+                job = create_openclaw_job(
+                    transcript=effective_transcript,
+                    source=stt_result.source,
+                    client_timestamp=payload.get("client_timestamp"),
+                    stt_error=stt_result.error or "",
+                    locale=str(payload.get("locale") or ""),
+                )
+                job["audio_fingerprint"] = audio_fingerprint
+                save_jobs()
+                resp_payload = build_watch_command_response(job)
 
             resp_schema = load_contract("watch-command-response.schema.json")
             resp_errors = validate_payload(resp_payload, resp_schema)
