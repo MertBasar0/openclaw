@@ -34,6 +34,7 @@ targets:
         # ayarlariyla yazilamiyor, sessizce dusuyordu.
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: ios-bridge/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ios-bridge/CevizBridge.entitlements
         CURRENT_PROJECT_VERSION: $(APP_PROJECT_VERSION)
         MARKETING_VERSION: $(APP_MARKETING_VERSION)
         PRODUCT_BUNDLE_IDENTIFIER: com.mertbasar.cevizwatch

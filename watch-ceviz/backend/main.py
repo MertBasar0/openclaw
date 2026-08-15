@@ -29,10 +29,12 @@ JOBS_STATE_PATH = STATE_DIR / "jobs.json"
 MAX_PERSISTED_JOBS = 50
 
 from openclaw_client import OpenClawClient, OpenClawUnavailable
+from push_notifier import PushNotifier
 from stt import WatchSTT
 
 openclaw_client = OpenClawClient()
 stt_client = WatchSTT()
+push_notifier = PushNotifier()
 
 
 def load_contract(name: str) -> dict:
@@ -1258,6 +1260,22 @@ Content-Type: application/json
         query = parse_qs(parsed_url.query)
         if self._reject_unauthorized(path):
             return
+        if path == "/api/v1/push/register":
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            try:
+                result = push_notifier.register(payload)
+                status = 200
+            except Exception as exc:
+                logging.exception("Push registration failed")
+                result = {"ok": False, "error": str(exc)}
+                status = 502
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode("utf-8"))
+            return
+
         if path.startswith("/api/v1/jobs/") and path.endswith("/cancel"):
             job_id = path.split("/")[4]
             job = jobs_db.get(job_id)
@@ -1461,6 +1479,22 @@ def _warmup_stt() -> None:
     except Exception as exc:
         logging.warning("STT warmup atlandı: %s", exc)
 
+def _monitor_jobs_for_push() -> None:
+    """Observe terminal transitions even while the phone and watch are suspended."""
+    while True:
+        try:
+            for job in list(jobs_db.values()):
+                sync_job_status(job)
+                try:
+                    if push_notifier.notify_terminal_job(job):
+                        save_jobs()
+                except Exception as exc:
+                    logging.warning("Push delivery deferred for %s: %s", job.get("id"), exc)
+        except Exception:
+            logging.exception("Push monitor iteration failed")
+        time.sleep(5)
+
+
 
 def run(port=8080):
     server_address = ('', port)
@@ -1470,6 +1504,7 @@ def run(port=8080):
     # Modeli arka planda onden yukle: server hemen ayakta, ilk komut hizli.
     import threading
     threading.Thread(target=_warmup_stt, daemon=True).start()
+    threading.Thread(target=_monitor_jobs_for_push, daemon=True).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

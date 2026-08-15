@@ -238,6 +238,7 @@ final class AppRouter: ObservableObject {
 
 @main
 struct CompanionApp: App {
+    @UIApplicationDelegateAdaptor(CevizAppDelegate.self) private var appDelegate
     @StateObject private var router = AppRouter.shared
 
     init() {

@@ -1,0 +1,8 @@
+name = "ceviz-push-relay"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+[[kv_namespaces]]
+binding = "REGISTRATIONS"
+id = "c9d0cd14210740bc801246a8439f8c5b"
+
