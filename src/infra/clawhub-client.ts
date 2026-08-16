@@ -114,6 +114,12 @@ function extractTokenFromClawHubConfig(value: unknown): string | undefined {
   );
 }
 
+function resolveClawHubConfigPathsIn(configHome: string): string[] {
+  return ["clawhub", "clawdhub"].map((directory) =>
+    path.join(configHome, directory, "config.json"),
+  );
+}
+
 function resolveClawHubConfigPaths(): string[] {
   const explicit =
     normalizeOptionalString(process.env.CLAWHUB_CONFIG_PATH) ||
@@ -125,16 +131,21 @@ function resolveClawHubConfigPaths(): string[] {
   const xdgConfigHome = normalizeOptionalString(process.env.XDG_CONFIG_HOME);
   const configHome =
     xdgConfigHome && xdgConfigHome.length > 0 ? xdgConfigHome : path.join(os.homedir(), ".config");
-  const xdgPath = path.join(configHome, "clawhub", "config.json");
+  const configPaths = resolveClawHubConfigPathsIn(configHome);
 
   if (process.platform === "darwin") {
     return [
-      path.join(os.homedir(), "Library", "Application Support", "clawhub", "config.json"),
-      xdgPath,
+      ...resolveClawHubConfigPathsIn(path.join(os.homedir(), "Library", "Application Support")),
+      ...configPaths,
     ];
   }
 
-  return [xdgPath];
+  const appData = normalizeOptionalString(process.env.APPDATA);
+  if (process.platform === "win32" && !xdgConfigHome && appData) {
+    return [...resolveClawHubConfigPathsIn(appData), ...configPaths];
+  }
+
+  return configPaths;
 }
 
 export async function resolveClawHubAuthToken(): Promise<string | undefined> {
