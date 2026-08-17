@@ -171,6 +171,52 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         }
     }
 
+    func session(
+        _ session: WCSession,
+        didReceiveMessage message: [String: Any],
+        replyHandler: @escaping ([String: Any]) -> Void
+    ) {
+        guard message["action"] as? String == "reset_connection_state" else {
+            replyHandler(["error": "Unknown action"])
+            return
+        }
+        let configuredAt = (message["configured_at"] as? TimeInterval) ?? Date().timeIntervalSince1970
+        DispatchQueue.main.async {
+            self.resetConnectionState(configuredAt: configuredAt)
+            replyHandler(["status": "reset"])
+        }
+    }
+
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        guard userInfo["action"] as? String == "reset_connection_state" else { return }
+        let configuredAt = (userInfo["configured_at"] as? TimeInterval) ?? Date().timeIntervalSince1970
+        DispatchQueue.main.async {
+            self.resetConnectionState(configuredAt: configuredAt)
+        }
+    }
+
+    private func resetConnectionState(configuredAt: TimeInterval) {
+        pendingCommands.removeAll {
+            $0.timestamp.timeIntervalSince1970 <= configuredAt
+        }
+        let pendingJobAt = UserDefaults.standard.double(forKey: Self.pendingJobAtDefaultsKey)
+        let hasNewerPendingJob = pendingJobAt > configuredAt
+
+        if !hasNewerPendingJob && pendingCommands.isEmpty {
+            stopResultPolling()
+            isProcessing = false
+            responseText = ""
+            handoffState = .idle
+            handoffUrl = nil
+            handoffJobId = nil
+            handoffPreview = nil
+        }
+        transportStatus = WCSession.default.isReachable ? "Connected" : "Reconnecting..."
+        if WCSession.default.activationState != .activated {
+            WCSession.default.activate()
+        }
+    }
+
     func fetchJobs() {
         guard WCSession.default.isReachable else {
             print("Cannot fetch jobs: Session not reachable")

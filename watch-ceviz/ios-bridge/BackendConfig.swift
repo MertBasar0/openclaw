@@ -8,6 +8,7 @@ import Foundation
 /// Backend WATCH_CEVIZ_AUTH_TOKEN ile calisiyorsa tum /api istekleri
 /// "Authorization: Bearer <token>" ister.
 enum BackendConfig {
+    static let connectionDidChange = Notification.Name("cvz.backendConnectionDidChange")
     static let urlDefaultsKey = "cvz.backendURL"
     static let connectionMethodKey = "cvz.connectionMethod"
     static let tokenDefaultsKey = "cvz.backendToken"   // eski UserDefaults konumu (migrasyon)
@@ -56,7 +57,15 @@ enum BackendConfig {
         guard !u.isEmpty, !t.isEmpty else { return nil }
         setBaseURL(u)
         setToken(t)
+        NotificationCenter.default.post(name: connectionDidChange, object: nil)
         return (u, t)
+    }
+
+    static func save(baseURL: String, token: String, connectionMethod: String) {
+        setBaseURL(baseURL)
+        setToken(token)
+        UserDefaults.standard.set(connectionMethod, forKey: connectionMethodKey)
+        NotificationCenter.default.post(name: connectionDidChange, object: nil)
     }
 
     static func pairingMethod(_ url: URL) -> String? {
@@ -80,5 +89,46 @@ enum BackendConfig {
         request.httpMethod = method
         applyAuth(&request)
         return request
+    }
+}
+
+/// Owns backend networking separately from URLSession.shared so pairing can
+/// discard stale DNS, connection and request state without reinstalling the app.
+final class BackendTransport {
+    static let shared = BackendTransport()
+
+    private let lock = NSLock()
+    private var session: URLSession
+
+    private init() {
+        session = Self.makeSession()
+    }
+
+    private static func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 180
+        configuration.waitsForConnectivity = true
+        return URLSession(configuration: configuration)
+    }
+
+    func dataTask(
+        with request: URLRequest,
+        completionHandler: @escaping (Data?, URLResponse?, Error?) -> Void
+    ) -> URLSessionDataTask {
+        lock.lock()
+        let current = session
+        lock.unlock()
+        return current.dataTask(with: request, completionHandler: completionHandler)
+    }
+
+    func reset() {
+        lock.lock()
+        let previous = session
+        session = Self.makeSession()
+        lock.unlock()
+        previous.invalidateAndCancel()
     }
 }

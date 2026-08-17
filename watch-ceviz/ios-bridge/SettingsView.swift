@@ -138,6 +138,20 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     .disabled(testState == .testing)
 
+                    Button(action: resetConnection) {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("RESET CONNECTION")
+                        }
+                        .font(CVZ.mono(12, .semibold))
+                        .foregroundColor(CVZ.textDim)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(CVZ.line, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(testState == .testing)
+
                     switch testState {
                     case .success(let message):
                         Text("✓ \(message)")
@@ -180,7 +194,9 @@ struct SettingsView: View {
                     }
                     urlText = pair.url
                     tokenText = pair.token
-                    testState = .success(NSLocalizedString("QR scanned — remember to save", comment: ""))
+                    DemoMode.setExplicit(false)
+                    demoOn = false
+                    runTest()
                 } else {
                     testState = .failure(NSLocalizedString("Invalid QR (expected ceviz://pair)", comment: ""))
                 }
@@ -235,7 +251,7 @@ struct SettingsView: View {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        URLSession.shared.dataTask(with: request) { _, response, error in
+        BackendTransport.shared.dataTask(with: request) { _, response, error in
             DispatchQueue.main.async {
                 if let error {
                     testState = .failure(error.localizedDescription)
@@ -258,9 +274,20 @@ struct SettingsView: View {
     }
 
     private func save() {
-        BackendConfig.setBaseURL(urlText)
-        BackendConfig.setToken(tokenText)
-        UserDefaults.standard.set(connectionMethod.rawValue, forKey: BackendConfig.connectionMethodKey)
+        BackendConfig.save(
+            baseURL: urlText,
+            token: tokenText,
+            connectionMethod: connectionMethod.rawValue
+        )
         dismiss()
+    }
+
+    private func resetConnection() {
+        BackendConfig.save(
+            baseURL: urlText,
+            token: tokenText,
+            connectionMethod: connectionMethod.rawValue
+        )
+        runTest()
     }
 }

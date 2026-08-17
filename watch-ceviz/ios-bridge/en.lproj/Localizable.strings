@@ -91,3 +91,4 @@
 "Show sample data without a backend. Useful before pairing, and required for app review." = "Show sample data without a backend. Useful before pairing, and required for app review.";
 "Demo mode — sample data" = "Demo mode — sample data";
 "Not available in demo mode" = "Not available in demo mode";
+"RESET CONNECTION" = "RESET CONNECTION";

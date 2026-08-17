@@ -18,6 +18,12 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
 
     private override init() {
         super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(connectionConfigurationDidChange),
+            name: BackendConfig.connectionDidChange,
+            object: nil
+        )
         notificationCenter.delegate = self
         // Bildirim izni acilista DEGIL, ilk gercek handoff bildiriminden
         // hemen once istenir: kullanici daha hicbir sey yapmadan izin
@@ -27,6 +33,30 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
             let session = WCSession.default
             session.delegate = self
             session.activate()
+        }
+    }
+
+    @objc private func connectionConfigurationDidChange() {
+        resetConnectionState()
+    }
+
+    func resetConnectionState() {
+        BackendTransport.shared.reset()
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        session.delegate = self
+        session.activate()
+
+        let resetMessage: [String: Any] = [
+            "action": "reset_connection_state",
+            "configured_at": Date().timeIntervalSince1970
+        ]
+        if session.isReachable {
+            session.sendMessage(resetMessage, replyHandler: nil) { [weak self] error in
+                self?.logger.warning("Watch connection reset message failed: \(error.localizedDescription)")
+            }
+        } else {
+            session.transferUserInfo(resetMessage)
         }
     }
 
@@ -198,7 +228,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
         request.httpMethod = "POST"
         BackendConfig.applyAuth(&request)
         
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = BackendTransport.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 self.logger.error("Backend request failed: \(error.localizedDescription)")
                 replyHandler(["error": "Backend unavailable"])
@@ -235,7 +265,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
         request.httpMethod = "GET"
         BackendConfig.applyAuth(&request)
         
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = BackendTransport.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 self.logger.error("Backend request failed: \(error.localizedDescription)")
                 replyHandler(["error": "Backend unavailable"])
@@ -264,7 +294,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
             return
         }
         
-        let task = URLSession.shared.dataTask(with: urlRequest) { [weak self] data, response, error in
+        let task = BackendTransport.shared.dataTask(with: urlRequest) { [weak self] data, response, error in
             guard let self = self else { return }
             
             if let error = error {

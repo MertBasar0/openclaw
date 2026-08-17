@@ -91,3 +91,4 @@
 "Show sample data without a backend. Useful before pairing, and required for app review." = "Backend olmadan örnek veri gösterir. Eşleşmeden önce ve uygulama incelemesi için kullanışlıdır.";
 "Demo mode — sample data" = "Demo modu — örnek veri";
 "Not available in demo mode" = "Demo modunda kullanılamaz";
+"RESET CONNECTION" = "BAĞLANTIYI SIFIRLA";
