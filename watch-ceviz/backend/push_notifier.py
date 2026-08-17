@@ -18,6 +18,10 @@ class PushNotifier:
             "WATCH_CEVIZ_PUSH_RELAY_URL",
             "https://ceviz-push-relay.mertbasar30.workers.dev",
         ).rstrip("/")
+        self.user_agent = os.environ.get(
+            "WATCH_CEVIZ_PUSH_USER_AGENT",
+            "CevizBackend/1.0",
+        ).strip() or "CevizBackend/1.0"
 
     def _load(self) -> dict[str, Any] | None:
         try:
@@ -33,7 +37,11 @@ class PushNotifier:
         tmp.replace(self.state_path)
 
     def _post(self, path: str, payload: dict[str, Any], grant: str | None = None) -> dict[str, Any]:
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": self.user_agent,
+        }
         if grant:
             headers["Authorization"] = f"Bearer {grant}"
         request = urllib.request.Request(
@@ -47,7 +55,9 @@ class PushNotifier:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"push relay HTTP {exc.code}: {detail}") from exc
+            cf_ray = exc.headers.get("cf-ray", "") if exc.headers else ""
+            suffix = f" (cf-ray={cf_ray})" if cf_ray else ""
+            raise RuntimeError(f"push relay {path} HTTP {exc.code}: {detail}{suffix}") from exc
 
     def register(self, payload: dict[str, Any]) -> dict[str, Any]:
         response = self._post("/v1/register", {
