@@ -67,7 +67,7 @@ async function send(request, env) {
   const payload = {
     aps: {
       alert: { title: String(body.title || "Ceviz"), body: String(body.message || "Görev tamamlandı.") },
-      sound: "default",
+      sound: "ceviz-complete.caf",
       "thread-id": "ceviz-jobs",
       "content-available": 1,
     },

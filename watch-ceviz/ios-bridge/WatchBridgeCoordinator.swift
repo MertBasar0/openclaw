@@ -504,7 +504,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
             let content = UNMutableNotificationContent()
             content.title = title ?? "Continue on iPhone"
             content.body = self.notificationBody(summaryText: summaryText, handoffReason: handoffReason)
-            content.sound = .default
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "ceviz-complete.caf"))
             content.userInfo = [
                 "deep_link": deepLink.absoluteString,
                 "job_id": jobId,
