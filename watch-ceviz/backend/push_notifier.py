@@ -60,6 +60,8 @@ class PushNotifier:
             raise RuntimeError(f"push relay {path} HTTP {exc.code}: {detail}{suffix}") from exc
 
     def register(self, payload: dict[str, Any]) -> dict[str, Any]:
+        previous = self._load()
+        installation_id = payload.get("installation_id", "")
         response = self._post("/v1/register", {
             "apnsToken": payload.get("apns_token", ""),
             "bundleId": payload.get("bundle_id", ""),
@@ -68,11 +70,16 @@ class PushNotifier:
         })
         if not response.get("ok"):
             raise RuntimeError(str(response.get("reason") or "push registration failed"))
+        now = time.time()
+        first_registered_at = now
+        if previous and previous.get("installation_id") == installation_id:
+            first_registered_at = previous.get("first_registered_at", previous.get("registered_at", now))
         self._store({
             "relay_handle": response["relayHandle"],
             "send_grant": response["sendGrant"],
-            "registered_at": time.time(),
-            "installation_id": payload.get("installation_id", ""),
+            "registered_at": now,
+            "first_registered_at": first_registered_at,
+            "installation_id": installation_id,
         })
         return {"ok": True, "registered": True}
 
@@ -80,7 +87,8 @@ class PushNotifier:
         if job.get("status") not in {"completed", "failed"} or job.get("push_notification_sent_at"):
             return False
         registration = self._load()
-        if not registration or job.get("created_at", 0) < registration.get("registered_at", 0):
+        eligible_since = registration.get("first_registered_at", registration.get("registered_at", 0)) if registration else 0
+        if not registration or job.get("created_at", 0) < eligible_since:
             return False
         summary = str(job.get("watch_summary") or job.get("canned_result") or "Görev tamamlandı.")
         if len(summary) > 180:

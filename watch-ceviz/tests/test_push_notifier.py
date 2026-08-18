@@ -67,6 +67,54 @@ class PushNotifierTests(unittest.TestCase):
         self.assertEqual(stored["send_grant"], "send-grant")
         self.assertEqual(stored["installation_id"], "installation-1")
 
+    def test_reregister_same_installation_preserves_first_registration(self) -> None:
+        self.notifier._store({
+            "relay_handle": "old-handle",
+            "send_grant": "old-grant",
+            "registered_at": 10,
+            "installation_id": "installation-1",
+        })
+        response = {
+            "ok": True,
+            "relayHandle": "new-handle",
+            "sendGrant": "new-grant",
+        }
+        with mock.patch.object(self.notifier, "_post", return_value=response), mock.patch(
+            "push_notifier.time.time", return_value=30
+        ):
+            self.notifier.register({
+                "apns_token": "new-device-token",
+                "bundle_id": "com.mertbasar.cevizwatch",
+                "installation_id": "installation-1",
+                "environment": "production",
+            })
+
+        stored = json.loads(self.notifier.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(stored["registered_at"], 30)
+        self.assertEqual(stored["first_registered_at"], 10)
+
+    def test_new_installation_resets_first_registration(self) -> None:
+        self.notifier._store({
+            "relay_handle": "old-handle",
+            "send_grant": "old-grant",
+            "registered_at": 10,
+            "first_registered_at": 5,
+            "installation_id": "installation-1",
+        })
+        response = {"ok": True, "relayHandle": "new-handle", "sendGrant": "new-grant"}
+        with mock.patch.object(self.notifier, "_post", return_value=response), mock.patch(
+            "push_notifier.time.time", return_value=30
+        ):
+            self.notifier.register({
+                "apns_token": "new-device-token",
+                "bundle_id": "com.mertbasar.cevizwatch",
+                "installation_id": "installation-2",
+                "environment": "production",
+            })
+
+        stored = json.loads(self.notifier.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(stored["first_registered_at"], 30)
+
     def test_terminal_notification_is_idempotent(self) -> None:
         self.notifier._store({
             "relay_handle": "relay-handle",

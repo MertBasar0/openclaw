@@ -541,6 +541,14 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
             return
         }
 
+        // Keep remote terminal notifications visible while the companion app
+        // is foregrounded. Empty presentation options silently consume APNs.
+        let userInfo = notification.request.content.userInfo
+        if userInfo["job_id"] != nil || userInfo["deep_link"] != nil {
+            completionHandler([.banner, .list, .sound])
+            return
+        }
+
         completionHandler([])
     }
 
