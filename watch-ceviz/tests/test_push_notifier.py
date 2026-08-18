@@ -137,6 +137,10 @@ class PushNotifierTests(unittest.TestCase):
             self.assertFalse(self.notifier.notify_terminal_job(job))
 
         self.assertEqual(post.call_count, 1)
+        payload = post.call_args.args[1]
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(payload["watchSummary"], "Görev tamamlandı.")
+        self.assertFalse(payload["requiresPhoneHandoff"])
         self.assertEqual(job["push_notification_apns_id"], "apns-1")
         self.assertIn("push_notification_sent_at", job)
 

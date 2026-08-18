@@ -392,6 +392,36 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
         }
     }
 
+    @discardableResult
+    func forwardTerminalPushToWatch(_ userInfo: [AnyHashable: Any]) -> Bool {
+        guard let jobId = userInfo["job_id"] as? String, !jobId.isEmpty,
+              let status = userInfo["job_status"] as? String,
+              status == "completed" || status == "failed" else {
+            return false
+        }
+
+        let payload: [String: Any] = [
+            "action": "terminal_job_result",
+            "job_id": jobId,
+            "status": status,
+            "summary": userInfo["watch_summary"] as? String ?? "",
+            "deep_link": userInfo["deep_link"] as? String ?? "",
+            "requires_phone_handoff": userInfo["requires_phone_handoff"] as? Bool ?? false,
+        ]
+        let session = WCSession.default
+        if session.activationState != .activated {
+            session.activate()
+        }
+        session.transferUserInfo(payload)
+        do {
+            try session.updateApplicationContext(payload)
+        } catch {
+            logger.warning("Could not update Watch terminal context: \(error.localizedDescription)")
+        }
+        logger.info("Forwarded terminal push for \(jobId) to Watch")
+        return true
+    }
+
     private func configureNotificationAuthorization() {
         notificationCenter.getNotificationSettings { settings in
             guard settings.authorizationStatus == .notDetermined else { return }
@@ -544,6 +574,7 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
         // Keep remote terminal notifications visible while the companion app
         // is foregrounded. Empty presentation options silently consume APNs.
         let userInfo = notification.request.content.userInfo
+        _ = forwardTerminalPushToWatch(userInfo)
         if userInfo["job_id"] != nil || userInfo["deep_link"] != nil {
             completionHandler([.banner, .list, .sound])
             return

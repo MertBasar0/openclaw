@@ -99,6 +99,9 @@ class PushNotifier:
             "title": "Ceviz · Görev tamamlandı" if job.get("status") == "completed" else "Ceviz · Görev tamamlanamadı",
             "message": summary,
             "deepLink": f"ceviz://job/{job['id']}",
+            "status": job.get("status", ""),
+            "watchSummary": summary,
+            "requiresPhoneHandoff": bool(job.get("requires_phone_handoff")),
         }, registration["send_grant"])
         if not result.get("ok"):
             raise RuntimeError(str(result.get("reason") or "APNs delivery failed"))

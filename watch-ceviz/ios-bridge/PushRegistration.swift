@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import UserNotifications
+import WatchConnectivity
 import os
 
 final class CevizAppDelegate: NSObject, UIApplicationDelegate {
@@ -61,6 +62,15 @@ final class CevizAppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         logger.error("APNs registration failed: \(error.localizedDescription)")
+    }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        let forwarded = WatchBridgeCoordinator.shared.forwardTerminalPushToWatch(userInfo)
+        completionHandler(forwarded ? .newData : .noData)
     }
 
     private func registerWithBackend(apnsToken: String) {

@@ -64,7 +64,19 @@ async function send(request, env) {
   const record = JSON.parse((await env.REGISTRATIONS.get(relayHandle)) || "null");
   if (!record || !grant || (await sha256(grant)) !== record.grantHash) return json({ ok: false, reason: "Invalid relay grant" }, 401);
   const authority = record.environment === "sandbox" ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com";
-  const payload = { aps: { alert: { title: String(body.title || "Ceviz"), body: String(body.message || "Görev tamamlandı.") }, sound: "default", "thread-id": "ceviz-jobs" }, job_id: String(body.jobId || ""), deep_link: String(body.deepLink || "") };
+  const payload = {
+    aps: {
+      alert: { title: String(body.title || "Ceviz"), body: String(body.message || "Görev tamamlandı.") },
+      sound: "default",
+      "thread-id": "ceviz-jobs",
+      "content-available": 1,
+    },
+    job_id: String(body.jobId || ""),
+    deep_link: String(body.deepLink || ""),
+    job_status: String(body.status || ""),
+    watch_summary: String(body.watchSummary || body.message || ""),
+    requires_phone_handoff: Boolean(body.requiresPhoneHandoff),
+  };
   const response = await fetch(`${authority}/3/device/${record.apnsToken}`, { method: "POST", headers: { authorization: `bearer ${await apnsJwt(env)}`, "apns-topic": record.bundleId, "apns-push-type": "alert", "apns-priority": "10", "content-type": "application/json" }, body: JSON.stringify(payload) });
   const reason = await response.text();
   if (!response.ok && [400, 410].includes(response.status)) await env.REGISTRATIONS.delete(relayHandle);

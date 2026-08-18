@@ -39,6 +39,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     private static let pendingJobAtDefaultsKey = "cvz.pendingJobAt"
     /// Bekleyen is kaydi bu sureden eskiyse anlamsizdir; diriltmeyiz.
     private static let pendingJobMaxAge: TimeInterval = 15 * 60
+    private static let lastTerminalJobDefaultsKey = "cvz.lastTerminalJobId"
 
     enum HandoffState: Equatable {
         case idle
@@ -188,10 +189,58 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        guard userInfo["action"] as? String == "reset_connection_state" else { return }
-        let configuredAt = (userInfo["configured_at"] as? TimeInterval) ?? Date().timeIntervalSince1970
-        DispatchQueue.main.async {
-            self.resetConnectionState(configuredAt: configuredAt)
+        handleBackgroundMessage(userInfo)
+    }
+
+    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        handleBackgroundMessage(applicationContext)
+    }
+
+    private func handleBackgroundMessage(_ message: [String: Any]) {
+        switch message["action"] as? String {
+        case "reset_connection_state":
+            let configuredAt = (message["configured_at"] as? TimeInterval) ?? Date().timeIntervalSince1970
+            DispatchQueue.main.async {
+                self.resetConnectionState(configuredAt: configuredAt)
+            }
+        case "terminal_job_result":
+            DispatchQueue.main.async {
+                self.applyTerminalPush(message)
+            }
+        default:
+            break
+        }
+    }
+
+    private func applyTerminalPush(_ message: [String: Any]) {
+        guard let jobId = message["job_id"] as? String, !jobId.isEmpty,
+              let status = message["status"] as? String,
+              status == "completed" || status == "failed" else { return }
+        let persisted = UserDefaults.standard.string(forKey: Self.pendingJobDefaultsKey)
+        guard jobId == pollingJobId || jobId == persisted else { return }
+        if UserDefaults.standard.string(forKey: Self.lastTerminalJobDefaultsKey) == jobId,
+           !isProcessing {
+            return
+        }
+
+        let summary = (message["summary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let deepLink = (message["deep_link"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requiresPhoneHandoff = message["requires_phone_handoff"] as? Bool ?? false
+
+        stopResultPolling()
+        isProcessing = false
+        responseText = (summary?.isEmpty == false)
+            ? summary!
+            : NSLocalizedString(status == "completed" ? "Task completed." : "Task failed.", comment: "")
+        lastResultAt = Date()
+        handoffUrl = requiresPhoneHandoff && deepLink?.isEmpty == false ? deepLink : nil
+        handoffJobId = handoffUrl == nil ? nil : jobId
+        handoffState = handoffUrl == nil ? .idle : .ready
+        handoffPreview = nil
+        UserDefaults.standard.set(jobId, forKey: Self.lastTerminalJobDefaultsKey)
+        WKInterfaceDevice.current().play(status == "completed" ? .success : .failure)
+        if WCSession.default.isReachable {
+            fetchJobs()
         }
     }
 

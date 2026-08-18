@@ -55,6 +55,10 @@
   <key>ITSAppUsesNonExemptEncryption</key>
   <false/>
 
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>remote-notification</string>
+  </array>
   <key>UILaunchScreen</key>
   <dict/>
   <key>UIApplicationSceneManifest</key>
