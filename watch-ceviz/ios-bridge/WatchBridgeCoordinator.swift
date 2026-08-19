@@ -139,6 +139,13 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
     
     /// Handles dictionary messages for fetching data like active jobs.
     func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
+        if message["action"] as? String == "register_watch_push",
+           let token = message["apns_token"] as? String,
+           let bundleId = message["bundle_id"] as? String {
+            registerWatchPushToken(token, bundleId: bundleId, completion: replyHandler)
+            return
+        }
+
         // Demo modunda saat de ornek veriyle calissin (App Review esli
         // cihazda denerse bos ekran gormesin).
         if DemoMode.isActive {
@@ -191,6 +198,13 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
     
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        if userInfo["action"] as? String == "register_watch_push",
+           let token = userInfo["apns_token"] as? String,
+           let bundleId = userInfo["bundle_id"] as? String {
+            registerWatchPushToken(token, bundleId: bundleId, completion: nil)
+            return
+        }
+
         guard userInfo["action"] as? String == "open_handoff",
               let urlValue = userInfo["url"] as? String,
               let url = URL(string: urlValue) else { return }
@@ -220,6 +234,53 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
             nextAction: nil,
             signatureSeed: "watch-button"
         )
+    }
+
+    private func registerWatchPushToken(
+        _ token: String,
+        bundleId: String,
+        completion: (([String: Any]) -> Void)?
+    ) {
+        let cleanedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedToken.isEmpty, !bundleId.isEmpty else {
+            completion?(["error": "Invalid Watch push registration"])
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let installationKey = "cvz.pushInstallationId"
+        let installationId: String
+        if let existing = defaults.string(forKey: installationKey), !existing.isEmpty {
+            installationId = existing
+        } else {
+            installationId = UUID().uuidString
+            defaults.set(installationId, forKey: installationKey)
+        }
+
+        let payload: [String: String] = [
+            "apns_token": cleanedToken,
+            "bundle_id": bundleId,
+            "installation_id": installationId,
+            "environment": "production",
+        ]
+        var request = BackendConfig.request("/api/v1/push/register", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        request.timeoutInterval = 20
+        BackendTransport.shared.dataTask(with: request) { _, response, error in
+            if let error {
+                self.logger.error("Watch push registration failed: \(error.localizedDescription)")
+                completion?(["error": error.localizedDescription])
+                return
+            }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else {
+                completion?(["error": "Backend returned HTTP \(status)"])
+                return
+            }
+            self.logger.info("Registered direct Watch push token")
+            completion?(["status": "registered"])
+        }.resume()
     }
 
     private func performJobAction(jobId: String, actionPath: String, replyHandler: @escaping ([String : Any]) -> Void) {

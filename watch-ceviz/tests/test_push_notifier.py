@@ -61,10 +61,11 @@ class PushNotifierTests(unittest.TestCase):
                 "environment": "production",
             })
 
-        self.assertEqual(result, {"ok": True, "registered": True})
+        self.assertEqual(result, {"ok": True, "registered": True, "device_count": 1})
         stored = json.loads(self.notifier.state_path.read_text(encoding="utf-8"))
-        self.assertEqual(stored["relay_handle"], "relay-handle")
-        self.assertEqual(stored["send_grant"], "send-grant")
+        device = stored["devices"]["com.mertbasar.cevizwatch"]
+        self.assertEqual(device["relay_handle"], "relay-handle")
+        self.assertEqual(device["send_grant"], "send-grant")
         self.assertEqual(stored["installation_id"], "installation-1")
 
     def test_reregister_same_installation_preserves_first_registration(self) -> None:
@@ -143,6 +144,46 @@ class PushNotifierTests(unittest.TestCase):
         self.assertFalse(payload["requiresPhoneHandoff"])
         self.assertEqual(job["push_notification_apns_id"], "apns-1")
         self.assertIn("push_notification_sent_at", job)
+
+
+    def test_terminal_notification_targets_iphone_and_watch(self) -> None:
+        self.notifier._store({
+            "devices": {
+                "com.mertbasar.cevizwatch": {
+                    "relay_handle": "phone-handle",
+                    "send_grant": "phone-grant",
+                    "registered_at": 10,
+                },
+                "com.mertbasar.cevizwatch.watchkitapp": {
+                    "relay_handle": "watch-handle",
+                    "send_grant": "watch-grant",
+                    "registered_at": 11,
+                },
+            },
+            "registered_at": 11,
+            "first_registered_at": 10,
+            "installation_id": "installation-1",
+        })
+        job = {
+            "id": "job-dual",
+            "status": "completed",
+            "created_at": 20,
+            "watch_summary": "Result ready.",
+        }
+        with mock.patch.object(
+            self.notifier,
+            "_post",
+            side_effect=[
+                {"ok": True, "apnsId": "phone-apns"},
+                {"ok": True, "apnsId": "watch-apns"},
+            ],
+        ) as post:
+            self.assertTrue(self.notifier.notify_terminal_job(job))
+
+        self.assertEqual(post.call_count, 2)
+        handles = {call.args[1]["relayHandle"] for call in post.call_args_list}
+        self.assertEqual(handles, {"phone-handle", "watch-handle"})
+        self.assertEqual(job["push_notification_apns_id"], "phone-apns,watch-apns")
 
 
 if __name__ == "__main__":

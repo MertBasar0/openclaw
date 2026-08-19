@@ -59,53 +59,97 @@ class PushNotifier:
             suffix = f" (cf-ray={cf_ray})" if cf_ray else ""
             raise RuntimeError(f"push relay {path} HTTP {exc.code}: {detail}{suffix}") from exc
 
+    @staticmethod
+    def _devices(registration: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+        if not registration:
+            return {}
+        devices = registration.get("devices")
+        if isinstance(devices, dict):
+            return {str(key): value for key, value in devices.items() if isinstance(value, dict)}
+        if registration.get("relay_handle") and registration.get("send_grant"):
+            return {
+                "com.mertbasar.cevizwatch": {
+                    "relay_handle": registration["relay_handle"],
+                    "send_grant": registration["send_grant"],
+                    "registered_at": registration.get("registered_at", 0),
+                }
+            }
+        return {}
+
     def register(self, payload: dict[str, Any]) -> dict[str, Any]:
         previous = self._load()
-        installation_id = payload.get("installation_id", "")
+        installation_id = str(payload.get("installation_id", ""))
+        bundle_id = str(payload.get("bundle_id", "")).strip()
         response = self._post("/v1/register", {
             "apnsToken": payload.get("apns_token", ""),
-            "bundleId": payload.get("bundle_id", ""),
-            "installationId": payload.get("installation_id", ""),
+            "bundleId": bundle_id,
+            "installationId": installation_id,
             "environment": payload.get("environment", "production"),
         })
         if not response.get("ok"):
             raise RuntimeError(str(response.get("reason") or "push registration failed"))
+
         now = time.time()
+        same_installation = bool(previous and previous.get("installation_id") == installation_id)
         first_registered_at = now
-        if previous and previous.get("installation_id") == installation_id:
+        devices: dict[str, dict[str, Any]] = {}
+        if same_installation:
             first_registered_at = previous.get("first_registered_at", previous.get("registered_at", now))
-        self._store({
+            devices = self._devices(previous)
+        devices[bundle_id] = {
             "relay_handle": response["relayHandle"],
             "send_grant": response["sendGrant"],
+            "registered_at": now,
+        }
+        self._store({
+            "devices": devices,
             "registered_at": now,
             "first_registered_at": first_registered_at,
             "installation_id": installation_id,
         })
-        return {"ok": True, "registered": True}
+        return {"ok": True, "registered": True, "device_count": len(devices)}
 
     def notify_terminal_job(self, job: dict[str, Any]) -> bool:
         if job.get("status") not in {"completed", "failed"} or job.get("push_notification_sent_at"):
             return False
         registration = self._load()
         eligible_since = registration.get("first_registered_at", registration.get("registered_at", 0)) if registration else 0
-        if not registration or job.get("created_at", 0) < eligible_since:
+        devices = self._devices(registration)
+        if not registration or not devices or job.get("created_at", 0) < eligible_since:
             return False
-        summary = str(job.get("watch_summary") or job.get("canned_result") or "Görev tamamlandı.")
+
+        summary = str(job.get("watch_summary") or job.get("canned_result") or "G\u00f6rev tamamland\u0131.")
         if len(summary) > 180:
-            summary = summary[:177].rstrip() + "…"
-        result = self._post("/v1/send", {
-            "relayHandle": registration["relay_handle"],
+            summary = summary[:177].rstrip() + "\u2026"
+        base_payload = {
             "jobId": job["id"],
-            "title": "Ceviz · Görev tamamlandı" if job.get("status") == "completed" else "Ceviz · Görev tamamlanamadı",
+            "title": "Ceviz \u00b7 G\u00f6rev tamamland\u0131" if job.get("status") == "completed" else "Ceviz \u00b7 G\u00f6rev tamamlanamad\u0131",
             "message": summary,
             "deepLink": f"ceviz://job/{job['id']}",
             "status": job.get("status", ""),
             "watchSummary": summary,
             "requiresPhoneHandoff": bool(job.get("requires_phone_handoff")),
-        }, registration["send_grant"])
-        if not result.get("ok"):
-            raise RuntimeError(str(result.get("reason") or "APNs delivery failed"))
+        }
+
+        apns_ids: list[str] = []
+        errors: list[str] = []
+        for bundle_id, device in devices.items():
+            payload = dict(base_payload)
+            payload["relayHandle"] = device["relay_handle"]
+            try:
+                result = self._post("/v1/send", payload, device["send_grant"])
+            except Exception as exc:
+                logging.warning("Push notification failed for %s: %s", bundle_id, exc)
+                errors.append(f"{bundle_id}: {exc}")
+                continue
+            if result.get("ok"):
+                apns_ids.append(result.get("apnsId") or "")
+            else:
+                errors.append(f"{bundle_id}: {result.get('reason') or 'APNs delivery failed'}")
+
+        if not apns_ids:
+            raise RuntimeError("; ".join(errors) or "APNs delivery failed")
         job["push_notification_sent_at"] = time.time()
-        job["push_notification_apns_id"] = result.get("apnsId") or ""
-        logging.info("Push notification sent for %s (apns=%s)", job["id"], result.get("apnsId"))
+        job["push_notification_apns_id"] = ",".join(value for value in apns_ids if value)
+        logging.info("Push notification sent for %s to %d device(s)", job["id"], len(apns_ids))
         return True
