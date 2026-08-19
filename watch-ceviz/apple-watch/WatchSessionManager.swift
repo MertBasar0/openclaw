@@ -2,6 +2,7 @@ import Foundation
 import WatchConnectivity
 import Combine
 import WatchKit
+import UserNotifications
 
 struct QueuedCommand: Codable, Identifiable { 
     let id: String 
@@ -12,6 +13,8 @@ struct QueuedCommand: Codable, Identifiable {
 
 
 class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExtendedRuntimeSessionDelegate {
+    static let shared = WatchSessionManager()
+
     @Published var isReachable = false
     @Published var responseText = "Ready"
     @Published var handoffUrl: String? = nil
@@ -241,6 +244,27 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         WKInterfaceDevice.current().play(status == "completed" ? .success : .failure)
         if WCSession.default.isReachable {
             fetchJobs()
+        }
+    }
+
+    /// A tapped terminal notification already contains everything the compact
+    /// Watch result needs. Apply it immediately instead of showing the pending
+    /// state while iPhone wakes and performs another backend round trip.
+    func consumeTerminalNotification(_ userInfo: [AnyHashable: Any]) {
+        guard let jobId = userInfo["job_id"] as? String, !jobId.isEmpty else { return }
+        let status = (userInfo["job_status"] as? String) ?? (userInfo["status"] as? String) ?? ""
+        guard status == "completed" || status == "failed" else { return }
+
+        let payload: [String: Any] = [
+            "action": "terminal_job_result",
+            "job_id": jobId,
+            "status": status,
+            "summary": userInfo["watch_summary"] as? String ?? "",
+            "deep_link": userInfo["deep_link"] as? String ?? "",
+            "requires_phone_handoff": userInfo["requires_phone_handoff"] as? Bool ?? false,
+        ]
+        DispatchQueue.main.async {
+            self.applyTerminalPush(payload)
         }
     }
 

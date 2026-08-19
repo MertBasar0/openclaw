@@ -2,7 +2,7 @@ import SwiftUI
 import WatchKit
 
 struct ContentView: View {
-    @StateObject private var sessionManager = WatchSessionManager()
+    @StateObject private var sessionManager = WatchSessionManager.shared
     @StateObject private var recorder = AudioRecorderManager()
     @StateObject private var player = AudioPlayerManager()
 
