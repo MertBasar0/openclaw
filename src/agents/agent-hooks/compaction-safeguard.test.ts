@@ -1190,6 +1190,33 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(identifiers).toContain(uniqueTail[10]?.toUpperCase());
   });
 
+  it("rejects decimal and scientific fragments while keeping standalone numeric IDs", () => {
+    const identifiers = extractOpaqueIdentifiers(
+      "metric=0.123456789 scientific=1.23456789e10 exponent=1e-987654321 order_id=246813579 hash=deadbeef1234 ambiguous=12345678e10",
+    );
+
+    expect(identifiers).not.toContain("123456789");
+    expect(identifiers).not.toContain("23456789E10");
+    expect(identifiers).not.toContain("987654321");
+    expect(identifiers).toContain("246813579");
+    expect(identifiers).toContain("DEADBEEF1234"); // pragma: allowlist secret
+    expect(identifiers).toContain("12345678E10");
+  });
+
+  it("rejects signed scientific values with long hex-shaped mantissas", () => {
+    const identifiers = extractOpaqueIdentifiers(
+      "negative=12345678e-987654321 positive=12345678e+987654321 ambiguous=12345678e10",
+    );
+
+    expect(identifiers).toStrictEqual(["12345678E10"]);
+  });
+
+  it("does not consume decimal-looking prefixes of opaque identifiers", () => {
+    const identifiers = extractOpaqueIdentifiers("revision=1.23456789abcdef");
+
+    expect(identifiers).toContain("23456789ABCDEF");
+  });
+
   it("filters ordinary short numbers and trims wrapped punctuation", () => {
     const identifiers = extractOpaqueIdentifiers(
       "Year 2026 count 42 port 18789 ticket 123456 URL https://example.com/a, path /tmp/x.log, and tiny /a with prose on/off plus typecheck/lint/format.",
@@ -2177,6 +2204,70 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(summary).toContain(latestAsk);
     expect(summary).toContain(identifier);
     expect(mockSummarizeInStages).not.toHaveBeenCalled();
+  });
+
+  it("ignores truncated numeric tool-result noise in strict all-preserved audits", async () => {
+    mockSummarizeInStages.mockReset();
+    const latestAsk = "report metric status";
+    const sessionManager = stubSessionManager();
+    setCompactionSafeguardRuntime(sessionManager, {
+      model: createAnthropicModelFixture(),
+      recentTurnsPreserve: 12,
+      qualityGuardEnabled: true,
+      qualityGuardMaxRetries: 1,
+    });
+    const messagesToSummarize: AgentMessage[] = [
+      { role: "user", content: latestAsk, timestamp: 1 },
+      castAgentMessage({
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_metric", name: "read", arguments: {} }],
+        timestamp: 2,
+      }),
+      castAgentMessage({
+        role: "toolResult",
+        toolCallId: "call_metric",
+        toolName: "read",
+        content: [
+          {
+            type: "text",
+            text:
+              `${"x".repeat(610)} metric=0.123456789 ` +
+              "negative=12345678e-987654321 positive=12345678e+987654321",
+          },
+        ],
+        timestamp: 3,
+      }),
+      castAgentMessage({
+        role: "assistant",
+        content: [{ type: "text", text: "metric checked" }],
+        timestamp: 4,
+      }),
+    ];
+    const event = {
+      preparation: {
+        messagesToSummarize,
+        turnPrefixMessages: [] as AgentMessage[],
+        firstKeptEntryId: "entry-1",
+        tokensBefore: 1_500,
+        fileOps: { read: [], edited: [], written: [] },
+        settings: { reserveTokens: 4_000 },
+        previousSummary: undefined,
+        isSplitTurn: false,
+      },
+      customInstructions: "",
+      signal: new AbortController().signal,
+    };
+
+    const { result } = await runCompactionScenario({ sessionManager, event, apiKey: "test-key" });
+
+    const summary = expectCompactionResult(result).summary;
+    expect(summary).toContain(latestAsk);
+    expect(summary).not.toContain("123456789");
+    expect(summary).not.toContain("987654321");
+    expect(mockSummarizeInStages).not.toHaveBeenCalled();
+    expect(mockAuditSummaryQuality).toHaveBeenCalledTimes(1);
+    const auditInput = requireRecord(mockCallArg(mockAuditSummaryQuality));
+    expect(auditInput.identifiers).toEqual([]);
   });
 
   it("rejects all-preserved fallback output that truncates source facts", async () => {
