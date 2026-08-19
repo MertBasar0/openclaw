@@ -425,6 +425,16 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         let persisted = UserDefaults.standard.string(forKey: Self.pendingJobDefaultsKey)
         guard let jobId = pollingJobId ?? persisted else { return }
 
+        // updateApplicationContext keeps the newest terminal result even when
+        // watchOS suspends the app before invoking the delegate. Consume that
+        // durable snapshot synchronously on every foreground/wake transition.
+        let context = WCSession.default.receivedApplicationContext
+        if context["action"] as? String == "terminal_job_result",
+           context["job_id"] as? String == jobId {
+            applyTerminalPush(context)
+            return
+        }
+
         // Diskten geliyorsa yasini kontrol et: eski bir kayit ekrani bos
         // yere "isleniyor"a dusurmesin.
         if pollingJobId == nil {

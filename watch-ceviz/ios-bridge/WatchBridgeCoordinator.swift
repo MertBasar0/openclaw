@@ -251,7 +251,10 @@ class WatchBridgeCoordinator: NSObject, WCSessionDelegate, UNUserNotificationCen
                         previewSections: decodedResponse.previewSections
                     )
                 }
-                self.scheduleHandoffNotificationIfNeeded(for: decodedResponse, jobId: jobId)
+                // Terminal completion is already delivered by remote APNs.
+                // Scheduling another local handoff alert here produces a delayed
+                // duplicate sound when Watch polling resumes.
+                self.logger.info("Stored terminal summary for \(jobId); remote APNs owns user notification")
             }
 
             replyHandler(self.safeReply(resultObj))
