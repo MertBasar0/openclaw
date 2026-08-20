@@ -65,6 +65,12 @@ struct SettingsView: View {
                             }
                         }
                         Text(connectionMethod.help).font(.system(size: 11.5)).foregroundColor(CVZ.textDim).fixedSize(horizontal: false, vertical: true)
+                        if connectionMethod == .relay {
+                            Label("Same-Wi-Fi relay traffic is not encrypted. Use it only on a trusted local network; prefer Tailscale elsewhere.", systemImage: "exclamationmark.triangle.fill")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(CVZ.warn)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         Text(connectionMethod == .tailscale ? "Run: WATCH_CEVIZ_NETWORK_MODE=tailscale bash deploy/install.sh" : connectionMethod == .relay ? "Run in WSL2: WATCH_CEVIZ_NETWORK_MODE=relay bash deploy/install.sh" : "Run: WATCH_CEVIZ_NETWORK_MODE=manual bash deploy/install.sh")
                             .font(CVZ.mono(10)).foregroundColor(CVZ.text)
                     }
@@ -238,6 +244,10 @@ struct SettingsView: View {
             testState = .success(NSLocalizedString("Demo mode — sample data", comment: ""))
             return
         }
+        guard BackendEndpointPolicy.isAllowed(candidateBaseURL, connectionMethod: connectionMethod.rawValue) else {
+            testState = .failure(NSLocalizedString("Use HTTPS, or choose Same Wi-Fi with a local relay address.", comment: ""))
+            return
+        }
         guard let url = URL(string: candidateBaseURL + "/api/v1/jobs/active") else {
             testState = .failure(NSLocalizedString("Invalid URL", comment: ""))
             return
@@ -273,6 +283,10 @@ struct SettingsView: View {
     }
 
     private func save() {
+        guard candidateBaseURL.isEmpty || BackendEndpointPolicy.isAllowed(candidateBaseURL, connectionMethod: connectionMethod.rawValue) else {
+            testState = .failure(NSLocalizedString("Use HTTPS, or choose Same Wi-Fi with a local relay address.", comment: ""))
+            return
+        }
         BackendConfig.save(
             baseURL: urlText,
             token: tokenText,

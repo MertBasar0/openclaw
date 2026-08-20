@@ -92,3 +92,5 @@
 "Demo mode — sample data" = "Demo modu — örnek veri";
 "Not available in demo mode" = "Demo modunda kullanılamaz";
 "RESET CONNECTION" = "BAĞLANTIYI SIFIRLA";
+"Same-Wi-Fi relay traffic is not encrypted. Use it only on a trusted local network; prefer Tailscale elsewhere." = "Aynı Wi-Fi relay trafiği şifrelenmez. Yalnızca güvendiğiniz yerel ağda kullanın; diğer ağlarda Tailscale'i tercih edin.";
+"Use HTTPS, or choose Same Wi-Fi with a local relay address." = "HTTPS kullanın veya yerel relay adresiyle Aynı Wi-Fi seçeneğini seçin.";

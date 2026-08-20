@@ -92,3 +92,5 @@
 "Demo mode — sample data" = "Demo mode — sample data";
 "Not available in demo mode" = "Not available in demo mode";
 "RESET CONNECTION" = "RESET CONNECTION";
+"Same-Wi-Fi relay traffic is not encrypted. Use it only on a trusted local network; prefer Tailscale elsewhere." = "Same-Wi-Fi relay traffic is not encrypted. Use it only on a trusted local network; prefer Tailscale elsewhere.";
+"Use HTTPS, or choose Same Wi-Fi with a local relay address." = "Use HTTPS, or choose Same Wi-Fi with a local relay address.";

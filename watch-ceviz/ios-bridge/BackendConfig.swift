@@ -18,7 +18,11 @@ enum BackendConfig {
     static var baseURLString: String {
         let stored = UserDefaults.standard.string(forKey: urlDefaultsKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        var base = stored.isEmpty ? unconfiguredBaseURL : stored
+        let method = UserDefaults.standard.string(forKey: connectionMethodKey) ?? "tailscale"
+        var base = stored
+        if base.isEmpty || !BackendEndpointPolicy.isAllowed(base, connectionMethod: method) {
+            base = unconfiguredBaseURL
+        }
         while base.hasSuffix("/") { base.removeLast() }
         return base
     }
@@ -54,9 +58,12 @@ enum BackendConfig {
               let items = comps.queryItems else { return nil }
         let u = items.first(where: { $0.name == "u" })?.value ?? ""
         let t = items.first(where: { $0.name == "t" })?.value ?? ""
-        guard !u.isEmpty, !t.isEmpty else { return nil }
+        let method = items.first(where: { $0.name == "m" })?.value ?? "manual"
+        guard !u.isEmpty, !t.isEmpty,
+              BackendEndpointPolicy.isAllowed(u, connectionMethod: method) else { return nil }
         setBaseURL(u)
         setToken(t)
+        UserDefaults.standard.set(method, forKey: connectionMethodKey)
         NotificationCenter.default.post(name: connectionDidChange, object: nil)
         return (u, t)
     }
