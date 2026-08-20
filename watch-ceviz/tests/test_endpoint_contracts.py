@@ -114,7 +114,8 @@ class EndpointContractTests(unittest.TestCase):
             "next_action": None,
         }
 
-        status, payload = self._get_json("/api/v1/jobs/active")
+        with mock.patch.object(main, "sync_job_status", return_value=None):
+            status, payload = self._get_json("/api/v1/jobs/active")
 
         self.assertEqual(status, 200)
         self.assertEqual(main.validate_payload(payload, main.load_contract("active-jobs-response.schema.json")), [])
