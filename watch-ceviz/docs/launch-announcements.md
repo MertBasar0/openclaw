@@ -11,16 +11,29 @@ orada çıkacak bir hata düzeltilir. LinkedIn itibar kitlesi ve orada
 "denedim, çalışmadı" pahalıya gelir. Discord'dan gelen ilk kullanıcı,
 yayından önce yapılamayan gerçek-cihaz testini fiilen yapmış olacak.
 
-### Güncel doğrulama durumu (13 Ağustos 2026)
+### Güncel doğrulama durumu (20 Ağustos 2026)
 
 | Doğrulanmış | Doğrulanmamış |
 |---|---|
-| IPA yapısı/yapılandırması (16/16: URL şeması, ATS, izinler, gömülü watch app, companion bağı, iki dil) | Son dayanıklılık build'inin fiziksel iPhone + Apple Watch smoke testi |
-| Uygulama ekranları simülatörde; önceki build'lerde fiziksel saat/telefon ses ve görev akışı | Gerçek bir dış kullanıcının sıfırdan uçtan uca onboarding'i |
-| QR eşleşme, token korumalı relay erişimi ve aynı Wi-Fi akışı | macOS ve bare Linux kurulum yollarının gerçek kullanıcı testi |
-| Backend temiz ortam kurulumu ve test bütünlüğü 25/25 | Taze kurulumda ilk Whisper model indirme süresinin farklı makinelerde ölçümü |
-| WSL2 keepalive; backend kesintisinde relay'in yaşaması ve otomatik toparlanması | Farklı Apple ID ve farklı saat modellerinde son build testi |
+| Son build fiziksel iPhone + Apple Watch smoke testini geçti; doğrudan Watch push, sonuç ekranı ve bildirim sesi doğrulandı | Gerçek bir dış kullanıcının talimatları yardım almadan tamamladığı kullanılabilirlik testi |
+| Resmî Ubuntu 24.04 rootfs ile ayrı WSL2 sanal dağıtımında GitHub klonu ve sıfırdan teknik onboarding geçti | Windows üzerinde iOS/Watch simülatörü bulunmadığı için aynı turda simülatör UI testi |
+| Resmî OpenClaw installer, Ceviz venv/token/service kurulumu, 401/200 auth ayrımı, poll edilebilir komut ve yeniden başlatma kalıcılığı doğrulandı | macOS ve bare Linux kurulum yollarının gerçek kullanıcı testi |
+| QR eşleşme, token korumalı relay erişimi ve aynı Wi-Fi akışı | Taze kurulumda ilk Whisper model indirme süresinin farklı makinelerde ölçümü |
+| TestFlight CI: 34/34 backend/contract testi, iOS/Watch build ve yükleme aynı zorunlu bariyerde geçti | Farklı Apple ID ve farklı saat modellerinde son build testi |
+| WSL2 keepalive; backend kesintisinde relay'in yaşaması ve otomatik toparlanması | Çok günlük kesintisiz kullanım ve farklı ağlar arasında soak testi |
 | TestFlight açık beta ve App Store Connect yüklemesi | İlk dış kullanıcıdan tamamlanmış onboarding geri bildirimi |
+
+### Temiz sanal onboarding kararı
+
+Release kapısı teknik onboarding açısından **geçti**. Test, mevcut geliştirme
+ortamından kopya kullanmadan resmî Ubuntu 24.04 WSL rootfs'i ve GitHub'daki
+`ceviz-watch-app-build` dalı ile yapıldı. Test sırasında relay kurulumu
+başarısızken installer'ın boş URL'li QR üretip başarılı çıkması yakalandı;
+installer artık bu durumda fail-closed davranıyor.
+
+Bu sonuç bağımsız bir insanın dokümantasyonu yardım almadan anlayabildiğini
+kanıtlamaz. İlk gerçek dış kullanıcının onboarding geri bildirimi lansman
+sonrası izlenecek açık beta doğrulaması olarak kalır.
 
 ---
 
@@ -135,7 +148,7 @@ metnindeki linkleri oraya taşımayı düşünebilirsin (acp-net duyurusunda old
 - [x] Kurulum scripti temiz ortamda test edildi
 - [x] QR eşleşme + token korumalı relay erişimi doğrulandı
 - [x] WSL2 keepalive ve backend kesintisinden toparlanma doğrulandı
-- [x] Backend testleri 25/25
+- [x] Backend/contract testleri 34/34 ve TestFlight CI bariyerinde
 - [ ] Ekran görüntüleri hazır (Discord/LinkedIn görseli için)
-- [ ] Son TestFlight build'i fiziksel iPhone + Apple Watch'ta smoke test edildi
+- [x] Son TestFlight build'i fiziksel iPhone + Apple Watch'ta smoke test edildi
 - [ ] Beta'ya ilk gerçek dış kullanıcı katıldığında kurulum akışını izle
