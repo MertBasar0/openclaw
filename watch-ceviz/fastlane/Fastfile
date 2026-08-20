@@ -6,12 +6,30 @@ BUNDLE_IDS = [
   "com.mertbasar.cevizwatch.watchkitapp"
 ].freeze
 
+WATCH_BUNDLE_ID = "com.mertbasar.cevizwatch.watchkitapp".freeze
+
 def asc_key
   app_store_connect_api_key(
     key_id: ENV["ASC_KEY_ID"],
     issuer_id: ENV["ASC_ISSUER_ID"],
     key_filepath: ENV["ASC_KEY_PATH"]
   )
+end
+
+def ensure_watch_push_capability
+  bundle_id = Spaceship::ConnectAPI::BundleId.find(WATCH_BUNDLE_ID)
+  UI.user_error!("Watch bundle ID not found: #{WATCH_BUNDLE_ID}") unless bundle_id
+
+  push_type = "PUSH_NOTIFICATIONS"
+  existing = bundle_id.get_capabilities.any? do |capability|
+    capability.capability_type.to_s == push_type
+  end
+  if existing
+    UI.success("Watch Push Notifications capability is already enabled")
+  else
+    bundle_id.create_capability(push_type)
+    UI.success("Enabled Watch Push Notifications capability")
+  end
 end
 
 # Her hedef icin distribution provisioning profili olustur/getir (cloud signing DEGIL)
@@ -22,6 +40,7 @@ def provision(api_key)
       api_key: api_key,
       app_identifier: bid,
       readonly: false,
+      force: bid == WATCH_BUNDLE_ID,
       output_path: "build/profiles"
     )
     profiles[bid] = lane_context[SharedValues::SIGH_NAME]
@@ -71,6 +90,7 @@ end
 
 def build_ceviz(api_key, method)
   prune_disposable_dev_certs
+  ensure_watch_push_capability
   profiles = provision(api_key)
   build_number = Time.now.to_i.to_s # benzersiz, artan build numarasi
   UI.message("Build number: #{build_number}")
