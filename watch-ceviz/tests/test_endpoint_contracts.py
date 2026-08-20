@@ -32,7 +32,7 @@ class EndpointContractTests(unittest.TestCase):
                 "name": "Ongoing Task",
                 "status": "running",
                 "created_at": main.time.time(),
-                "elapsed_seconds": 15,
+                "elapsed_seconds": 5,
                 "category": "Genel",
                 "canned_result": "Processing...",
                 "watch_summary": "Görev devam ediyor.",
