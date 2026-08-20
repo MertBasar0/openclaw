@@ -133,12 +133,25 @@ if [ "$NETWORK_MODE" = auto ]; then
   else NETWORK_MODE=manual; fi
 fi
 install_windows_relay() {
-  local installer output
+  local installer output relay_url
+  if ! command -v powershell.exe >/dev/null 2>&1; then
+    echo "!!  HATA: Windows PowerShell bulunamadi; relay kurulamadi." >&2
+    return 1
+  fi
   installer="$(wslpath -w "$SCRIPT_DIR/windows/install-relay.ps1")"
-  output="$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$installer" -Port "$PORT" \
-    -Distro "${WSL_DISTRO_NAME:-Ubuntu}" | tr -d '\r')"
+  if ! output="$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$installer" -Port "$PORT" \
+      -Distro "${WSL_DISTRO_NAME:-Ubuntu}" 2>&1 | tr -d '\r')"; then
+    printf '%s\n' "$output" >&2
+    echo "!!  HATA: Windows relay kurulumu basarisiz oldu." >&2
+    return 1
+  fi
   printf '%s\n' "$output" >&2
-  printf '%s\n' "$output" | sed -n 's/^CEVIZ_RELAY_URL=//p' | tail -1
+  relay_url="$(printf '%s\n' "$output" | sed -n 's/^CEVIZ_RELAY_URL=//p' | tail -1)"
+  if [ -z "$relay_url" ]; then
+    echo "!!  HATA: Relay kurulumu bir CEVIZ_RELAY_URL dondurmedi." >&2
+    return 1
+  fi
+  printf '%s\n' "$relay_url"
 }
 # Tailscale yoksa bile kullanilabilir bir adres uret: yerel ag IP'si.
 # Minimal sistemlerde `ip`/`hostname` bulunmayabilir — hicbiri kurulumu
