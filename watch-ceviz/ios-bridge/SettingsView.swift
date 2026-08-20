@@ -229,7 +229,6 @@ struct SettingsView: View {
 
     private var candidateBaseURL: String {
         var base = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if base.isEmpty { base = BackendConfig.developmentBaseURL }
         while base.hasSuffix("/") { base.removeLast() }
         return base
     }

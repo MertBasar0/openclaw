@@ -13,12 +13,12 @@ enum BackendConfig {
     static let connectionMethodKey = "cvz.connectionMethod"
     static let tokenDefaultsKey = "cvz.backendToken"   // eski UserDefaults konumu (migrasyon)
     static let tokenKeychainKey = "backendToken"
-    static let developmentBaseURL = "https://koltiginmasaustu.tail0289bf.ts.net/ceviz"
+    static let unconfiguredBaseURL = "https://backend.invalid"
 
     static var baseURLString: String {
         let stored = UserDefaults.standard.string(forKey: urlDefaultsKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        var base = stored.isEmpty ? developmentBaseURL : stored
+        var base = stored.isEmpty ? unconfiguredBaseURL : stored
         while base.hasSuffix("/") { base.removeLast() }
         return base
     }
@@ -74,7 +74,7 @@ enum BackendConfig {
     }
 
     static func url(_ path: String) -> URL {
-        URL(string: baseURLString + path) ?? URL(string: developmentBaseURL + path)!
+        URL(string: baseURLString + path) ?? URL(string: unconfiguredBaseURL + path)!
     }
 
     static func applyAuth(_ request: inout URLRequest) {

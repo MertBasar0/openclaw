@@ -25,7 +25,7 @@ enum DemoMode {
     static var isUnconfigured: Bool {
         let url = UserDefaults.standard.string(forKey: BackendConfig.urlDefaultsKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return url.isEmpty && BackendConfig.token.isEmpty
+        return url.isEmpty
     }
 
     static var isActive: Bool { isExplicit || isUnconfigured }
