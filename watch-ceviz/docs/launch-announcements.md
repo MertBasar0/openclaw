@@ -84,9 +84,11 @@ sonrası izlenecek açık beta doğrulaması olarak kalır.
 >
 > Full disclosure: I have verified the build's structure, the backend install on
 > a clean machine, QR pairing, authenticated relay access, recovery after a
-> backend interruption, and every screen. This latest resilience build still
-> needs its physical watch smoke test; if something breaks, tell me and I'll turn
-> it around quickly.
+> backend interruption, and every screen. The latest resilience build also
+> passed a physical iPhone + Apple Watch smoke test: direct Watch push, result
+> presentation, and the notification sound all worked. Real-world onboarding by
+> an external tester is still the next validation step; if something breaks,
+> tell me and I'll turn it around quickly.
 
 **Notlar:**
 - İlk mesajda ekran görüntüsü/kısa video paylaşmak dönüşümü ciddi artırır:

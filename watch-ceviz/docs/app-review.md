@@ -4,6 +4,20 @@ Bu dosyadaki blokları App Store Connect'e olduğu gibi yapıştırabilirsin.
 İngilizce olanlar birincil (App Review İngilizce okur), Türkçe karşılıkları
 `Türkçe (Turkey)` yerelleştirmesi için.
 
+## Metadata denetimi — 22 Ağustos 2026
+
+- Public TestFlight daveti canlı ve uygulamayı **CevizWatch** olarak gösteriyor:
+  <https://testflight.apple.com/join/nEdn2Np2>
+- Marketing URL canlı: <https://basarlabs.com.tr/ceviz/>
+- Privacy Policy URL canlı ve EN/TR içerik sunuyor:
+  <https://basarlabs.com.tr/ceviz/privacy/>
+- Kaynak metadata'sı: görünen ad **Ceviz**, sürüm **2026.6.5**, iOS **16.0+**,
+  watchOS **9.0+**, ana dil İngilizce ve Türkçe yerelleştirme.
+- App Store Connect'in oturum gerektiren alanları (Beta App Description,
+  What to Test, Review Notes, iletişim ve build-group seçimi) bu depo üzerinden
+  okunamaz; aşağıdaki kontrol listesinde yalnızca dışarıdan doğrulanabilen
+  alanlar tamamlandı olarak işaretlidir.
+
 ---
 
 ## 1) App Review Information → Notes
@@ -35,7 +49,7 @@ Bu dosyadaki blokları App Store Connect'e olduğu gibi yapıştırabilirsin.
 > pairing QR code that the user's own install script prints. In Demo Mode
 > neither is required to review the app.
 >
-> Contact: mertbasar0@hotmail.com
+> Contact: mert@basarlabs.com.tr
 
 **Türkçe (gerekirse):**
 
@@ -118,10 +132,11 @@ Bu dosyadaki blokları App Store Connect'e olduğu gibi yapıştırabilirsin.
 
 ---
 
-## 4) Gizlilik Politikası (taslak — yayınlanması gerekiyor)
+## 4) Gizlilik Politikası (yayında)
 
-App Store Connect **Privacy Policy URL** alanı zorunlu; şu an `example.com`
-yazıyor. Aşağıdaki metni `basarlabs.com.tr/ceviz/privacy` gibi bir adrese koy.
+App Store Connect **Privacy Policy URL** alanında şu canlı adres kullanılmalı:
+<https://basarlabs.com.tr/ceviz/privacy/>. Aşağıdaki metin yayımlanmış sayfanın
+App Store Connect için hazırlanmış karşılığıdır.
 
 > ### Ceviz — Privacy Policy
 >
@@ -151,7 +166,7 @@ yazıyor. Aşağıdaki metni `basarlabs.com.tr/ceviz/privacy` gibi bir adrese ko
 > **Demo Mode.** With no backend configured, the app shows built-in sample data
 > and makes no network requests for content.
 >
-> **Contact:** mertbasar0@hotmail.com
+> **Contact:** mert@basarlabs.com.tr
 
 **Türkçe:**
 
@@ -183,7 +198,7 @@ yazıyor. Aşağıdaki metni `basarlabs.com.tr/ceviz/privacy` gibi bir adrese ko
 > **Demo Modu.** Yapılandırılmış bir sunucu yokken uygulama yerleşik örnek
 > veriyi gösterir ve içerik için ağ isteği yapmaz.
 >
-> **İletişim:** mertbasar0@hotmail.com
+> **İletişim:** mert@basarlabs.com.tr
 
 ---
 
@@ -201,8 +216,8 @@ gider.
 
 ## 6) Kontrol listesi (App Review'a girmeden)
 
-- [ ] Privacy Policy URL gerçek bir sayfaya işaret ediyor (`example.com` değil)
-- [ ] Marketing URL ya gerçek ya boş
+- [x] Privacy Policy URL gerçek bir sayfaya işaret ediyor (`example.com` değil)
+- [x] Marketing URL gerçek ve canlı
 - [ ] Beta App Description dolduruldu (yukarıdaki metin)
 - [ ] What to Test dolduruldu (EN + TR)
 - [ ] App Review Notes'a Demo Modu açıklaması eklendi

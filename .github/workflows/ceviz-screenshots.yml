@@ -134,8 +134,11 @@ jobs:
           xcrun simctl install "$UDID" "$APP_PATH"
           LANG_CODE="${{ inputs.language || 'en' }}"
           # Taze kurulumda token/sunucu yok -> DemoMode kendiliginden aktif.
+          # Screenshot argumani, izin diyaloğunun urun ekranlarini kapatmasini
+          # engeller; normal TestFlight acilis davranisini degistirmez.
           xcrun simctl launch "$UDID" com.mertbasar.cevizwatch \
-            -AppleLanguages "($LANG_CODE)" -AppleLocale "${LANG_CODE}_US"
+            -AppleLanguages "($LANG_CODE)" -AppleLocale "${LANG_CODE}_US" \
+            -cvzScreenshots
           sleep 6
 
       - name: Capture screens
@@ -150,6 +153,9 @@ jobs:
           shot () {  # shot <dosya-adi>
             sleep 3
             xcrun simctl io "$UDID" screenshot --type=png "$OUT/$1.png"
+            # simctl opak kareler uretse de PNG'ye alpha kanali ekliyor.
+            # App Store Connect alpha kanalli screenshot kabul etmiyor.
+            sips --deleteProperty hasAlpha "$OUT/$1.png" >/dev/null
             echo "  yakalandi: $1.png"
           }
 
@@ -161,7 +167,7 @@ jobs:
             sleep 1
             xcrun simctl launch "$UDID" "$BUNDLE" \
               -AppleLanguages "($LANG_CODE)" -AppleLocale "${LANG_CODE}_US" \
-              -cvzScreen "$1" >/dev/null
+              -cvzScreenshots -cvzScreen "$1" >/dev/null
             # Soguk baslangic + ilk render: kisa beklemede bos kare cikiyor.
             sleep 7
             shot "$2"
@@ -190,7 +196,9 @@ jobs:
           cd build/screenshots
           for f in *.png; do
             SIZE=$(sips -g pixelWidth -g pixelHeight "$f" | awk '/pixel/{printf "%s ", $2}')
-            echo "  $f -> ${SIZE}"
+            ALPHA=$(sips -g hasAlpha "$f" | awk '/hasAlpha/{print $2}')
+            echo "  $f -> ${SIZE}alpha=${ALPHA}"
+            [ "$ALPHA" = "no" ] || { echo "$f hala alpha kanali iceriyor"; exit 1; }
           done
 
       - name: Upload screenshots

@@ -7,6 +7,7 @@ import os
 final class CevizAppDelegate: NSObject, UIApplicationDelegate {
     private let logger = Logger(subsystem: "com.mertbasar.ceviz.ios", category: "PushRegistration")
     private let apnsTokenKey = "cvz.apnsToken"
+    private let screenshotLaunchArgument = "-cvzScreenshots"
     private var retryAttempt = 0
     private var retryWorkItem: DispatchWorkItem?
     private var registrationInFlight = false
@@ -21,16 +22,18 @@ final class CevizAppDelegate: NSObject, UIApplicationDelegate {
             name: BackendConfig.connectionDidChange,
             object: nil
         )
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
-            if let error {
-                self.logger.error("Notification authorization failed: \(error.localizedDescription)")
-                return
+        if !ProcessInfo.processInfo.arguments.contains(screenshotLaunchArgument) {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+                if let error {
+                    self.logger.error("Notification authorization failed: \(error.localizedDescription)")
+                    return
+                }
+                guard granted else {
+                    self.logger.info("Notification authorization denied")
+                    return
+                }
+                DispatchQueue.main.async { application.registerForRemoteNotifications() }
             }
-            guard granted else {
-                self.logger.info("Notification authorization denied")
-                return
-            }
-            DispatchQueue.main.async { application.registerForRemoteNotifications() }
         }
         return true
     }
