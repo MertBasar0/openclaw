@@ -13,6 +13,8 @@ Son güncelleme: **23 Ağustos 2026**
   <https://github.com/MertBasar0/openclaw/actions/runs/32600537529>
 - Dış grup dağıtım doğrulaması:
   <https://github.com/MertBasar0/openclaw/actions/runs/32605320929>
+- GitHub prerelease:
+  <https://github.com/MertBasar0/openclaw/releases/tag/ceviz-watch-v2026.6.5-beta.2>
 
 Build yalnızca App Store Connect'e yüklenmiş değildir; dış `Beta` grubuna
 atanmış ve public TestFlight linkinden erişilebilir olduğu doğrulanmıştır.
@@ -39,6 +41,8 @@ atanmış ve public TestFlight linkinden erişilebilir olduğu doğrulanmıştı
   marketing sayfaları ile App Store metadata kaynak metinleri hazırlandı.
 - Beta 1'deki eski “smoke test” lansman ifadesi, Beta 2'de gerçekten doğrulanan
   bildirimden sonuca geçişi açıklayacak biçimde güncellendi.
+- `ceviz-watch-v2026.6.5-beta.2` etiketi ve **Ceviz 2026.6.5 Beta 2** GitHub
+  prerelease'i yayımlandı.
 
 ## Açık beta için kabul edilen doğrulama riski
 
@@ -55,11 +59,10 @@ bilinen kapsam boşluklarıdır. WSL2 şu an en güçlü doğrulanmış kurulum 
 
 ## Sıradaki işler
 
-1. `ceviz-watch-v2026.6.5-beta.2` etiketini ve GitHub prerelease'ini yayımla.
-2. Discord, X ve LinkedIn için açık beta duyurularını yayımla.
-3. Public TestFlight linki, ilk dış kurulumlar ve bildirim-sonuç akışı için
+1. Discord, X ve LinkedIn için açık beta duyurularını yayımla.
+2. Public TestFlight linki, ilk dış kurulumlar ve bildirim-sonuç akışı için
    geri bildirimleri izle.
-4. Uygun donanım erişilebilir olduğunda macOS ve bare Linux kurulumlarını ayrıca
+3. Uygun donanım erişilebilir olduğunda macOS ve bare Linux kurulumlarını ayrıca
    doğrula; sonuçları bu dosyaya ekle.
 
 ## Güvenlik ve yerel artefaktlar
