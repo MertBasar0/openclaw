@@ -152,11 +152,10 @@ jobs:
 
           shot () {  # shot <dosya-adi>
             sleep 3
-            xcrun simctl io "$UDID" screenshot --type=png "$OUT/$1.png"
-            # simctl opak kareler uretse de PNG'ye alpha kanali ekliyor.
-            # App Store Connect alpha kanalli screenshot kabul etmiyor.
-            sips --deleteProperty hasAlpha "$OUT/$1.png" >/dev/null
-            echo "  yakalandi: $1.png"
+            # simctl PNG'ye gereksiz bir alpha kanali ekliyor. Dogrudan JPEG
+            # alarak App Store'un alpha-kanalsiz dosya kosulunu sagla.
+            xcrun simctl io "$UDID" screenshot --type=jpeg "$OUT/$1.jpg"
+            echo "  yakalandi: $1.jpg"
           }
 
           # simctl openurl "Open in Ceviz?" onay diyalogu aciyor ve
@@ -194,7 +193,7 @@ jobs:
         run: |
           set -euo pipefail
           cd build/screenshots
-          for f in *.png; do
+          for f in *.jpg; do
             SIZE=$(sips -g pixelWidth -g pixelHeight "$f" | awk '/pixel/{printf "%s ", $2}')
             ALPHA=$(sips -g hasAlpha "$f" | awk '/hasAlpha/{print $2}')
             echo "  $f -> ${SIZE}alpha=${ALPHA}"
@@ -206,7 +205,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ceviz-screenshots-${{ inputs.language || 'en' }}
-          path: watch-ceviz/build/screenshots/*.png
+          path: watch-ceviz/build/screenshots/*.jpg
           retention-days: 30
           if-no-files-found: error
 
