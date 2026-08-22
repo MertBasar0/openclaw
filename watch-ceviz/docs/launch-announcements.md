@@ -151,6 +151,6 @@ metnindeki linkleri oraya taşımayı düşünebilirsin (acp-net duyurusunda old
 - [x] QR eşleşme + token korumalı relay erişimi doğrulandı
 - [x] WSL2 keepalive ve backend kesintisinden toparlanma doğrulandı
 - [x] Backend/contract testleri 34/34 ve TestFlight CI bariyerinde
-- [ ] Ekran görüntüleri hazır (Discord/LinkedIn görseli için)
+- [x] Ekran görüntüleri hazır (5 temiz 1320×2868 JPEG; Actions artefaktı)
 - [x] Son TestFlight build'i fiziksel iPhone + Apple Watch'ta smoke test edildi
 - [ ] Beta'ya ilk gerçek dış kullanıcı katıldığında kurulum akışını izle

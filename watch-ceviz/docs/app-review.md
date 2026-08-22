@@ -11,6 +11,9 @@ Bu dosyadaki blokları App Store Connect'e olduğu gibi yapıştırabilirsin.
 - Marketing URL canlı: <https://basarlabs.com.tr/ceviz/>
 - Privacy Policy URL canlı ve EN/TR içerik sunuyor:
   <https://basarlabs.com.tr/ceviz/privacy/>
+- Beş İngilizce simulator screenshot'ı Apple'ın 6.9 inç portre ölçüsünde
+  (**1320×2868**), bildirim diyaloğu olmadan ve alpha kanalsız JPEG olarak
+  doğrulandı: <https://github.com/MertBasar0/openclaw/actions/runs/32542745696>
 - Kaynak metadata'sı: görünen ad **Ceviz**, sürüm **2026.6.5**, iOS **16.0+**,
   watchOS **9.0+**, ana dil İngilizce ve Türkçe yerelleştirme.
 - App Store Connect'in oturum gerektiren alanları (Beta App Description,

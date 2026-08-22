@@ -36,8 +36,8 @@ developers and operators who run OpenClaw on their own machine.
   result presentation, and the notification sound.
 - A clean Ubuntu 24.04 WSL2 onboarding verified install, QR pairing, 401/200
   authentication, command polling, and service persistence after restart.
-- App Store-sized simulator screenshots were generated and validated by the
-  [screenshot workflow](https://github.com/MertBasar0/openclaw/actions/workflows/ceviz-screenshots.yml).
+- Five App Store-sized, alpha-free simulator screenshots were generated and
+  validated in [workflow run 32542745696](https://github.com/MertBasar0/openclaw/actions/runs/32542745696).
 
 ## Known limitations
 
