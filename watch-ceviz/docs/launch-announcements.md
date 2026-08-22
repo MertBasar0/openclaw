@@ -5,23 +5,24 @@ Discord ilk sırada çünkü hedef kitle tam orada (zaten kendi makinesinde ajan
 çalıştıran insanlar) ve OpenClaw'ın resmi showcase sayfası açıkça oradan
 paylaşmaya davet ediyor — showcase'e alınmanın yolu bu.
 
-**ÖNEMLİ — kademeli açma:** LinkedIn'i, en az bir dış kullanıcı başarıyla
-onboarding yapana kadar beklet. Discord teknik ve beta-toleranslı bir kitle;
-orada çıkacak bir hata düzeltilir. LinkedIn itibar kitlesi ve orada
-"denedim, çalışmadı" pahalıya gelir. Discord'dan gelen ilk kullanıcı,
-yayından önce yapılamayan gerçek-cihaz testini fiilen yapmış olacak.
+**Açık beta kararı:** Bağımsız dış kullanıcı onboarding'i için uygun ek cihaz
+ve test kullanıcısı bulunamadığından bu kapı açık beta için kabul edilmiş risk
+olarak ertelendi. İzole temiz ortam doğrulaması ve fiziksel iPhone + Apple Watch
+Beta 2 akışı yeterli proxy doğrulama kabul edildi. Duyurular yayımlanabilir;
+ilk gerçek dış kurulumlar lansman sonrası yakından izlenecek. macOS ve bare
+Linux yolları “geçti” olarak sunulmayacak.
 
-### Güncel doğrulama durumu (20 Ağustos 2026)
+### Güncel doğrulama durumu (23 Ağustos 2026)
 
 | Doğrulanmış | Doğrulanmamış |
 |---|---|
-| Son build fiziksel iPhone + Apple Watch smoke testini geçti; doğrudan Watch push, sonuç ekranı ve bildirim sesi doğrulandı | Gerçek bir dış kullanıcının talimatları yardım almadan tamamladığı kullanılabilirlik testi |
+| Beta 2 (`2026.6.5 (1787435232)`) fiziksel iPhone + Apple Watch'ta doğrulandı; doğrudan Watch push, uygulama açılmadan bildirim, bildirime dokununca tamamlanmış sonucun Home'a uygulanması ve ses doğru çalıştı | Gerçek bir dış kullanıcının talimatları yardım almadan tamamladığı kullanılabilirlik testi; açık beta sonrası izlenecek kabul edilmiş risk |
 | Resmî Ubuntu 24.04 rootfs ile ayrı WSL2 sanal dağıtımında GitHub klonu ve sıfırdan teknik onboarding geçti | Windows üzerinde iOS/Watch simülatörü bulunmadığı için aynı turda simülatör UI testi |
 | Resmî OpenClaw installer, Ceviz venv/token/service kurulumu, 401/200 auth ayrımı, poll edilebilir komut ve yeniden başlatma kalıcılığı doğrulandı | macOS ve bare Linux kurulum yollarının gerçek kullanıcı testi |
 | QR eşleşme, token korumalı relay erişimi ve aynı Wi-Fi akışı | Taze kurulumda ilk Whisper model indirme süresinin farklı makinelerde ölçümü |
 | TestFlight CI: 34/34 backend/contract testi, iOS/Watch build ve yükleme aynı zorunlu bariyerde geçti | Farklı Apple ID ve farklı saat modellerinde son build testi |
 | WSL2 keepalive; backend kesintisinde relay'in yaşaması ve otomatik toparlanması | Çok günlük kesintisiz kullanım ve farklı ağlar arasında soak testi |
-| TestFlight açık beta ve App Store Connect yüklemesi | İlk dış kullanıcıdan tamamlanmış onboarding geri bildirimi |
+| TestFlight build'i public external `Beta` grubunda; `VALID / BETA_APPROVED` durumu ve public link erişimi otomatik olarak tekrar okundu | İlk dış kullanıcıdan tamamlanmış onboarding geri bildirimi |
 
 ### Temiz sanal onboarding kararı
 
@@ -32,8 +33,9 @@ başarısızken installer'ın boş URL'li QR üretip başarılı çıkması yaka
 installer artık bu durumda fail-closed davranıyor.
 
 Bu sonuç bağımsız bir insanın dokümantasyonu yardım almadan anlayabildiğini
-kanıtlamaz. İlk gerçek dış kullanıcının onboarding geri bildirimi lansman
-sonrası izlenecek açık beta doğrulaması olarak kalır.
+kanıtlamaz. Uygun ek cihaz/test kullanıcısı bulunamadığı için bu doğrulama
+“geçti” sayılmadı; açık betayı durdurmayan, lansman sonrası izlenecek kabul
+edilmiş risk olarak kaydedildi.
 
 ---
 
@@ -82,13 +84,13 @@ sonrası izlenecek açık beta doğrulaması olarak kalır.
 > very welcome, especially from anyone running OpenClaw on macOS or bare Linux
 > (I've been developing on WSL2, so those paths are the least tested).
 >
-> Full disclosure: I have verified the build's structure, the backend install on
-> a clean machine, QR pairing, authenticated relay access, recovery after a
-> backend interruption, and every screen. The latest resilience build also
-> passed a physical iPhone + Apple Watch smoke test: direct Watch push, result
-> presentation, and the notification sound all worked. Real-world onboarding by
-> an external tester is still the next validation step; if something breaks,
-> tell me and I'll turn it around quickly.
+> Full disclosure: I verified the build structure, backend installation in a
+> clean isolated environment, QR pairing, authenticated relay access, recovery
+> after a backend interruption, and every screen. Beta 2 was also verified on a
+> physical iPhone + Apple Watch: the notification arrived without opening Ceviz,
+> tapping it opened the completed result, and Home reflected the terminal state.
+> Independent onboarding and the macOS/bare-Linux paths still need real-world
+> feedback, so if something breaks, tell me and I'll turn it around quickly.
 
 **Notlar:**
 - İlk mesajda ekran görüntüsü/kısa video paylaşmak dönüşümü ciddi artırır:
@@ -152,5 +154,6 @@ metnindeki linkleri oraya taşımayı düşünebilirsin (acp-net duyurusunda old
 - [x] WSL2 keepalive ve backend kesintisinden toparlanma doğrulandı
 - [x] Backend/contract testleri 34/34 ve TestFlight CI bariyerinde
 - [x] Ekran görüntüleri hazır (5 temiz 1320×2868 JPEG; Actions artefaktı)
-- [x] Son TestFlight build'i fiziksel iPhone + Apple Watch'ta smoke test edildi
-- [ ] Beta'ya ilk gerçek dış kullanıcı katıldığında kurulum akışını izle
+- [x] Beta 2 build'i fiziksel iPhone + Apple Watch'ta bildirimden sonuca kadar doğrulandı
+- [x] Beta 2 build'i public external `Beta` grubuna eklendi (`BETA_APPROVED`)
+- [ ] Beta'ya ilk gerçek dış kullanıcı katıldığında kurulum akışını izle (lansman sonrası, non-blocking)

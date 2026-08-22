@@ -4,7 +4,7 @@ Bu dosyadaki blokları App Store Connect'e olduğu gibi yapıştırabilirsin.
 İngilizce olanlar birincil (App Review İngilizce okur), Türkçe karşılıkları
 `Türkçe (Turkey)` yerelleştirmesi için.
 
-## Metadata denetimi — 22 Ağustos 2026
+## Metadata denetimi — 23 Ağustos 2026
 
 - Public TestFlight daveti canlı ve uygulamayı **CevizWatch** olarak gösteriyor:
   <https://testflight.apple.com/join/nEdn2Np2>
@@ -16,10 +16,13 @@ Bu dosyadaki blokları App Store Connect'e olduğu gibi yapıştırabilirsin.
   doğrulandı: <https://github.com/MertBasar0/openclaw/actions/runs/32542745696>
 - Kaynak metadata'sı: görünen ad **Ceviz**, sürüm **2026.6.5**, iOS **16.0+**,
   watchOS **9.0+**, ana dil İngilizce ve Türkçe yerelleştirme.
+- TestFlight build **1787435232**, dış ve public **Beta** grubuna atanmış;
+  App Store Connect'ten **VALID / BETA_APPROVED** olarak tekrar okunmuştur:
+  <https://github.com/MertBasar0/openclaw/actions/runs/32605320929>
 - App Store Connect'in oturum gerektiren alanları (Beta App Description,
-  What to Test, Review Notes, iletişim ve build-group seçimi) bu depo üzerinden
-  okunamaz; aşağıdaki kontrol listesinde yalnızca dışarıdan doğrulanabilen
-  alanlar tamamlandı olarak işaretlidir.
+  What to Test, Review Notes ve iletişim) bu depo üzerinden okunamaz; aşağıdaki
+  kontrol listesinde yalnızca doğrulanabilen alanlar tamamlandı olarak
+  işaretlidir.
 
 ---
 
@@ -225,4 +228,4 @@ gider.
 - [ ] What to Test dolduruldu (EN + TR)
 - [ ] App Review Notes'a Demo Modu açıklaması eklendi
 - [ ] Test Information'daki iletişim bilgileri güncel
-- [ ] En son build (Demo Modu içeren) external gruba eklendi
+- [x] En son build (`2026.6.5 (1787435232)`) public external `Beta` grubuna eklendi (`BETA_APPROVED`)
