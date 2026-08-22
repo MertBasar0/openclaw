@@ -215,12 +215,17 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
         }
     }
 
-    private func applyTerminalPush(_ message: [String: Any]) {
+    private func applyTerminalPush(_ message: [String: Any], allowUntrackedJob: Bool = false) {
         guard let jobId = message["job_id"] as? String, !jobId.isEmpty,
               let status = message["status"] as? String,
               status == "completed" || status == "failed" else { return }
         let persisted = UserDefaults.standard.string(forKey: Self.pendingJobDefaultsKey)
-        guard jobId == pollingJobId || jobId == persisted else { return }
+        // Background WCSession snapshots may arrive late, so they may only
+        // replace the result for the job this screen is actually waiting on.
+        // A notification the user explicitly tapped is different: its APNs
+        // payload is the authoritative terminal result even if watchOS already
+        // expired the polling window and cleared the pending-job record.
+        guard allowUntrackedJob || jobId == pollingJobId || jobId == persisted else { return }
         if UserDefaults.standard.string(forKey: Self.lastTerminalJobDefaultsKey) == jobId,
            !isProcessing {
             return
@@ -264,7 +269,7 @@ class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate, WKExte
             "requires_phone_handoff": userInfo["requires_phone_handoff"] as? Bool ?? false,
         ]
         DispatchQueue.main.async {
-            self.applyTerminalPush(payload)
+            self.applyTerminalPush(payload, allowUntrackedJob: true)
         }
     }
 
