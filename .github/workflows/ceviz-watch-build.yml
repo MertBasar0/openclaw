@@ -19,6 +19,7 @@ concurrency:
 jobs:
   build:
     name: Build CevizWatch IPA
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[distribution-only]') }}
     # Sabit imaj etiketi (macos-26) bir gun runner atanmadan iptal edilmeye
     # basladi; macos-latest her zaman desteklenen bir imaji gosterir.
     runs-on: macos-latest
@@ -104,3 +105,32 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
+
+  distribute:
+    name: Distribute existing TestFlight build
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[distribution-only]') }}
+    runs-on: macos-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: watch-ceviz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Fastlane
+        run: gem install fastlane --no-document
+
+      - name: Write ASC API key
+        env:
+          ASC_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+      - name: Assign build to public external group and verify
+        env:
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          ASC_KEY_PATH: /Users/runner/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+        run: ruby fastlane/testflight_distribution.rb
