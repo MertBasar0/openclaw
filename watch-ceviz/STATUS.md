@@ -2,6 +2,10 @@
 
 Son güncelleme: **23 Ağustos 2026**
 
+> **Repo taşındı:** Aktif geliştirme, issue, tag ve release adresi artık
+> <https://github.com/MertBasar0/ceviz>. Bu OpenClaw fork branch'i tarihsel
+> yayın ve denetim kanıtı olarak korunmaktadır.
+
 ## Güncel sürüm
 
 - Sürüm: **Ceviz 2026.6.5 Beta 2**
