@@ -146,11 +146,11 @@ function summaryIncludesIdentifier(summary: string, identifier: string): boolean
 
 /** Extracts likely exact identifiers that summaries should preserve literally. */
 export function extractOpaqueIdentifiers(text: string): string[] {
-  // Consume unambiguous decimal/scientific literals after structural identifiers.
+  // Consume unambiguous decimal/scientific literals and short non-hex unit suffixes.
   return uniqueStrings(
     Array.from(
       text.matchAll(
-        /(https?:\/\/\S+|(?<![A-Za-z0-9._-])\/[\w.-]{2,}(?:\/[\w.-]+)+|[A-Za-z]:\\[\w\\.-]+|(?<![A-Za-z0-9._-])[A-Za-z0-9._-]+\.[A-Za-z0-9._/-]+:\d{1,5})|(?:(?:\d+\.\d+|\.\d+)(?:[eE][+-]?\d+)?|\d+\.?[eE][+-]\d+|(?![A-Fa-f0-9]{8,}(?![A-Fa-f0-9]))\d+\.?[eE]\d+)(?![A-Za-z0-9])|([A-Fa-f0-9]{8,}|\b\d{6,}\b)/g,
+        /(https?:\/\/\S+|(?<![A-Za-z0-9._-])\/[\w.-]{2,}(?:\/[\w.-]+)+|[A-Za-z]:\\[\w\\.-]+|(?<![A-Za-z0-9._-])[A-Za-z0-9._-]+\.[A-Za-z0-9._/-]+:\d{1,5})|(?:(?:(?:\d+\.\d+|\.\d+)(?:[eE][+-]?\d+)?|\d+\.[eE][+-]?\d+|\d+\.?[eE][+-]\d+|(?![A-Fa-f0-9]{8,}(?![A-Fa-f0-9]))\d+\.?[eE]\d+)(?:(?=[A-Za-z]{1,3}(?![A-Za-z0-9]))(?=[A-Za-z]*[G-Zg-z])[A-Za-z]+)?)(?![A-Za-z0-9])|([A-Fa-f0-9]{8,}|\b\d{6,}\b)/g,
       ),
       (match) => match[1] ?? match[2] ?? "",
     )
