@@ -1213,7 +1213,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
 
   it("rejects dotted and unit-suffixed numeric fragments", () => {
     const identifiers = extractOpaqueIdentifiers(
-      "latency=0.123456789ms size=1.23456789e-987654321MB metric=12345678.e10 revision=1.23456789abcdef",
+      "latency=0.123456789ms size=1.23456789e-987654321MB duration=123456789ms metric=12345678.e10 revision=1.23456789abcdef",
     );
 
     expect(identifiers).toStrictEqual(["23456789ABCDEF"]);
@@ -2241,7 +2241,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
             text:
               `${"x".repeat(610)} metric=0.123456789 ` +
               "negative=12345678e-987654321 positive=12345678e+987654321 " +
-              "latency=0.123456789ms size=1.23456789e-987654321MB metric=12345678.e10",
+              "latency=0.123456789ms size=1.23456789e-987654321MB duration=123456789ms metric=12345678.e10",
           },
         ],
         timestamp: 3,
