@@ -32,7 +32,7 @@ scenario:
       promptSnippet: Compaction retry mutating tool check
       durableMarker: QA-COMPACTION-DURABLE-MARKER
       bulkyMarker: QA-COMPACTION-BULKY-HISTORICAL-MARKER
-      decimalNoise: metric=0.123456789 scientific=1.23456789e10 exponent=1e-987654321 latency=0.123456789ms size=1.23456789e-987654321MB dotted=12345678.e10
+      decimalNoise: metric=0.123456789 scientific=1.23456789e10 exponent=1e-987654321 latency=0.123456789ms size=1.23456789e-987654321MB duration=123456789ms dotted=12345678.e10
       checkpointMarker: QA-COMPACTION-PRECOMPACTION-ASSISTANT-MARKER
       overflowThresholdBytes: 262144
       expectedFileContent: "Replay safety: unsafe after write.\n"
