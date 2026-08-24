@@ -1211,6 +1211,14 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(identifiers).toStrictEqual(["12345678E10"]);
   });
 
+  it("rejects dotted and unit-suffixed numeric fragments", () => {
+    const identifiers = extractOpaqueIdentifiers(
+      "latency=0.123456789ms size=1.23456789e-987654321MB metric=12345678.e10 revision=1.23456789abcdef",
+    );
+
+    expect(identifiers).toStrictEqual(["23456789ABCDEF"]);
+  });
+
   it("does not consume decimal-looking prefixes of opaque identifiers", () => {
     const identifiers = extractOpaqueIdentifiers("revision=1.23456789abcdef");
 
@@ -2232,7 +2240,8 @@ describe("compaction-safeguard recent-turn preservation", () => {
             type: "text",
             text:
               `${"x".repeat(610)} metric=0.123456789 ` +
-              "negative=12345678e-987654321 positive=12345678e+987654321",
+              "negative=12345678e-987654321 positive=12345678e+987654321 " +
+              "latency=0.123456789ms size=1.23456789e-987654321MB metric=12345678.e10",
           },
         ],
         timestamp: 3,
@@ -2263,7 +2272,9 @@ describe("compaction-safeguard recent-turn preservation", () => {
     const summary = expectCompactionResult(result).summary;
     expect(summary).toContain(latestAsk);
     expect(summary).not.toContain("123456789");
+    expect(summary).not.toContain("23456789e");
     expect(summary).not.toContain("987654321");
+    expect(summary).not.toContain("12345678");
     expect(mockSummarizeInStages).not.toHaveBeenCalled();
     expect(mockAuditSummaryQuality).toHaveBeenCalledTimes(1);
     const auditInput = requireRecord(mockCallArg(mockAuditSummaryQuality));
