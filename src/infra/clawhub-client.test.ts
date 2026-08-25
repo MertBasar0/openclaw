@@ -53,7 +53,7 @@ function malformedUtf8(prefix: string, suffix: string): ArrayBuffer {
 describe("clawhub client", () => {
   const originalEnv = captureEnv(["APPDATA", "HOME", "XDG_CONFIG_HOME"]);
 
-  async function expectSearchUsesAuthToken(expectedToken: string): Promise<void> {
+  async function searchAuthorizationHeader(): Promise<string | null> {
     let authorization: string | null = null;
     await expect(
       searchClawHubSkills({
@@ -67,7 +67,11 @@ describe("clawhub client", () => {
         },
       }),
     ).resolves.toStrictEqual([]);
-    expect(authorization).toBe(`Bearer ${expectedToken}`);
+    return authorization;
+  }
+
+  async function expectSearchUsesAuthToken(expectedToken: string): Promise<void> {
+    await expect(searchAuthorizationHeader()).resolves.toBe(`Bearer ${expectedToken}`);
   }
 
   afterEach(() => {
@@ -159,6 +163,36 @@ describe("clawhub client", () => {
       });
     });
   });
+
+  it.each([
+    ["without a token", JSON.stringify({})],
+    ["with malformed JSON", "{"],
+  ])(
+    "does not fall back to a legacy token when the canonical config exists %s",
+    async (_, contents) => {
+      await withTestDir({ prefix: "openclaw-clawhub-appdata-" }, async (appDataRoot) => {
+        const canonicalConfigPath = path.join(appDataRoot, "clawhub", "config.json");
+        const legacyConfigPath = path.join(appDataRoot, "clawdhub", "config.json");
+        const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+        setTestEnvValue("APPDATA", appDataRoot);
+        deleteTestEnvValue("XDG_CONFIG_HOME");
+        try {
+          await Promise.all([
+            fs.mkdir(path.dirname(canonicalConfigPath), { recursive: true }),
+            fs.mkdir(path.dirname(legacyConfigPath), { recursive: true }),
+          ]);
+          await Promise.all([
+            fs.writeFile(canonicalConfigPath, contents, "utf8"),
+            fs.writeFile(legacyConfigPath, JSON.stringify({ token: "stale-legacy-token" }), "utf8"),
+          ]);
+
+          await expect(searchAuthorizationHeader()).resolves.toBeNull();
+        } finally {
+          platformSpy.mockRestore();
+        }
+      });
+    },
+  );
 
   it.runIf(process.platform === "darwin")(
     "loads ClawHub request auth from the macOS Application Support path",

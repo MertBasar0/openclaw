@@ -9,6 +9,7 @@ import {
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { retryClawHubRead } from "./clawhub-retry.js";
 import { isTruthyEnvValue } from "./env.js";
+import { isErrno } from "./errno.js";
 import { readResponseTextSnippet, readResponseWithLimit } from "./http-body.js";
 
 const DEFAULT_CLAWHUB_URL = "https://clawhub.ai";
@@ -159,12 +160,11 @@ export async function resolveClawHubAuthToken(): Promise<string | undefined> {
   for (const configPath of resolveClawHubConfigPaths()) {
     try {
       const raw = await fs.readFile(configPath, "utf8");
-      const token = extractTokenFromClawHubConfig(JSON.parse(raw));
-      if (token) {
-        return token;
+      return extractTokenFromClawHubConfig(JSON.parse(raw));
+    } catch (error) {
+      if (!isErrno(error) || error.code !== "ENOENT") {
+        return undefined;
       }
-    } catch {
-      // Try the next candidate path.
     }
   }
   return undefined;
