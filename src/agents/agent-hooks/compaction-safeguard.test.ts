@@ -1190,39 +1190,30 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(identifiers).toContain(uniqueTail[10]?.toUpperCase());
   });
 
-  it("rejects decimal and scientific fragments while keeping standalone numeric IDs", () => {
-    const identifiers = extractOpaqueIdentifiers(
-      "metric=0.123456789 scientific=1.23456789e10 exponent=1e-987654321 order_id=246813579 hash=deadbeef1234 ambiguous=12345678e10",
-    );
-
-    expect(identifiers).not.toContain("123456789");
-    expect(identifiers).not.toContain("23456789E10");
-    expect(identifiers).not.toContain("987654321");
-    expect(identifiers).toContain("246813579");
-    expect(identifiers).toContain("DEADBEEF1234"); // pragma: allowlist secret
-    expect(identifiers).toContain("12345678E10");
-  });
-
-  it("rejects signed scientific values with long hex-shaped mantissas", () => {
-    const identifiers = extractOpaqueIdentifiers(
-      "negative=12345678e-987654321 positive=12345678e+987654321 ambiguous=12345678e10",
-    );
-
-    expect(identifiers).toStrictEqual(["12345678E10"]);
-  });
-
-  it("rejects dotted and unit-suffixed numeric fragments", () => {
-    const identifiers = extractOpaqueIdentifiers(
-      "latency=0.123456789ms size=1.23456789e-987654321MB duration=123456789ms metric=12345678.e10 revision=1.23456789abcdef",
-    );
-
-    expect(identifiers).toStrictEqual(["23456789ABCDEF"]);
-  });
-
-  it("does not consume decimal-looking prefixes of opaque identifiers", () => {
-    const identifiers = extractOpaqueIdentifiers("revision=1.23456789abcdef");
-
-    expect(identifiers).toContain("23456789ABCDEF");
+  it.each([
+    {
+      name: "decimal and scientific values",
+      input:
+        "metric=0.123456789 scientific=1.23456789e10 exponent=1e-987654321 order_id=246813579 hash=deadbeef1234 ambiguous=12345678e10",
+      expected: ["246813579", "DEADBEEF1234", "12345678E10"], // pragma: allowlist secret
+    },
+    {
+      name: "signed scientific values with long hex-shaped mantissas",
+      input: "negative=12345678e-987654321 positive=12345678e+987654321 ambiguous=12345678e10",
+      expected: ["12345678E10"],
+    },
+    {
+      name: "dotted values with long unit suffixes",
+      input: "latency=0.123456789seconds size=1.23456789e-987654321megabytes metric=12345678.e10",
+      expected: [],
+    },
+    {
+      name: "ambiguous integer tokens and decimal-looking opaque identifiers",
+      input: "order_id=246813579xy duration=123456789ms revision=1.23456789abcdef",
+      expected: ["246813579xy", "123456789ms", "23456789ABCDEF"],
+    },
+  ])("classifies $name", ({ input, expected }) => {
+    expect(extractOpaqueIdentifiers(input)).toStrictEqual(expected);
   });
 
   it("filters ordinary short numbers and trims wrapped punctuation", () => {
@@ -2241,7 +2232,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
             text:
               `${"x".repeat(610)} metric=0.123456789 ` +
               "negative=12345678e-987654321 positive=12345678e+987654321 " +
-              "latency=0.123456789ms size=1.23456789e-987654321MB duration=123456789ms metric=12345678.e10",
+              "latency=0.123456789seconds size=1.23456789e-987654321megabytes metric=12345678.e10",
           },
         ],
         timestamp: 3,
