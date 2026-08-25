@@ -631,6 +631,27 @@ export function closeOpenClawAgentDatabaseByPath(pathname: string): boolean {
   return true;
 }
 
+/** Close cached agent databases owned by one lexical state directory. */
+export function closeOpenClawAgentDatabasesUnderStateDir(stateDir: string): number {
+  const resolvedStateDir = path.resolve(stateDir);
+  let closed = 0;
+  for (const pathname of Array.from(cachedDatabases.keys())) {
+    const relativePath = path.relative(resolvedStateDir, pathname);
+    const belongsToStateDir =
+      relativePath === "" ||
+      (!path.isAbsolute(relativePath) &&
+        relativePath !== ".." &&
+        !relativePath.startsWith(`..${path.sep}`));
+    if (!belongsToStateDir) {
+      continue;
+    }
+    if (closeOpenClawAgentDatabaseByPath(pathname)) {
+      closed += 1;
+    }
+  }
+  return closed;
+}
+
 /** Close and unregister one unambiguous transient agent database by filesystem identity. */
 export function disposeOpenClawAgentDatabaseByPath(
   pathname: string,

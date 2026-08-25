@@ -575,6 +575,8 @@ export async function agentExecCommand(
   let runtimePaths: typeof import("../config/paths.js") | undefined;
   let configIo: typeof import("../config/io.js") | undefined;
   let stopLocalAuditWriter: (() => Promise<void>) | undefined;
+  let closeTemporaryAgentDatabases: (() => void) | undefined;
+  let closeTemporaryStateDatabase: (() => void) | undefined;
   let stateLock: EmbeddedStateLockHandle | null | undefined;
   let signalBridge:
     | ReturnType<
@@ -654,6 +656,21 @@ export async function agentExecCommand(
     restoreEnvironment = setAgentExecEnvironment({ stateDir, cwd });
     runtimePaths = await import("../config/paths.js");
     runtimePaths.pinRuntimePaths();
+    if (temporaryStateDir) {
+      const ownedTemporaryStateDir = temporaryStateDir;
+      const [agentDatabase, stateDatabase, stateDatabasePaths] = await Promise.all([
+        import("../state/openclaw-agent-db.js"),
+        import("../state/openclaw-state-db.js"),
+        import("../state/openclaw-state-db.paths.js"),
+      ]);
+      const temporaryStateDatabasePath = stateDatabasePaths.resolveOpenClawStateSqlitePath();
+      closeTemporaryAgentDatabases = () => {
+        agentDatabase.closeOpenClawAgentDatabasesUnderStateDir(ownedTemporaryStateDir);
+      };
+      closeTemporaryStateDatabase = () => {
+        stateDatabase.closeOpenClawStateDatabaseByPath(temporaryStateDatabasePath);
+      };
+    }
     if (opts.stateDir) {
       const { acquireEmbeddedStateLock, createEmbeddedStateSignalBridge } =
         await import("../infra/embedded-state-lock.js");
@@ -765,6 +782,10 @@ export async function agentExecCommand(
       cleanupError ??= error;
     }
   };
+  // Agent database close releases its lease through shared state. Close it
+  // first so that lease cleanup cannot reopen shared state after it is closed.
+  runCleanupStep(() => closeTemporaryAgentDatabases?.());
+  runCleanupStep(() => closeTemporaryStateDatabase?.());
   runCleanupStep(() => restoreEnvironment?.());
   runCleanupStep(() => restoreConfigEnvironment?.());
   runCleanupStep(() => configIo?.clearConfigCache());
