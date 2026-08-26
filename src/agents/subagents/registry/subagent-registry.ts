@@ -290,19 +290,18 @@ export function resumeSubagentRun(runId: string) {
       return;
     }
     const orphanReason = resolveSubagentRunOrphanReason({ entry });
-    if (orphanReason) {
-      if (
-        reconcileOrphanedRun({
-          runId,
-          entry,
-          reason: orphanReason,
-          source: "resume",
-          runs: subagentRuns,
-          resumedRuns,
-        })
-      ) {
-        persistSubagentRuns(runId);
-      }
+    if (
+      orphanReason &&
+      reconcileOrphanedRun({
+        runId,
+        entry,
+        reason: orphanReason,
+        source: "resume",
+        runs: subagentRuns,
+        resumedRuns,
+      })
+    ) {
+      persistSubagentRuns(runId);
       return;
     }
     if (contextCleanup.suppressAnnounceForSteerRestart(entry)) {

@@ -123,6 +123,33 @@ export function isDeliverySuspended(entry: Pick<SubagentRunRecord, "delivery">):
   return entry.delivery?.status === "suspended" && typeof entry.delivery.suspendedAt === "number";
 }
 
+/** Returns true when a required completion can be replayed without its child session. */
+export function hasReplayableRequiredCompletionDelivery(
+  entry: Pick<
+    SubagentRunRecord,
+    "completion" | "delivery" | "expectsCompletionMessage" | "suppressCompletionDelivery"
+  >,
+): boolean {
+  const delivery = entry.delivery;
+  if (
+    entry.expectsCompletionMessage !== true ||
+    entry.suppressCompletionDelivery === true ||
+    entry.completion?.required !== true ||
+    !delivery?.payload
+  ) {
+    return false;
+  }
+  if (isDeliverySuspended(entry)) {
+    return true;
+  }
+  return (
+    delivery.status === "pending" &&
+    delivery.disposition !== "ambiguous" &&
+    delivery.disposition !== "intentional_non_delivery" &&
+    delivery.disposition !== "permanent_failure"
+  );
+}
+
 /** Reads the current delivery attempt count. */
 export function getDeliveryAttemptCount(entry: SubagentRunRecord): number {
   return entry.delivery?.attemptCount ?? 0;

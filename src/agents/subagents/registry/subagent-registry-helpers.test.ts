@@ -226,6 +226,36 @@ describe("reconcileOrphanedRestoredRuns", () => {
       expect(entry.execution.restartRecovery?.phase).toBe(phase);
     },
   );
+
+  it.each(["pending", "suspended"] as const)(
+    "preserves orphaned required completion delivery in the %s state",
+    (status) => {
+      const entry = createRunEntry({
+        expectsCompletionMessage: true,
+        execution: { status: "terminal", startedAt: 1_000, endedAt: 2_000 },
+        completion: { required: true, resultText: "done", capturedAt: 2_000 },
+        delivery: {
+          status,
+          ...(status === "suspended" ? { suspendedAt: 2_100 } : {}),
+          payload: {
+            requesterSessionKey: "agent:main:main",
+            requesterDisplayKey: "main",
+            childSessionKey: "agent:main:subagent:child",
+            childRunId: "run-1",
+            task: "finish the task",
+            outcome: { status: "ok" },
+            terminalReply: { disposition: "visible", text: "done" },
+          },
+        },
+      });
+      const runs = new Map([[entry.runId, entry]]);
+      const resumedRuns = new Set([entry.runId]);
+
+      expect(reconcileOrphanedRestoredRuns({ runs, resumedRuns })).toBe(false);
+      expect(runs.get(entry.runId)).toBe(entry);
+      expect(resumedRuns.has(entry.runId)).toBe(true);
+    },
+  );
 });
 
 describe("safeRemoveAttachmentsDir", () => {
@@ -273,6 +303,87 @@ describe("reconcileOrphanedRun", () => {
     expect(entry.execution).toEqual({ status: "running", startedAt: 1_000 });
     expect(runs.has(entry.runId)).toBe(false);
     expect(resumedRuns.has(entry.runId)).toBe(false);
+  });
+
+  it("retains a replayable required completion without its child session", () => {
+    const entry = createRunEntry({
+      expectsCompletionMessage: true,
+      execution: { status: "terminal", startedAt: 1_000, endedAt: 2_000 },
+      completion: { required: true, resultText: "done", capturedAt: 2_000 },
+      delivery: {
+        status: "pending",
+        payload: {
+          requesterSessionKey: "agent:main:main",
+          requesterDisplayKey: "main",
+          childSessionKey: "agent:main:subagent:child",
+          childRunId: "run-1",
+          task: "finish the task",
+          outcome: { status: "ok" },
+          terminalReply: { disposition: "visible", text: "done" },
+        },
+      },
+    });
+    const runs = new Map([[entry.runId, entry]]);
+    const resumedRuns = new Set([entry.runId]);
+
+    expect(
+      reconcileOrphanedRun({
+        runId: entry.runId,
+        entry,
+        reason: "missing-session-entry",
+        source: "resume",
+        runs,
+        resumedRuns,
+      }),
+    ).toBe(false);
+    expect(runs.get(entry.runId)).toBe(entry);
+    expect(resumedRuns.has(entry.runId)).toBe(true);
+  });
+
+  it.each([
+    { name: "delivered", delivery: { status: "delivered" as const } },
+    {
+      name: "not required",
+      completion: { required: false },
+      delivery: { status: "pending" as const },
+    },
+    { name: "no replay payload", delivery: { status: "pending" as const } },
+    {
+      name: "ambiguous",
+      delivery: {
+        status: "pending" as const,
+        disposition: "ambiguous" as const,
+        payload: {
+          requesterSessionKey: "agent:main:main",
+          requesterDisplayKey: "main",
+          childSessionKey: "agent:main:subagent:child",
+          childRunId: "run-1",
+          task: "finish the task",
+          outcome: { status: "ok" as const },
+          terminalReply: { disposition: "visible" as const, text: "done" },
+        },
+      },
+    },
+  ])("prunes orphaned completion rows after $name delivery", (overrides) => {
+    const entry = createRunEntry({
+      expectsCompletionMessage: true,
+      execution: { status: "terminal", startedAt: 1_000, endedAt: 2_000 },
+      completion: { required: true, resultText: "done", capturedAt: 2_000 },
+      ...overrides,
+    });
+    const runs = new Map([[entry.runId, entry]]);
+
+    expect(
+      reconcileOrphanedRun({
+        runId: entry.runId,
+        entry,
+        reason: "missing-session-entry",
+        source: "resume",
+        runs,
+        resumedRuns: new Set(),
+      }),
+    ).toBe(true);
+    expect(runs.has(entry.runId)).toBe(false);
   });
 });
 
