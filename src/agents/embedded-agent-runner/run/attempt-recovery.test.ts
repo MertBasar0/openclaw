@@ -197,6 +197,14 @@ describe("recoverEmbeddedRunAttempt", () => {
       throw new Error("expected normalized usage fixture");
     }
     const attempt = makeEmbeddedRunnerAttempt({
+      modelAttempt: {
+        provider: "openai",
+        credentialSource: {
+          kind: "direct",
+          evidence: "environment",
+          authorization: "ambient",
+        },
+      },
       terminal: {
         kind: "failed",
         source: "hook:before_agent_run",
@@ -267,9 +275,114 @@ describe("recoverEmbeddedRunAttempt", () => {
           },
           livenessState: "blocked",
           agentMeta: {
+            credentialSource: {
+              kind: "direct",
+              evidence: "environment",
+              authorization: "ambient",
+            },
             lastCallUsage: { input: 42_000, output: 1_000, total: 43_000 },
             promptTokens: 42_000,
           },
+        },
+      },
+    });
+  });
+
+  it("preserves the credential source when prompt-failure recovery blocks the run", async () => {
+    const attempt = makeEmbeddedRunnerAttempt({
+      modelAttempt: {
+        provider: "openai",
+        credentialSource: { kind: "profile" },
+      },
+      terminal: {
+        kind: "failed",
+        source: "prompt",
+        error: new Error("roles must alternate between user and assistant"),
+      },
+      replayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
+      currentAttemptReplayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
+    });
+    const terminalState = resolveEmbeddedRunAttemptTerminalState({
+      attempt,
+      assistant: undefined,
+    });
+    const setTerminalLifecycleMeta = vi.fn();
+
+    const recovery = await recoverEmbeddedRunAttempt({
+      runInput: {
+        runParams: {
+          config: {},
+          agentId: "main",
+          sessionId: "session:prompt-block",
+          runId: "run:prompt-block",
+        },
+        resolvedSessionKey: "agent:main:prompt-block",
+        startedAtMs: Date.now(),
+        laneController: { throwIfAborted: vi.fn() },
+        globalLane: "test",
+        agentDir: "/tmp/openclaw-prompt-block-test",
+        fallbackConfigured: false,
+        suspendForFailure: vi.fn(),
+      },
+      preparedRuntime: {
+        provider: "openai",
+        modelId: "gpt-5.6-luna",
+        model: { id: "gpt-5.6-luna" },
+        genericCompactionRecoveryAllowed: false,
+        attemptAuthProfileStore: { version: 1, profiles: {} },
+        attemptedThinking: new Set(),
+        maybeRefreshRuntimeAuthForAuthError: vi.fn(async () => false),
+        snapshot: () => ({
+          thinkLevel: "off",
+          agentHarness: { id: "openclaw" },
+          outerContextTokenMeta: {},
+          pluginHarnessOwnsTransport: false,
+        }),
+      },
+      normalizedAttempt: {
+        attempt,
+        sessionIdUsed: attempt.sessionIdUsed,
+        attemptAssistant: undefined,
+        currentAttemptAssistant: undefined,
+        currentAttemptCompletedAssistant: undefined,
+        terminalState,
+        setTerminalLifecycleMeta,
+        attemptCompactionCount: 0,
+        activeErrorContext: { provider: "openai", model: "gpt-5.6-luna" },
+        resolveReplayInvalidForAttempt: () => false,
+        canRestartForLiveSwitch: false,
+      },
+      runtimePlan: { auth: {} },
+      sessionPromptState: { sessionFile: "/tmp/session.jsonl" },
+      failoverRetryController: {
+        resolveAuthProfileFailureReason: vi.fn(() => null),
+        advanceAuthProfile: vi.fn(async () => false),
+        advanceRateLimitAuthProfile: vi.fn(async () => false),
+        maybeMarkAuthProfileFailure: vi.fn(async () => undefined),
+        maybeBackoffBeforeOverloadFailover: vi.fn(async () => undefined),
+      },
+      compactionRuntime: {},
+      contextRecoveryState: createEmbeddedRunContextRecoveryState(),
+      usageAccumulator: createUsageAccumulator(),
+      lastRunPromptUsage: undefined,
+      runtimeAuthRetry: false,
+      codexAppServerRecoveryRetryAvailable: false,
+      codexAppServerRecoveryRetries: 0,
+      lastRetryFailoverReason: null,
+      traceAttempts: [],
+      sessionAgentId: "main",
+    } as never);
+
+    expect(setTerminalLifecycleMeta).toHaveBeenCalledWith({
+      replayInvalid: false,
+      livenessState: "blocked",
+    });
+    expect(recovery).toMatchObject({
+      action: "complete",
+      result: {
+        meta: {
+          error: { kind: "role_ordering" },
+          agentMeta: { credentialSource: { kind: "profile" } },
         },
       },
     });
