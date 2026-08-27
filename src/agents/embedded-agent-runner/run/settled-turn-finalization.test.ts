@@ -196,6 +196,10 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
     const attempt = {
       ...settledFailedAttempt(),
       agentHarnessId: "codex",
+      modelAttempt: {
+        provider: "openai",
+        credentialSource: { kind: "profile" as const },
+      },
       contextTokens: 1_000_000,
       contextTokensSource: "runtime" as const,
     };
@@ -218,11 +222,16 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
 
     expect(result.attempt).toMatchObject({
       agentHarnessId: "codex",
+      modelAttempt: {
+        provider: "openai",
+        credentialSource: { kind: "profile" },
+      },
       contextTokens: 1_000_000,
       contextTokensSource: "runtime",
     });
     expect(result.prepared.agentMeta).toMatchObject({
       agentHarnessId: "codex",
+      credentialSource: { kind: "profile" },
       contextTokens: 1_000_000,
       contextTokensSource: "runtime",
     });

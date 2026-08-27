@@ -9,6 +9,7 @@ import {
   resolveProviderRuntimePluginHandle,
   type ProviderRuntimePluginHandle,
 } from "../../plugins/provider-hook-runtime.js";
+import { buildAgentRuntimeAuthPlan } from "./auth.js";
 import { buildAgentRuntimeDeliveryPlan, buildAgentRuntimePlan } from "./build.js";
 
 const resolveProviderIdForAuth = vi.hoisted(() => vi.fn((provider: string) => provider));
@@ -119,6 +120,16 @@ describe("AgentRuntimePlan", () => {
   it("records resolved model, auth, transport, tool, delivery, and observability policy", () => {
     // This is the broad contract snapshot for the runtime plan facade; callers
     // read these nested policies instead of recomputing runtime decisions.
+    const preparedAuthPlan = buildAgentRuntimeAuthPlan({
+      provider: "openai",
+      modelId: "gpt-5.4",
+      authProfileProvider: "openai",
+      sessionAuthProfileId: "openai:work",
+      sessionAuthProfileSource: "auto",
+      harnessId: "codex",
+      harnessRuntime: "codex",
+      credentialSource: { kind: "profile" },
+    });
     const plan = buildAgentRuntimePlan({
       provider: "openai",
       modelId: "gpt-5.4",
@@ -127,6 +138,7 @@ describe("AgentRuntimePlan", () => {
       harnessRuntime: "codex",
       authProfileProvider: "openai",
       sessionAuthProfileId: "openai:work",
+      preparedAuthPlan,
       config: {},
       workspaceDir: "/tmp/openclaw-runtime-plan",
       model: {
@@ -184,6 +196,7 @@ describe("AgentRuntimePlan", () => {
     ).toBeNull();
     expect(plan.observability.resolvedRef).toBe("openai/gpt-5.4");
     expect(plan.observability.harnessId).toBe("codex");
+    expect(plan.observability.credentialSource).toEqual({ kind: "profile" });
   });
 
   it("keeps OpenClaw-owned tool-schema normalization reachable from the plan", () => {

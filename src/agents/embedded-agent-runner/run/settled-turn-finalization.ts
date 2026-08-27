@@ -222,6 +222,7 @@ function buildSettledTurnFinalizationAttemptResult(input: {
     sessionIdUsed: settledAttempt.sessionIdUsed,
     sessionFileUsed: settledAttempt.sessionFileUsed,
     ...(input.agentHarnessId ? { agentHarnessId: input.agentHarnessId } : {}),
+    modelAttempt: settledAttempt.modelAttempt,
     contextTokens: settledAttempt.contextTokens,
     contextTokensSource: settledAttempt.contextTokensSource,
     authBindingFingerprint: settledAttempt.authBindingFingerprint,

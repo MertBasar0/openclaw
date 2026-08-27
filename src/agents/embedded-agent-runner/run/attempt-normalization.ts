@@ -104,7 +104,20 @@ export async function normalizeEmbeddedRunAttempt(input: {
     input;
   const params = runInput.runParams;
   const runtime = preparedRuntime.snapshot();
-  const attempt = normalizeEmbeddedRunAttemptResult(dispatchedAttempt.rawAttempt);
+  const { modelAttempt: _staleModelAttempt, ...rawAttempt } = dispatchedAttempt.rawAttempt;
+  const runtimePlan = dispatchedAttempt.preparedAttempt.runtimePlan;
+  const credentialSource = runtimePlan?.observability.credentialSource;
+  const attempt = normalizeEmbeddedRunAttemptResult({
+    ...rawAttempt,
+    ...(credentialSource
+      ? {
+          modelAttempt: {
+            provider: runtimePlan.observability.provider,
+            credentialSource,
+          },
+        }
+      : {}),
+  });
   await sessionPromptState.waitForCurrentUserMessagePersistence();
   sessionPromptState.suppressNextUserMessagePersistence = sessionPromptState.activePrompt.persisted;
   if (dispatchedAttempt.cancellationRequested) {
@@ -206,6 +219,7 @@ export async function normalizeEmbeddedRunAttempt(input: {
           sessionFile: sessionPromptState.sessionFile,
           provider,
           model: preparedRuntime.model.id,
+          credentialSource: attempt.modelAttempt?.credentialSource,
           ...runtime.outerContextTokenMeta,
           usageAccumulator: input.usageAccumulator,
           lastRunPromptUsage,

@@ -69,6 +69,7 @@ import {
 import {
   buildProviderModelAuthDirectSource,
   buildProviderModelAuthSourcePlan,
+  classifyProviderModelAuthSource,
 } from "./provider-model-auth-source-plan.js";
 import { applyPreparedRuntimeAuthToModel } from "./provider-request-config.js";
 import { protectPreparedProviderRuntimeAuth } from "./provider-secret-egress.js";
@@ -351,6 +352,7 @@ async function prepareSimpleCompletionModelCore(
         authProfileMode: auth.mode,
         sessionAuthProfileId: auth.profileId,
         sessionAuthProfileSource: params.profileId ? "user" : "auto",
+        credentialSource: classifyProviderModelAuthSource(source),
         modelRoute: {
           provider: initialModel.provider,
           modelId: initialModel.id,

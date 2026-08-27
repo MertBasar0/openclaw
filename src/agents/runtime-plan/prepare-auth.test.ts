@@ -230,6 +230,11 @@ describe("prepareAgentRuntimeAuthPlan", () => {
     expect(plan.forwardedAuthProfileId).toBeUndefined();
     expect(plan.forwardedAuthProfileCandidateIds).toBeUndefined();
     expect(plan.selectedAuthMode).toBe("aws-sdk");
+    expect(plan.credentialSource).toEqual({
+      kind: "direct",
+      evidence: "aws-sdk",
+      authorization: "declared",
+    });
     expect(plan.modelRoute).toBeUndefined();
   });
 
@@ -444,6 +449,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       requestTransportOverrides: "none",
       runtimePolicy: { compatibleIds: ["openclaw", "codex"] },
     });
+    expect(plan.credentialSource).toEqual({ kind: "harness" });
     expect(resolveAgentHarnessPreparedAuthSupport({ plan })).toEqual({ source: "harness" });
   });
 
@@ -1226,6 +1232,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
         allowAuthProfileFallback: attempt.allowAuthProfileFallback,
         requiresPriorProfileAttempt: attempt.requiresPriorProfileAttempt,
         forwardedAuthProfileId: attempt.plan.forwardedAuthProfileId,
+        credentialSource: attempt.plan.credentialSource,
       })),
     ).toEqual([
       {
@@ -1234,6 +1241,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
         allowAuthProfileFallback: undefined,
         requiresPriorProfileAttempt: undefined,
         forwardedAuthProfileId: "openai:platform-backup",
+        credentialSource: { kind: "profile" },
       },
       {
         kind: "direct",
@@ -1241,6 +1249,11 @@ describe("prepareAgentRuntimeAuthPlan", () => {
         allowAuthProfileFallback: false,
         requiresPriorProfileAttempt: true,
         forwardedAuthProfileId: undefined,
+        credentialSource: {
+          kind: "direct",
+          evidence: "provider-config",
+          authorization: "declared",
+        },
       },
     ]);
     expect(prepared.attempts[1]?.plan).toMatchObject({
@@ -1349,6 +1362,11 @@ describe("prepareAgentRuntimeAuthPlan", () => {
 
     expect(prepared.attempts).toMatchObject([{ kind: "direct" }]);
     expect(prepared.attempts.some((attempt) => attempt.kind === "profile")).toBe(false);
+    expect(prepared.plan.credentialSource).toEqual({
+      kind: "direct",
+      evidence: "environment",
+      authorization: "ambient",
+    });
   });
 
   // Declared apiKey material keeps normal direct-source standing, so the
@@ -1367,6 +1385,11 @@ describe("prepareAgentRuntimeAuthPlan", () => {
     });
 
     expect(prepared.attempts).toMatchObject([{ kind: "direct" }]);
+    expect(prepared.plan.credentialSource).toEqual({
+      kind: "direct",
+      evidence: "provider-config",
+      authorization: "declared",
+    });
   });
 
   // An environment credential named nowhere in config is not an authorized
@@ -1455,6 +1478,11 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       expect(prepared.plan).toMatchObject({
         forwardedAuthProfileId: undefined,
         selectedAuthMode: "api-key",
+        credentialSource: {
+          kind: "direct",
+          evidence: "environment",
+          authorization: "declared",
+        },
         modelRoute: {
           api: "openai-responses",
           baseUrl: "https://api.openai.com/v1",
@@ -1487,6 +1515,10 @@ describe("prepareAgentRuntimeAuthPlan", () => {
         mode: "api-key",
       });
       expect(resolved.profileId).toBeUndefined();
+      expect(JSON.stringify(prepared.plan.credentialSource)).not.toContain(
+        "secret-ref-platform-key",
+      );
+      expect(JSON.stringify(prepared.plan.credentialSource)).not.toContain("OPENAI_PLATFORM_KEY");
     } finally {
       vi.unstubAllEnvs();
     }

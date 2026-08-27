@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createEmbeddedRunReplayState, type EmbeddedRunReplayState } from "./replay-state.js";
 import { normalizeEmbeddedRunAttempt } from "./run/attempt-normalization.js";
 import { createEmbeddedRunContextRecoveryState } from "./run/context-recovery-state.js";
-import { createIdleTimeoutBreakerState } from "./run/idle-timeout-breaker.js";
+import {
+  createIdleTimeoutBreakerState,
+  MAX_CONSECUTIVE_IDLE_TIMEOUTS_BEFORE_OUTPUT,
+} from "./run/idle-timeout-breaker.js";
 import type { EmbeddedRunAttemptResult } from "./run/types.js";
 import { createUsageAccumulator } from "./usage-accumulator.js";
 
@@ -90,7 +93,18 @@ function makeNormalizationInput(
         lastProfileId: undefined,
       }),
     } as never,
-    dispatchedAttempt: { rawAttempt: attempt, cancellationRequested: false } as never,
+    dispatchedAttempt: {
+      rawAttempt: attempt,
+      cancellationRequested: false,
+      preparedAttempt: {
+        runtimePlan: {
+          observability: {
+            provider: "openai",
+            credentialSource: { kind: "profile" },
+          },
+        },
+      },
+    } as never,
     sessionPromptState: sessionPromptState as never,
     provider: "openai",
     modelId: "gpt-5.6-luna",
@@ -105,6 +119,60 @@ function makeNormalizationInput(
 }
 
 describe("normalizeEmbeddedRunAttempt", () => {
+  it("replaces stale model-attempt facts with the current physical attempt", async () => {
+    const attempt = {
+      ...makeAttempt(),
+      modelAttempt: {
+        provider: "openai",
+        credentialSource: { kind: "profile" as const },
+      },
+    };
+    const input = makeNormalizationInput(attempt, makePromptState());
+    input.dispatchedAttempt.preparedAttempt.runtimePlan = {
+      observability: {
+        provider: "groq",
+        credentialSource: {
+          kind: "direct",
+          evidence: "environment",
+          authorization: "ambient",
+        },
+      },
+    } as never;
+
+    const result = await normalizeEmbeddedRunAttempt(input);
+
+    expect(result.action).toBe("proceed");
+    if (result.action !== "proceed") {
+      throw new Error(`expected proceed, got ${result.action}`);
+    }
+    expect(result.attempt.modelAttempt).toEqual({
+      provider: "groq",
+      credentialSource: {
+        kind: "direct",
+        evidence: "environment",
+        authorization: "ambient",
+      },
+    });
+  });
+
+  it("keeps the physical-attempt source when the idle-timeout breaker completes the run", async () => {
+    const attempt = {
+      ...makeAttempt(),
+      terminal: { kind: "timeout" as const, phase: "prompt" as const, source: "idle" as const },
+    };
+    const input = makeNormalizationInput(attempt, makePromptState());
+    let result: Awaited<ReturnType<typeof normalizeEmbeddedRunAttempt>> | undefined;
+    for (let index = 0; index < MAX_CONSECUTIVE_IDLE_TIMEOUTS_BEFORE_OUTPUT; index += 1) {
+      result = await normalizeEmbeddedRunAttempt(input);
+    }
+
+    expect(result?.action).toBe("complete");
+    if (!result || result.action !== "complete") {
+      throw new Error(`expected complete, got ${result?.action ?? "no result"}`);
+    }
+    expect(result.result.meta.agentMeta?.credentialSource).toEqual({ kind: "profile" });
+  });
+
   it("waits for pending user-turn persistence before deriving retry suppression", async () => {
     let releasePersistence: (() => void) | undefined;
     const persistence = new Promise<void>((resolve) => {
