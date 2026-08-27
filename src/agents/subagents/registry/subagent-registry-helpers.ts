@@ -20,7 +20,7 @@ import { truncateUtf8Prefix } from "../../../utils/utf8-truncate.js";
 import {
   getDeliveryAttemptCount,
   getDeliveryLastError,
-  hasReplayableRequiredCompletionDelivery,
+  hasRetainedRequiredCompletionDelivery,
 } from "./subagent-delivery-state.js";
 import { SUBAGENT_ENDED_REASON_KILLED } from "./subagent-lifecycle-events.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
@@ -277,7 +277,7 @@ export function reconcileOrphanedRun(params: {
   runs: Map<string, SubagentRunRecord>;
   resumedRuns: Set<string>;
 }) {
-  if (hasReplayableRequiredCompletionDelivery(params.entry)) {
+  if (hasRetainedRequiredCompletionDelivery(params.entry)) {
     return false;
   }
   const shouldDeleteAttachments =

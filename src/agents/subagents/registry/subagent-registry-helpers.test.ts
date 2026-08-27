@@ -227,7 +227,7 @@ describe("reconcileOrphanedRestoredRuns", () => {
     },
   );
 
-  it.each(["pending", "suspended"] as const)(
+  it.each(["pending", "suspended", "in_progress"] as const)(
     "preserves orphaned required completion delivery in the %s state",
     (status) => {
       const entry = createRunEntry({
@@ -237,6 +237,9 @@ describe("reconcileOrphanedRestoredRuns", () => {
         delivery: {
           status,
           ...(status === "suspended" ? { suspendedAt: 2_100 } : {}),
+          ...(status === "in_progress"
+            ? { disposition: "session_queued" as const, queueId: "queue-1" }
+            : {}),
           payload: {
             requesterSessionKey: "agent:main:main",
             requesterDisplayKey: "main",
@@ -340,6 +343,16 @@ describe("reconcileOrphanedRun", () => {
     expect(resumedRuns.has(entry.runId)).toBe(true);
   });
 
+  const replayPayload = {
+    requesterSessionKey: "agent:main:main",
+    requesterDisplayKey: "main",
+    childSessionKey: "agent:main:subagent:child",
+    childRunId: "run-1",
+    task: "finish the task",
+    outcome: { status: "ok" as const },
+    terminalReply: { disposition: "visible" as const, text: "done" },
+  };
+
   it.each([
     { name: "delivered", delivery: { status: "delivered" as const } },
     {
@@ -353,16 +366,29 @@ describe("reconcileOrphanedRun", () => {
       delivery: {
         status: "pending" as const,
         disposition: "ambiguous" as const,
-        payload: {
-          requesterSessionKey: "agent:main:main",
-          requesterDisplayKey: "main",
-          childSessionKey: "agent:main:subagent:child",
-          childRunId: "run-1",
-          task: "finish the task",
-          outcome: { status: "ok" as const },
-          terminalReply: { disposition: "visible" as const, text: "done" },
-        },
+        payload: replayPayload,
       },
+    },
+    {
+      name: "permanent failure",
+      delivery: {
+        status: "pending" as const,
+        disposition: "permanent_failure" as const,
+        payload: replayPayload,
+      },
+    },
+    {
+      name: "intentional non-delivery",
+      delivery: {
+        status: "pending" as const,
+        disposition: "intentional_non_delivery" as const,
+        payload: replayPayload,
+      },
+    },
+    {
+      name: "suppressed",
+      suppressCompletionDelivery: true,
+      delivery: { status: "pending" as const, payload: replayPayload },
     },
   ])("prunes orphaned completion rows after $name delivery", (overrides) => {
     const entry = createRunEntry({

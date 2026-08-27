@@ -1933,58 +1933,81 @@ describe("subagent registry lifecycle hardening", () => {
     await waitForLifecycleState(() => expect(runs.has(entry.runId)).toBe(false));
   });
 
-  it("persists a replayable completion before delete cleanup without consuming a retry", async () => {
-    const entry = createRunEntry({ cleanup: "delete", expectsCompletionMessage: true });
-    const runs = new Map([[entry.runId, entry]]);
-    const persistedSnapshots: SubagentRunRecord[] = [];
-    let releaseAnnounce: ((outcome: AnnounceFlowOutcome) => void) | undefined;
-    const runSubagentAnnounceFlow: LifecycleControllerParams["runSubagentAnnounceFlow"] = vi.fn(
-      (announceParams) =>
-        new Promise<AnnounceFlowOutcome>((resolve) => {
-          expect(announceParams.onBeforeDeleteChildSession?.()).toBe(true);
-          releaseAnnounce = resolve;
+  it.each([
+    { name: "pending", beforeDelete: undefined, persisted: { status: "pending" as const } },
+    {
+      name: "queued",
+      beforeDelete: {
+        status: "in_progress" as const,
+        disposition: "session_queued" as const,
+        queueId: "queue-1",
+      },
+      persisted: {
+        status: "in_progress" as const,
+        disposition: "session_queued" as const,
+        queueId: "queue-1",
+      },
+    },
+  ])(
+    "persists a required completion before delete cleanup for $name delivery",
+    async ({ beforeDelete, persisted }) => {
+      const entry = createRunEntry({ cleanup: "delete", expectsCompletionMessage: true });
+      const runs = new Map([[entry.runId, entry]]);
+      const persistedSnapshots: SubagentRunRecord[] = [];
+      let releaseAnnounce: ((outcome: AnnounceFlowOutcome) => void) | undefined;
+      const runSubagentAnnounceFlow: LifecycleControllerParams["runSubagentAnnounceFlow"] = vi.fn(
+        (announceParams) =>
+          new Promise<AnnounceFlowOutcome>((resolve) => {
+            if (beforeDelete) {
+              entry.delivery = { ...entry.delivery, ...beforeDelete };
+            }
+            expect(announceParams.onBeforeDeleteChildSession?.()).toBe(true);
+            releaseAnnounce = resolve;
+          }),
+      );
+      const controller = createLifecycleController({
+        entry,
+        runs,
+        persistOrThrow: vi.fn(() => {
+          persistedSnapshots.push(structuredClone(entry));
         }),
-    );
-    const controller = createLifecycleController({
-      entry,
-      runs,
-      persistOrThrow: vi.fn(() => {
-        persistedSnapshots.push(structuredClone(entry));
-      }),
-      runSubagentAnnounceFlow,
-    });
+        runSubagentAnnounceFlow,
+      });
 
-    await completeRun(controller, entry, {
-      triggerCleanup: true,
-      terminalReply: { disposition: "visible", text: "final completion reply" },
-    });
-    await waitForLifecycleState(() => expect(entry.deleteCleanupDispatchedAt).toBeTypeOf("number"));
+      await completeRun(controller, entry, {
+        triggerCleanup: true,
+        terminalReply: { disposition: "visible", text: "final completion reply" },
+      });
+      await waitForLifecycleState(() =>
+        expect(entry.deleteCleanupDispatchedAt).toBeTypeOf("number"),
+      );
 
-    const deleteSnapshot = persistedSnapshots.find(
-      (snapshot) => snapshot.deleteCleanupDispatchedAt !== undefined,
-    );
-    expect(deleteSnapshot).toMatchObject({
-      completion: {
-        required: true,
-        resultText: "final completion reply",
-      },
-      delivery: {
-        status: "pending",
-        payload: {
-          requesterSessionKey: "agent:main:main",
-          childSessionKey: "agent:main:subagent:child",
-          task: "finish the task",
-          outcome: { status: "ok" },
-          terminalReply: { disposition: "visible", text: "final completion reply" },
+      const deleteSnapshot = persistedSnapshots.find(
+        (snapshot) => snapshot.deleteCleanupDispatchedAt !== undefined,
+      );
+      expect(deleteSnapshot).toMatchObject({
+        completion: {
+          required: true,
+          resultText: "final completion reply",
         },
-      },
-    });
-    expect(deleteSnapshot?.delivery?.attemptCount).toBeUndefined();
-    expect(deleteSnapshot?.delivery?.lastAttemptAt).toBeUndefined();
+        delivery: {
+          ...persisted,
+          payload: {
+            requesterSessionKey: "agent:main:main",
+            childSessionKey: "agent:main:subagent:child",
+            task: "finish the task",
+            outcome: { status: "ok" },
+            terminalReply: { disposition: "visible", text: "final completion reply" },
+          },
+        },
+      });
+      expect(deleteSnapshot?.delivery?.attemptCount).toBeUndefined();
+      expect(deleteSnapshot?.delivery?.lastAttemptAt).toBeUndefined();
 
-    releaseAnnounce?.("delivered");
-    await waitForLifecycleState(() => expect(runs.has(entry.runId)).toBe(false));
-  });
+      releaseAnnounce?.("delivered");
+      await waitForLifecycleState(() => expect(runs.has(entry.runId)).toBe(false));
+    },
+  );
 
   it("does not hand off delete cleanup when the replay payload cannot be persisted", async () => {
     const entry = createRunEntry({ cleanup: "delete", expectsCompletionMessage: true });

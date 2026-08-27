@@ -580,7 +580,9 @@ export const startSubagentAnnounceCleanupFlow = (
                 entry.delivery?.status !== "discarded" &&
                 entry.delivery?.status !== "not_required"
               ) {
-                markPendingFinalDelivery({ entry, recordAttempt: false });
+                const delivery = ensureDeliveryState(entry);
+                delivery.createdAt ??= Date.now();
+                delivery.payload = loadPendingFinalDeliveryPayload(entry);
               }
               // Announce owns delete submission; fence late yields at the
               // exact handoff instead of when cleanup merely starts.

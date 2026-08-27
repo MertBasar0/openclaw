@@ -123,8 +123,8 @@ export function isDeliverySuspended(entry: Pick<SubagentRunRecord, "delivery">):
   return entry.delivery?.status === "suspended" && typeof entry.delivery.suspendedAt === "number";
 }
 
-/** Returns true when a required completion can be replayed without its child session. */
-export function hasReplayableRequiredCompletionDelivery(
+/** Returns true when required delivery still owns the row after its child session is gone. */
+export function hasRetainedRequiredCompletionDelivery(
   entry: Pick<
     SubagentRunRecord,
     "completion" | "delivery" | "expectsCompletionMessage" | "suppressCompletionDelivery"
@@ -140,6 +140,10 @@ export function hasReplayableRequiredCompletionDelivery(
     return false;
   }
   if (isDeliverySuspended(entry)) {
+    return true;
+  }
+  if (delivery.status === "in_progress") {
+    // The correlated session queue owns this delivery and resumes it separately.
     return true;
   }
   return (

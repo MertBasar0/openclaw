@@ -525,22 +525,16 @@ export const loadPendingFinalDeliveryPayload = (
   };
 };
 
-export const markPendingFinalDelivery = (args: {
-  entry: SubagentRunRecord;
-  error?: string;
-  recordAttempt?: boolean;
-}) => {
+export const markPendingFinalDelivery = (args: { entry: SubagentRunRecord; error?: string }) => {
   const now = Date.now();
   const payload: PendingFinalDeliveryPayload = loadPendingFinalDeliveryPayload(args.entry);
 
   const delivery = ensureDeliveryState(args.entry);
   delivery.status = "pending";
   delivery.createdAt ??= now;
-  if (args.recordAttempt !== false) {
-    delivery.lastAttemptAt = now;
-    delivery.attemptCount = (delivery.attemptCount ?? 0) + 1;
-    delivery.lastError = args.error ?? null;
-  }
+  delivery.lastAttemptAt = now;
+  delivery.attemptCount = (delivery.attemptCount ?? 0) + 1;
+  delivery.lastError = args.error ?? null;
   delivery.payload = payload;
 };
 
