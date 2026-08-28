@@ -394,7 +394,7 @@ export async function runPreparedEmbeddedLoop(
       }
       startupStagesEmitted = dispatch.startupStagesEmitted;
       const { dispatchedAttempt, runtimePlan } = dispatch;
-      attemptCarryover.apply(dispatchedAttempt.rawAttempt, runtimePlan?.observability);
+      attemptCarryover.apply(dispatchedAttempt.rawAttempt);
       const normalizedAttempt = await normalizeEmbeddedRunAttempt({
         runInput: admittedRunInput,
         preparedRuntime,

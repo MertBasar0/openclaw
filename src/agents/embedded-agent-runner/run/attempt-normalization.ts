@@ -104,20 +104,7 @@ export async function normalizeEmbeddedRunAttempt(input: {
     input;
   const params = runInput.runParams;
   const runtime = preparedRuntime.snapshot();
-  const { modelAttempt: _staleModelAttempt, ...rawAttempt } = dispatchedAttempt.rawAttempt;
-  const runtimePlan = dispatchedAttempt.preparedAttempt.runtimePlan;
-  const credentialSource = runtimePlan?.observability.credentialSource;
-  const attempt = normalizeEmbeddedRunAttemptResult({
-    ...rawAttempt,
-    ...(credentialSource
-      ? {
-          modelAttempt: {
-            provider: runtimePlan.observability.provider,
-            credentialSource,
-          },
-        }
-      : {}),
-  });
+  const attempt = normalizeEmbeddedRunAttemptResult(dispatchedAttempt.rawAttempt);
   await sessionPromptState.waitForCurrentUserMessagePersistence();
   sessionPromptState.suppressNextUserMessagePersistence = sessionPromptState.activePrompt.persisted;
   if (dispatchedAttempt.cancellationRequested) {

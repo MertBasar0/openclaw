@@ -350,8 +350,9 @@ export function prepareAgentRuntimeAuth(
       : automaticOrderResolution.profileIds;
   const directSource = (
     mode: string | undefined,
-    evidence: ProviderModelAuthDirectSource["evidence"] = providerHasUsableMarker
-      ? "environment"
+    evidence: ProviderModelAuthDirectSource["evidence"] = providerBinding.kind === "marker" &&
+    providerHasUsableMarker
+      ? providerBinding.evidence
       : providerApiKeySecretRef?.source === "env"
         ? "environment"
         : "provider-config",
@@ -542,7 +543,6 @@ export function prepareAgentRuntimeAuth(
       harnessRuntime: params.harnessRuntime,
       allowHarnessAuthProfileForwarding: harnessAllowsAuthProfileForwarding,
       deferredRouteSupport: routeAuthDecision.routeSupport,
-      credentialSource: { kind: "harness" },
     });
     return { plan, attempts: [{ kind: "implicit", plan }] };
   }

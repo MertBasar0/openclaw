@@ -13,7 +13,7 @@ import { projectAgentRunAttemptTerminal } from "../../agent-run-terminal-outcome
 import type { createCacheTrace } from "../../cache-trace.js";
 import { isCloudCodeAssistFormatError } from "../../embedded-agent-helpers.js";
 import type { subscribeEmbeddedAgentSession } from "../../embedded-agent-subscribe.js";
-import type { AgentRuntimeModelAttempt, AgentRuntimePlan } from "../../runtime-plan/types.js";
+import type { AgentRuntimeModelAttempt } from "../../runtime-plan/types.js";
 import { log } from "../logger.js";
 import type { PromptCacheBreak, PromptCacheChange } from "../prompt-cache-observability.js";
 import { observeReplayMetadata, replayMetadataFromState } from "../replay-state.js";
@@ -39,20 +39,15 @@ type HookRunner = ReturnType<typeof getGlobalHookRunner>;
 export function createAttemptCarryover() {
   let latestMcpAppChannelView: EmbeddedRunAttemptResult["latestMcpAppChannelView"];
   let latestMcpConnectAction: EmbeddedRunAttemptResult["latestMcpConnectAction"];
-  let modelAttempt: (AgentRuntimeModelAttempt & { model: string }) | undefined;
+  let modelAttempt: AgentRuntimeModelAttempt | undefined;
   return {
     apply(
-      attempt: Pick<EmbeddedRunAttemptResult, "latestMcpAppChannelView" | "latestMcpConnectAction">,
-      observability?: AgentRuntimePlan["observability"],
+      attempt: Pick<
+        EmbeddedRunAttemptResult,
+        "latestMcpAppChannelView" | "latestMcpConnectAction" | "modelAttempt"
+      >,
     ): void {
-      const credentialSource = observability?.credentialSource;
-      modelAttempt = credentialSource
-        ? {
-            provider: observability.provider,
-            model: observability.modelId,
-            credentialSource,
-          }
-        : undefined;
+      modelAttempt = attempt.modelAttempt;
       latestMcpAppChannelView = attempt.latestMcpAppChannelView ?? latestMcpAppChannelView;
       attempt.latestMcpAppChannelView = latestMcpAppChannelView;
       latestMcpConnectAction = attempt.latestMcpConnectAction ?? latestMcpConnectAction;

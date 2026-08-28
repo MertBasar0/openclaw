@@ -395,14 +395,12 @@ type AgentRuntimeAuthDeferredRouteSupport = {
 };
 
 /** Auth forwarding decision for one runtime attempt. */
-export type AgentRuntimeCredentialSource =
-  | ProviderModelAuthSourceClassification
-  | { kind: "harness" }
-  | { kind: "none" };
+export type AgentRuntimeCredentialSource = ProviderModelAuthSourceClassification | { kind: "none" };
 
-/** Actual provider/source pair owned by one physical model attempt. */
+/** Actual provider/model/source tuple owned by one physical model attempt. */
 export type AgentRuntimeModelAttempt = {
   provider: string;
+  model: string;
   credentialSource: AgentRuntimeCredentialSource;
 };
 
@@ -531,7 +529,6 @@ export type AgentRuntimePlan = {
     modelApi?: string;
     harnessId?: string;
     authProfileId?: string;
-    credentialSource?: AgentRuntimeCredentialSource;
     transport?: AgentRuntimeTransport;
   };
 };

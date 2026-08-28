@@ -5,6 +5,7 @@ import {
   mockedRunEmbeddedAttempt,
   overflowBaseRunParams,
   resetSharedRunIntegrationHarnessMocks,
+  useOpenAIPlatformAuthFixture,
 } from "./run.overflow-compaction.harness.js";
 import { loadSharedRunIntegrationHarness } from "./run.shared-integration-harness.test-support.js";
 
@@ -17,6 +18,7 @@ describe("runEmbeddedAgent retry-limit metadata", () => {
 
   beforeEach(() => {
     resetSharedRunIntegrationHarnessMocks();
+    useOpenAIPlatformAuthFixture();
   });
 
   it("reports the latest physical attempt after ordinary retry-budget exhaustion", async () => {
@@ -25,17 +27,10 @@ describe("runEmbeddedAgent retry-limit metadata", () => {
       physicalAttempt += 1;
       const isLatestAttempt = physicalAttempt === 32;
       return {
+        resolvedRef: { provider: "openai", modelId: "gpt-5.6-luna" },
         auth: {
-          authProfileProviderForAuth: isLatestAttempt ? "physical-provider" : "stale-provider",
-          providerForAuth: isLatestAttempt ? "physical-provider" : "stale-provider",
-        },
-        observability: {
-          resolvedRef: isLatestAttempt
-            ? "physical-provider/physical-model"
-            : "stale-provider/stale-model",
-          provider: isLatestAttempt ? "physical-provider" : "stale-provider",
-          modelId: isLatestAttempt ? "physical-model" : "stale-model",
-          harnessId: "codex",
+          authProfileProviderForAuth: "openai",
+          providerForAuth: "openai",
           credentialSource: isLatestAttempt
             ? {
                 kind: "direct",
@@ -43,6 +38,12 @@ describe("runEmbeddedAgent retry-limit metadata", () => {
                 authorization: "ambient",
               }
             : { kind: "profile" },
+        },
+        observability: {
+          resolvedRef: "openai/gpt-5.6-luna",
+          provider: "openai",
+          modelId: "gpt-5.6-luna",
+          harnessId: "codex",
         },
       } as never;
     });
@@ -59,14 +60,16 @@ describe("runEmbeddedAgent retry-limit metadata", () => {
 
     const result = await runEmbeddedAgent({
       ...overflowBaseRunParams,
+      provider: "openai",
+      model: "gpt-5.6-luna",
       runId: "run-retry-limit-physical-attempt-meta",
     });
 
     expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(32);
     expect(result.meta.error?.kind).toBe("retry_limit");
     expect(result.meta.agentMeta).toMatchObject({
-      provider: "physical-provider",
-      model: "physical-model",
+      provider: "openai",
+      model: "gpt-5.6-luna",
       credentialSource: {
         kind: "direct",
         evidence: "environment",

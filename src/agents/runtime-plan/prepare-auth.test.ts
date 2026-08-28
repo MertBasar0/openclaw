@@ -449,7 +449,7 @@ describe("prepareAgentRuntimeAuthPlan", () => {
       requestTransportOverrides: "none",
       runtimePolicy: { compatibleIds: ["openclaw", "codex"] },
     });
-    expect(plan.credentialSource).toEqual({ kind: "harness" });
+    expect(plan.credentialSource).toBeUndefined();
     expect(resolveAgentHarnessPreparedAuthSupport({ plan })).toEqual({ source: "harness" });
   });
 
@@ -1388,6 +1388,43 @@ describe("prepareAgentRuntimeAuthPlan", () => {
     expect(prepared.plan.credentialSource).toEqual({
       kind: "direct",
       evidence: "provider-config",
+      authorization: "declared",
+    });
+  });
+
+  it("reports a local provider marker as synthetic auth", () => {
+    const prepared = prepareAgentRuntimeAuth({
+      provider: "ollama-remote",
+      modelId: "qwen3.5:27b",
+      config: {
+        models: {
+          providers: {
+            "ollama-remote": {
+              api: "ollama",
+              apiKey: "ollama-local",
+              baseUrl: "http://192.168.178.122:11434",
+              models: [
+                {
+                  id: "qwen3.5:27b",
+                  name: "Qwen 3.5 27B",
+                  reasoning: false,
+                  input: ["text"],
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                  contextWindow: 8_192,
+                  maxTokens: 4_096,
+                },
+              ],
+            },
+          },
+        },
+      } as OpenClawConfig,
+      env: {},
+      authProfileStore: authStore({}),
+    });
+
+    expect(prepared.plan.credentialSource).toEqual({
+      kind: "direct",
+      evidence: "synthetic",
       authorization: "declared",
     });
   });

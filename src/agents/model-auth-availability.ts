@@ -48,7 +48,7 @@ import {
   resolveProviderEnvAuthLookupMaps,
 } from "./model-auth-env-vars.js";
 import { resolveProviderEnvAuthEvidence } from "./model-auth-env.js";
-import { isKnownEnvApiKeyMarker, isSecretRefHeaderValueMarker } from "./model-auth-markers.js";
+import { isSecretRefHeaderValueMarker } from "./model-auth-markers.js";
 import {
   hasSyntheticLocalProviderAuthConfig,
   hasUsableCustomProviderApiKey,
@@ -556,7 +556,7 @@ export function createModelAuthAvailabilityResolver(
       };
     }
     if (binding.kind === "marker") {
-      if (typeof apiKey === "string" && isKnownEnvApiKeyMarker(apiKey)) {
+      if (binding.evidence === "environment" && typeof apiKey === "string") {
         return {
           availability: modeAllowed(provider, target, configuredBearerMode)
             ? hasSecret(env[apiKey.trim()])
@@ -569,14 +569,14 @@ export function createModelAuthAvailabilityResolver(
         return {
           availability: false,
           selectedAuthMode: configuredBearerMode,
-          evidence: "synthetic",
+          evidence: binding.evidence,
         };
       }
       if (hasUsableCustomProviderApiKey(params.cfg, provider, env)) {
         return {
           availability: true,
           selectedAuthMode: configuredBearerMode,
-          evidence: "synthetic",
+          evidence: binding.evidence,
         };
       }
       const managed = typeof apiKey === "string" && isSecretRefHeaderValueMarker(apiKey);
@@ -586,7 +586,7 @@ export function createModelAuthAvailabilityResolver(
             undefined
           : undefined,
         selectedAuthMode: configuredBearerMode,
-        evidence: managed ? "runtime" : "synthetic",
+        evidence: managed ? "runtime" : binding.evidence,
       };
     }
     if (apiKeyRef) {

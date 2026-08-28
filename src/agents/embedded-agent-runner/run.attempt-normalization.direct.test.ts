@@ -93,18 +93,7 @@ function makeNormalizationInput(
         lastProfileId: undefined,
       }),
     } as never,
-    dispatchedAttempt: {
-      rawAttempt: attempt,
-      cancellationRequested: false,
-      preparedAttempt: {
-        runtimePlan: {
-          observability: {
-            provider: "openai",
-            credentialSource: { kind: "profile" },
-          },
-        },
-      },
-    } as never,
+    dispatchedAttempt: { rawAttempt: attempt, cancellationRequested: false } as never,
     sessionPromptState: sessionPromptState as never,
     provider: "openai",
     modelId: "gpt-5.6-luna",
@@ -119,45 +108,14 @@ function makeNormalizationInput(
 }
 
 describe("normalizeEmbeddedRunAttempt", () => {
-  it("replaces stale model-attempt facts with the current physical attempt", async () => {
+  it("keeps the physical-attempt source when the idle-timeout breaker completes the run", async () => {
     const attempt = {
       ...makeAttempt(),
       modelAttempt: {
         provider: "openai",
+        model: "gpt-5.6-luna",
         credentialSource: { kind: "profile" as const },
       },
-    };
-    const input = makeNormalizationInput(attempt, makePromptState());
-    input.dispatchedAttempt.preparedAttempt.runtimePlan = {
-      observability: {
-        provider: "groq",
-        credentialSource: {
-          kind: "direct",
-          evidence: "environment",
-          authorization: "ambient",
-        },
-      },
-    } as never;
-
-    const result = await normalizeEmbeddedRunAttempt(input);
-
-    expect(result.action).toBe("proceed");
-    if (result.action !== "proceed") {
-      throw new Error(`expected proceed, got ${result.action}`);
-    }
-    expect(result.attempt.modelAttempt).toEqual({
-      provider: "groq",
-      credentialSource: {
-        kind: "direct",
-        evidence: "environment",
-        authorization: "ambient",
-      },
-    });
-  });
-
-  it("keeps the physical-attempt source when the idle-timeout breaker completes the run", async () => {
-    const attempt = {
-      ...makeAttempt(),
       terminal: { kind: "timeout" as const, phase: "prompt" as const, source: "idle" as const },
     };
     const input = makeNormalizationInput(attempt, makePromptState());

@@ -329,7 +329,6 @@ export function buildAgentRuntimePlan(params: BuildAgentRuntimePlanParams): Agen
       ...(modelApi ? { modelApi } : {}),
       ...(params.harnessId ? { harnessId: params.harnessId } : {}),
       ...(auth.forwardedAuthProfileId ? { authProfileId: auth.forwardedAuthProfileId } : {}),
-      ...(auth.credentialSource ? { credentialSource: auth.credentialSource } : {}),
       ...(transport ? { transport } : {}),
     },
   };

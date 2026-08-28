@@ -485,6 +485,7 @@ describe("prepareEmbeddedRunTerminal run stats", () => {
       attempt: {
         modelAttempt: {
           provider: "openai",
+          model: "gpt-5.6-luna",
           credentialSource: {
             kind: "direct",
             evidence: "environment",

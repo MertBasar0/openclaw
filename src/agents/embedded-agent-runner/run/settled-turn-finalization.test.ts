@@ -13,9 +13,25 @@ import { resolveEmbeddedRunAttemptTerminalState } from "./terminal-outcome.js";
 
 const backendMocks = vi.hoisted(() => ({
   runSettledFinalization: vi.fn(),
+  resolveRuntimeModelAttempt: vi.fn(
+    (runtimePlan?: {
+      resolvedRef?: { provider?: string; modelId?: string };
+      auth?: { credentialSource?: unknown };
+    }) =>
+      runtimePlan?.resolvedRef?.provider &&
+      runtimePlan.resolvedRef.modelId &&
+      runtimePlan.auth?.credentialSource
+        ? {
+            provider: runtimePlan.resolvedRef.provider,
+            model: runtimePlan.resolvedRef.modelId,
+            credentialSource: runtimePlan.auth.credentialSource,
+          }
+        : undefined,
+  ),
 }));
 
 vi.mock("./backend.js", () => ({
+  resolveRuntimeModelAttempt: backendMocks.resolveRuntimeModelAttempt,
   runEmbeddedSettledTurnFinalizationWithBackend: backendMocks.runSettledFinalization,
 }));
 
@@ -196,16 +212,16 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
     const attempt = {
       ...settledFailedAttempt(),
       agentHarnessId: "codex",
-      modelAttempt: {
-        provider: "openai",
-        credentialSource: { kind: "profile" as const },
-      },
       contextTokens: 1_000_000,
       contextTokensSource: "runtime" as const,
     };
     const input = finalizationInput(attempt);
     input.terminalBase.outerContextTokenMeta = { contextTokens: 272_000 };
     input.finalization.preparedAttempt.agentHarnessId = "codex";
+    input.finalization.preparedAttempt.runtimePlan = {
+      resolvedRef: { provider: "openai", modelId: "gpt-5.6-luna" },
+      auth: { credentialSource: { kind: "profile" } },
+    } as never;
     const finalAssistant = buildEmbeddedRunnerAssistant({
       content: [{ type: "text", text: "The exec tool failed: post-processing error." }],
     });
@@ -224,6 +240,7 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
       agentHarnessId: "codex",
       modelAttempt: {
         provider: "openai",
+        model: "gpt-5.6-luna",
         credentialSource: { kind: "profile" },
       },
       contextTokens: 1_000_000,

@@ -550,7 +550,6 @@ describe("runWithModelFallback + runEmbeddedAgent failover behavior", () => {
         effective: { provider: "groq", model: "mock-2" },
         rerouted: true,
       });
-      expect(result.result.meta.agentMeta?.credentialSource).toEqual({ kind: "profile" });
       expect(result.terminal.metadata.terminalReceipt).toMatchObject({
         requested: { provider: "openai", model: "mock-1" },
         effective: { provider: "groq", model: "mock-2" },
