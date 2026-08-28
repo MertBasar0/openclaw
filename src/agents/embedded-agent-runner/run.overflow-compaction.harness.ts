@@ -186,7 +186,7 @@ function makeMockRuntimePlan(): MockRuntimePlan {
 export const mockedCompactDirect = mockedContextEngine.compact;
 const mockedResolveContextEngine = vi.fn(async () => mockedContextEngine);
 const mockedResolveContextEngineOwnerPluginId = vi.fn(() => undefined);
-const mockedBuildAgentRuntimePlan = vi.fn<() => AgentRuntimePlan>(
+export const mockedBuildAgentRuntimePlan = vi.fn<() => AgentRuntimePlan>(
   () => makeMockRuntimePlan() as AgentRuntimePlan,
 );
 export const mockedAcquireAgentRunPreparedModelRuntime = vi.fn(
@@ -670,6 +670,9 @@ export function resetSharedRunIntegrationHarnessMocks(): void {
   vi.unstubAllEnvs();
   resetCommandQueueStateForTest();
   resetMockAgentHarness();
+
+  mockedBuildAgentRuntimePlan.mockReset();
+  mockedBuildAgentRuntimePlan.mockImplementation(() => makeMockRuntimePlan() as AgentRuntimePlan);
 
   mockedBuildEmbeddedRunPayloads.mockReset();
   mockedBuildEmbeddedRunPayloads.mockReturnValue([]);
