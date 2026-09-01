@@ -2,10 +2,14 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ContextEngineHostSupport } from "../../context-engine/host-compat.js";
 import { requireActivePluginRegistry } from "../../plugins/runtime.js";
 import { buildAgentRunTerminalOutcome } from "../agent-run-terminal-outcome.js";
-import { normalizeAgentRunTerminalReceipt } from "../agent-run-terminal-receipt.js";
+import {
+  formatAgentRunRouteChange,
+  normalizeAgentRunTerminalReceipt,
+} from "../agent-run-terminal-receipt.js";
 import {
   buildAgentRunTerminalReplySnapshot,
   normalizeAgentRunTerminalReplySnapshot,
+  sanitizeAgentRunTerminalReplyText,
 } from "../agent-run-terminal-reply.js";
 import {
   createContextEngineLogicalTurnLease,
@@ -280,20 +284,38 @@ function buildTerminal(params: {
     timeoutPhase: meta.timeoutPhase,
     providerStarted: meta.providerStarted,
   });
-  const terminalReply =
+  let terminalReply =
     normalizeAgentRunTerminalReplySnapshot(meta.terminalReply) ??
     buildAgentRunTerminalReplySnapshot({
       visibleText: meta.finalAssistantVisibleText,
       rawText: meta.finalAssistantRawText,
       terminalReplyKind: meta.terminalReplyKind,
     });
-  const metadata: Record<string, unknown> = { terminalReply };
-  const terminalReceipt = normalizeAgentRunTerminalReceipt(meta.agentMeta?.terminalReceipt);
-  if (terminalReceipt?.runId === params.runId) {
-    metadata.terminalReceipt = {
-      ...terminalReceipt,
-      terminalDisposition: terminalReply.disposition === "visible" ? "visible" : "not-visible",
+  const normalizedTerminalReceipt = normalizeAgentRunTerminalReceipt(
+    meta.agentMeta?.terminalReceipt,
+  );
+  const terminalReceipt =
+    normalizedTerminalReceipt?.runId === params.runId
+      ? {
+          ...normalizedTerminalReceipt,
+          terminalDisposition:
+            terminalReply.disposition === "visible"
+              ? ("visible" as const)
+              : ("not-visible" as const),
+        }
+      : undefined;
+  const routeChange = formatAgentRunRouteChange(terminalReceipt, params.runId);
+  if (routeChange && terminalReply.disposition === "visible") {
+    // Compose the receipt-owned route fact before lifecycle publication so every
+    // completion path observes one bounded terminal reply instead of rebuilding it.
+    terminalReply = {
+      disposition: "visible",
+      text: sanitizeAgentRunTerminalReplyText(`${routeChange}\n\n${terminalReply.text}`),
     };
+  }
+  const metadata: Record<string, unknown> = { terminalReply };
+  if (terminalReceipt) {
+    metadata.terminalReceipt = terminalReceipt;
   }
   if (params.behavior.kind === "channel-delivery" || params.behavior.kind === "followup-delivery") {
     for (const key of [

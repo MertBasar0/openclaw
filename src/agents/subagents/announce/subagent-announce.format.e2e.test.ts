@@ -565,6 +565,9 @@ describe("subagent announce formatting", () => {
     expect(msg).toContain(
       "If additional action is required, continue the task or record a follow-up; otherwise send a truthful user-facing update.",
     );
+    expect(msg).toContain(
+      "Preserve any runtime-authored model-route change notice in your update.",
+    );
     expect(msg).toContain("Keep this internal context private");
     expect(call?.params?.internalEvents?.[0]?.type).toBe("task_completion");
     expect(call?.params?.internalEvents?.[0]?.taskLabel).toBe("do thing");
@@ -896,6 +899,12 @@ describe("subagent announce formatting", () => {
     expect(call?.params?.sessionKey).toBe("agent:main:main");
     expectInputProvenance(call?.params, "agent:main:subagent:test");
     expect(msg).toContain("final answer: 2");
+    expect(msg).toContain(
+      "Keep runtime-authored model-route change notices internal on this shared surface.",
+    );
+    expect(msg).not.toContain(
+      "Preserve any runtime-authored model-route change notice in your update.",
+    );
     expect(msg).not.toContain("✅ Subagent");
   });
 
@@ -918,6 +927,9 @@ describe("subagent announce formatting", () => {
     expect(call?.params?.channel).toBe("imessage");
     expect(call?.params?.to).toBe("+1234567890");
     expect(call?.params?.accountId).toBe("acct-bb");
+    expect(call?.params?.message).toContain(
+      "Preserve any runtime-authored model-route change notice in your update.",
+    );
   });
 
   it("keeps direct completion announce delivery immediate even when sibling counters are non-zero", async () => {

@@ -301,6 +301,8 @@ describe("runEmbeddedAgentEntry", () => {
             classification: options.isFallbackRetry ? undefined : "empty",
             meta: options.isFallbackRetry
               ? {
+                  finalAssistantVisibleText: "fallback complete",
+                  finalAssistantRawText: "fallback complete",
                   executionTrace: {
                     winnerProvider: provider,
                     winnerModel: model,
@@ -379,7 +381,11 @@ describe("runEmbeddedAgentEntry", () => {
       requested: { provider: "primary-provider", model: "primary-model" },
       effective: { provider: "fallback-provider", model: "fallback-model" },
       rerouted: true,
-      terminalDisposition: "not-visible",
+      terminalDisposition: "visible",
+    });
+    expect(channel.result.terminal.metadata.terminalReply).toEqual({
+      disposition: "visible",
+      text: "Model route changed: primary-provider/primary-model → fallback-provider/fallback-model.\n\nfallback complete",
     });
     expect(channel.candidateLeases[0]).toBe(channel.candidateLeases[1]);
     expect(state.selectAgentHarness).toHaveBeenCalledWith(
