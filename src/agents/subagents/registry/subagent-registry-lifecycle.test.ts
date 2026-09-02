@@ -34,6 +34,7 @@ import {
   SUBAGENT_ENDED_REASON_KILLED,
 } from "./subagent-lifecycle-events.js";
 import { shouldSuppressSubagentRecoverySessionEffects } from "./subagent-recovery-state.js";
+import { loadPendingFinalDeliveryPayload } from "./subagent-registry-lifecycle-delivery.js";
 import {
   SubagentLifecycleController,
   type SubagentLifecycleOptions,
@@ -267,6 +268,23 @@ function createRunEntry(overrides: RunEntryOverrides = {}): SubagentRunRecord {
         },
   };
 }
+
+describe("pending final delivery payload", () => {
+  it("uses the authoritative completion reply after a retry payload was captured", () => {
+    const staleTerminalReply = { disposition: "visible", text: "child result" } as const;
+    const completionTerminalReply = {
+      disposition: "visible",
+      text: "child result",
+      modelRouteChange: "Model route changed: requested/model → actual/model.",
+    } as const;
+    const entry = createRunEntry({
+      delivery: { status: "pending", payload: { terminalReply: staleTerminalReply } },
+      completion: { terminalReply: completionTerminalReply },
+    });
+
+    expect(loadPendingFinalDeliveryPayload(entry).terminalReply).toEqual(completionTerminalReply);
+  });
+});
 
 function makeProvisionalKilledRunEntry(overrides: RunEntryOverrides = {}): SubagentRunRecord {
   return createRunEntry({
