@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatAgentRunRouteChange } from "./agent-run-terminal-receipt.js";
+import {
+  formatAgentRunRouteChange,
+  type AgentRunTerminalReceipt,
+} from "./agent-run-terminal-receipt.js";
 
-const visibleRerouteReceipt = {
+const visibleRerouteReceipt: AgentRunTerminalReceipt = {
   runId: "run-1",
   sessionId: "session-1",
   turnId: "turn-1",
@@ -10,7 +13,7 @@ const visibleRerouteReceipt = {
   successfulToolNames: [],
   rerouted: true,
   terminalDisposition: "visible",
-} as const;
+};
 
 describe("formatAgentRunRouteChange", () => {
   it("uses the producer response model", () => {
