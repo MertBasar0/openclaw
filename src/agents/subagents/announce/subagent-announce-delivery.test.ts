@@ -1847,6 +1847,7 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
       INTERNAL_RUNTIME_CONTEXT_END,
       "x".repeat(8_000),
     ].join("\n");
+    const modelRouteChange = "Model route changed: requested/model → actual/model.";
 
     await deliverDiscordDirectMessageCompletion({
       callGateway,
@@ -1854,6 +1855,7 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
       internalEvents: taskCompletionEvents({
         childSessionId: "child-session-id",
         result: leaked,
+        modelRouteChange,
       }),
     });
 
@@ -1864,6 +1866,7 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
     expect(content).toContain("Visible completion");
     expect(content).not.toContain("subagent_announce");
     expect(content).not.toContain("video_generate");
+    expect(content).not.toContain(modelRouteChange);
     expect(content.length).toBeLessThanOrEqual(4_096);
   });
 

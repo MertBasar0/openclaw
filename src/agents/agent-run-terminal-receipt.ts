@@ -3,6 +3,8 @@ import { redactSensitiveText } from "../logging/redact.js";
 
 type AgentRunTerminalModelRef = { provider: string; model: string };
 
+const AGENT_RUN_ROUTE_CHANGE_MAX_CHARS = 320;
+
 export type AgentRunTerminalReceipt = {
   runId: string;
   sessionId: string;
@@ -29,21 +31,20 @@ export function normalizeAgentRunTerminalReceipt(
     : undefined;
 }
 
-function formatAgentRunModelRef(value: unknown): string | undefined {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("provider" in value) ||
-    typeof value.provider !== "string" ||
-    !("model" in value) ||
-    typeof value.model !== "string"
-  ) {
-    return undefined;
-  }
+function formatAgentRunModelRef(value: AgentRunTerminalModelRef): string | undefined {
   const route = redactSensitiveText(`${value.provider}/${value.model}`, { mode: "tools" })
     .replace(/\s+/gu, " ")
     .trim();
   return route ? truncateUtf16Safe(route, 128) : undefined;
+}
+
+/** Normalizes the producer-owned route fact before lifecycle or prompt use. */
+export function normalizeAgentRunRouteChange(value: unknown): string | undefined {
+  const normalized =
+    typeof value === "string"
+      ? redactSensitiveText(value, { mode: "tools" }).replace(/\s+/gu, " ").trim()
+      : "";
+  return normalized ? truncateUtf16Safe(normalized, AGENT_RUN_ROUTE_CHANGE_MAX_CHARS) : undefined;
 }
 
 /** Formats the bounded, secret-free route fact owned by a terminal receipt. */

@@ -9,7 +9,6 @@ import {
 import {
   buildAgentRunTerminalReplySnapshot,
   normalizeAgentRunTerminalReplySnapshot,
-  sanitizeAgentRunTerminalReplyText,
 } from "../agent-run-terminal-reply.js";
 import {
   createContextEngineLogicalTurnLease,
@@ -304,14 +303,11 @@ function buildTerminal(params: {
               : ("not-visible" as const),
         }
       : undefined;
-  const routeChange = formatAgentRunRouteChange(terminalReceipt, params.runId);
-  if (routeChange && terminalReply.disposition === "visible") {
-    // Compose the receipt-owned route fact before lifecycle publication so every
-    // completion path observes one bounded terminal reply instead of rebuilding it.
-    terminalReply = {
-      disposition: "visible",
-      text: sanitizeAgentRunTerminalReplyText(`${routeChange}\n\n${terminalReply.text}`),
-    };
+  const modelRouteChange = formatAgentRunRouteChange(terminalReceipt, params.runId);
+  if (modelRouteChange && terminalReply.disposition === "visible") {
+    // Carry one receipt-owned fact beside assistant text so internal parents can
+    // report the reroute without exposing it through raw external delivery.
+    terminalReply = { ...terminalReply, modelRouteChange };
   }
   const metadata: Record<string, unknown> = { terminalReply };
   if (terminalReceipt) {

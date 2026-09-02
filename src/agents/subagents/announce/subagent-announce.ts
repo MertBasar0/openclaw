@@ -14,14 +14,17 @@ import {
 } from "../../../auto-reply/tokens.js";
 import { logWarn } from "../../../logger.js";
 import { defaultRuntime } from "../../../runtime.js";
-import { deriveSessionChatTypeFromKey } from "../../../sessions/session-chat-type-shared.js";
 import { isCronSessionKey } from "../../../sessions/session-key-utils.js";
 import { createLazyImportLoader } from "../../../shared/lazy-promise.js";
 import {
   type DeliveryContext,
   normalizeDeliveryContext,
 } from "../../../utils/delivery-context.shared.js";
-import { INTERNAL_MESSAGE_CHANNEL } from "../../../utils/message-channel.js";
+import {
+  INTERNAL_MESSAGE_CHANNEL,
+  isDeliverableMessageChannel,
+  normalizeMessageChannel,
+} from "../../../utils/message-channel.js";
 import type { AgentRunTerminalReplySnapshot } from "../../agent-run-terminal-reply.js";
 import {
   buildAnnounceIdFromChildRun,
@@ -51,7 +54,6 @@ import {
 import { runDescendantWake } from "./subagent-announce-descendant-wake.js";
 import type { SubagentAnnounceDeliveryResult } from "./subagent-announce-dispatch.js";
 import {
-  inferDeliveryTargetChatType,
   resolveAnnounceOrigin,
   resolveSubagentCompletionOrigin,
 } from "./subagent-announce-origin.js";
@@ -112,11 +114,14 @@ function buildAnnounceReplyInstruction(params: {
   requesterIsSubagent: boolean;
   announceType: SubagentAnnounceType;
   expectsCompletionMessage?: boolean;
+  modelRouteChange?: string;
   preserveModelRouteNotice: boolean;
 }): string {
-  const modelRouteInstruction = params.preserveModelRouteNotice
-    ? " Preserve any runtime-authored model-route change notice in your update."
-    : " Keep runtime-authored model-route change notices internal on this shared surface.";
+  const modelRouteInstruction = !params.modelRouteChange
+    ? ""
+    : params.preserveModelRouteNotice
+      ? " Preserve any runtime-authored model-route change notice in your update."
+      : " Keep runtime-authored model-route change notices internal on this shared surface.";
   if (params.requesterIsSubagent) {
     return `Convert this completion into a concise internal orchestration update for your parent agent in your own words.${modelRouteInstruction} Keep this internal context private (don't mention system/log/stats/session details or announce type). If this result is duplicate or no update is needed, reply ONLY: ${SILENT_REPLY_TOKEN}.`;
   }
@@ -541,20 +546,22 @@ export async function runSubagentAnnounceFlow(params: {
     const completionDirectOrigin = childSessionEffectsAllowed()
       ? candidateCompletionDirectOrigin
       : targetRequesterOrigin;
-    const completionChatType =
-      inferDeliveryTargetChatType(completionDirectOrigin ?? {}) ??
-      deriveSessionChatTypeFromKey(targetRequesterSessionKey);
+    const completionChannel = normalizeMessageChannel(completionDirectOrigin?.channel);
+    const modelRouteChange =
+      params.terminalReply?.disposition === "visible"
+        ? params.terminalReply.modelRouteChange
+        : undefined;
     const replyInstruction = buildAnnounceReplyInstruction({
       requesterIsSubagent,
       announceType,
       expectsCompletionMessage,
-      // Shared surfaces keep routing internals private; nested and direct/local
-      // completion paths preserve the terminal producer's user-visible fact.
+      modelRouteChange,
+      // Nested and local operator parents may report the route fact. External
+      // channel parents receive it only as private orchestration context.
       preserveModelRouteNotice:
         requesterIsSubagent ||
-        (completionDirectOrigin?.threadId == null &&
-          completionChatType !== "group" &&
-          completionChatType !== "channel"),
+        !completionChannel ||
+        !isDeliverableMessageChannel(completionChannel),
     });
     const internalEvents: AgentInternalEvent[] = [
       {
@@ -567,6 +574,7 @@ export async function runSubagentAnnounceFlow(params: {
         status: outcome.status,
         statusLabel,
         result: findings,
+        modelRouteChange,
         statsLine,
         replyInstruction,
       },
