@@ -943,7 +943,7 @@ describe("subagent announce formatting", () => {
     expect(didAnnounce).toBe("delivered");
     expect(sendSpy).not.toHaveBeenCalled();
     expect(agentSpy).toHaveBeenCalledTimes(1);
-    const call = getAgentCall() as { params?: Record<string, unknown> };
+    const call = getAgentCall();
     expect(call?.params?.deliver).toBe(true);
     expect(call?.params?.channel).toBe("imessage");
     expect(call?.params?.to).toBe("+1234567890");

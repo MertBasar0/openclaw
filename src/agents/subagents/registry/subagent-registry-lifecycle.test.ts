@@ -279,8 +279,18 @@ describe("pending final delivery payload", () => {
       modelRouteChange: "Model route changed: requested/model → actual/model.",
     } as const;
     const entry = createRunEntry({
-      delivery: { status: "pending", payload: { terminalReply: staleTerminalReply } },
-      completion: { terminalReply: completionTerminalReply },
+      delivery: {
+        status: "pending",
+        payload: {
+          requesterSessionKey: "agent:main:main",
+          requesterDisplayKey: "main",
+          childSessionKey: "agent:main:subagent:child",
+          childRunId: "run-1",
+          task: "finish the task",
+          terminalReply: staleTerminalReply,
+        },
+      },
+      completion: { required: true, terminalReply: completionTerminalReply },
     });
 
     expect(loadPendingFinalDeliveryPayload(entry).terminalReply).toEqual(completionTerminalReply);
