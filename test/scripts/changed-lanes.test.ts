@@ -1258,9 +1258,9 @@ describe("scripts/changed-lanes", () => {
     ...[
       "packages/normalization-core/src/record-coerce.ts",
       "packages/normalization-core/package.json",
-    ].map((path) => ({
-      name: `keeps core checks and adds browser typechecking for ${path}`,
-      path,
+    ].map((sourcePath) => ({
+      name: `keeps core checks and adds browser typechecking for ${sourcePath}`,
+      path: sourcePath,
       expected: {
         includes: ["tsgo:core", "tsgo:core:test", "tsgo:ui"],
         excludes: [],
