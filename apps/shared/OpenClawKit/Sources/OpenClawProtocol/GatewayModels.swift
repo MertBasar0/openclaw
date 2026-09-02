@@ -1627,6 +1627,7 @@ public struct StateVersion: Codable, Sendable {
 }
 
 public struct Snapshot: Codable, Sendable {
+    public let suspension: GatewaySuspension?
     public let presence: [PresenceEntry]
     public let health: [String: AnyCodable]
     public let stateversion: StateVersion
@@ -1640,6 +1641,7 @@ public struct Snapshot: Codable, Sendable {
     public let updateschedule: UpdateScheduleState?
 
     public init(
+        suspension: GatewaySuspension? = nil,
         presence: [PresenceEntry],
         health: [String: AnyCodable],
         stateversion: StateVersion,
@@ -1652,6 +1654,7 @@ public struct Snapshot: Codable, Sendable {
         updateavailable: UpdateAvailable? = nil,
         updateschedule: UpdateScheduleState? = nil)
     {
+        self.suspension = suspension
         self.presence = presence
         self.health = health
         self.stateversion = stateversion
@@ -1666,6 +1669,7 @@ public struct Snapshot: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case suspension
         case presence
         case health
         case stateversion = "stateVersion"
@@ -1874,6 +1878,16 @@ public struct GatewaySuspendTaskBlocker: Codable, Sendable {
         case runid = "runId"
         case label
         case title
+    }
+}
+
+public struct GatewaySuspension: Codable, Sendable {
+    public let phase: AnyCodable
+
+    public init(
+        phase: AnyCodable)
+    {
+        self.phase = phase
     }
 }
 
@@ -5314,17 +5328,20 @@ public struct SessionCatalogCapabilities: Codable, Sendable {
     public let archive: Bool
     public let createsession: [String: AnyCodable]?
     public let openterminal: Bool?
+    public let startterminal: Bool?
 
     public init(
         continuesession: Bool,
         archive: Bool,
         createsession: [String: AnyCodable]? = nil,
-        openterminal: Bool? = nil)
+        openterminal: Bool? = nil,
+        startterminal: Bool? = nil)
     {
         self.continuesession = continuesession
         self.archive = archive
         self.createsession = createsession
         self.openterminal = openterminal
+        self.startterminal = startterminal
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -5332,6 +5349,7 @@ public struct SessionCatalogCapabilities: Codable, Sendable {
         case archive
         case createsession = "createSession"
         case openterminal = "openTerminal"
+        case startterminal = "startTerminal"
     }
 }
 
@@ -5464,6 +5482,7 @@ public struct SessionCatalogHost: Codable, Sendable {
     public let kind: AnyCodable
     public let connected: Bool
     public let nodeid: String?
+    public let canstartterminal: Bool?
     public let sessions: [SessionCatalogSession]
     public let nextcursor: String?
     public let error: [String: AnyCodable]?
@@ -5474,6 +5493,7 @@ public struct SessionCatalogHost: Codable, Sendable {
         kind: AnyCodable,
         connected: Bool,
         nodeid: String? = nil,
+        canstartterminal: Bool? = nil,
         sessions: [SessionCatalogSession],
         nextcursor: String? = nil,
         error: [String: AnyCodable]? = nil)
@@ -5483,6 +5503,7 @@ public struct SessionCatalogHost: Codable, Sendable {
         self.kind = kind
         self.connected = connected
         self.nodeid = nodeid
+        self.canstartterminal = canstartterminal
         self.sessions = sessions
         self.nextcursor = nextcursor
         self.error = error
@@ -5494,6 +5515,7 @@ public struct SessionCatalogHost: Codable, Sendable {
         case kind
         case connected
         case nodeid = "nodeId"
+        case canstartterminal = "canStartTerminal"
         case sessions
         case nextcursor = "nextCursor"
         case error
@@ -9597,6 +9619,7 @@ public struct SessionsCreateParams: Codable, Sendable {
     public let idempotencykey: String?
     public let agentid: String?
     public let label: String?
+    public let displayname: String?
     public let category: String?
     public let model: String?
     public let contextwindow: String?
@@ -9629,6 +9652,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         idempotencykey: String? = nil,
         agentid: String? = nil,
         label: String? = nil,
+        displayname: String? = nil,
         category: String? = nil,
         model: String? = nil,
         contextwindow: String? = nil,
@@ -9660,6 +9684,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         self.idempotencykey = idempotencykey
         self.agentid = agentid
         self.label = label
+        self.displayname = displayname
         self.category = category
         self.model = model
         self.contextwindow = contextwindow
@@ -9693,6 +9718,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         case idempotencykey = "idempotencyKey"
         case agentid = "agentId"
         case label
+        case displayname = "displayName"
         case category
         case model
         case contextwindow = "contextWindow"
@@ -9765,6 +9791,46 @@ public struct SessionsCreateResult: Codable, Sendable {
         case messageseq = "messageSeq"
         case runerror = "runError"
         case worktree
+    }
+}
+
+public struct SessionsTitlePrepareParams: Codable, Sendable {
+    public let agentid: String
+    public let message: String
+    public let model: String?
+    public let catalogid: String?
+    public let incognito: Bool?
+
+    public init(
+        agentid: String,
+        message: String,
+        model: String? = nil,
+        catalogid: String? = nil,
+        incognito: Bool? = nil)
+    {
+        self.agentid = agentid
+        self.message = message
+        self.model = model
+        self.catalogid = catalogid
+        self.incognito = incognito
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agentid = "agentId"
+        case message
+        case model
+        case catalogid = "catalogId"
+        case incognito
+    }
+}
+
+public struct SessionsTitlePrepareResult: Codable, Sendable {
+    public let title: AnyCodable
+
+    public init(
+        title: AnyCodable)
+    {
+        self.title = title
     }
 }
 
@@ -18491,6 +18557,8 @@ public struct TerminalAttachResult: Codable, Sendable {
     public let shell: String
     public let cwd: String
     public let confined: Bool
+    public let title: String?
+    public let owner: AnyCodable?
     public let buffer: String
     public let seq: Int?
 
@@ -18500,6 +18568,8 @@ public struct TerminalAttachResult: Codable, Sendable {
         shell: String,
         cwd: String,
         confined: Bool,
+        title: String? = nil,
+        owner: AnyCodable? = nil,
         buffer: String,
         seq: Int? = nil)
     {
@@ -18508,6 +18578,8 @@ public struct TerminalAttachResult: Codable, Sendable {
         self.shell = shell
         self.cwd = cwd
         self.confined = confined
+        self.title = title
+        self.owner = owner
         self.buffer = buffer
         self.seq = seq
     }
@@ -18518,6 +18590,8 @@ public struct TerminalAttachResult: Codable, Sendable {
         case shell
         case cwd
         case confined
+        case title
+        case owner
         case buffer
         case seq
     }
@@ -18527,6 +18601,7 @@ public struct TerminalSessionInfo: Codable, Sendable {
     public let sessionid: String
     public let agentid: String
     public let shell: String
+    public let title: String?
     public let cwd: String
     public let confined: Bool
     public let attached: Bool
@@ -18537,6 +18612,7 @@ public struct TerminalSessionInfo: Codable, Sendable {
         sessionid: String,
         agentid: String,
         shell: String,
+        title: String? = nil,
         cwd: String,
         confined: Bool,
         attached: Bool,
@@ -18546,6 +18622,7 @@ public struct TerminalSessionInfo: Codable, Sendable {
         self.sessionid = sessionid
         self.agentid = agentid
         self.shell = shell
+        self.title = title
         self.cwd = cwd
         self.confined = confined
         self.attached = attached
@@ -18557,6 +18634,7 @@ public struct TerminalSessionInfo: Codable, Sendable {
         case sessionid = "sessionId"
         case agentid = "agentId"
         case shell
+        case title
         case cwd
         case confined
         case attached
