@@ -282,6 +282,7 @@ export class ChatPane extends ChatPaneLayoutRender {
           canSelectFull: hasOperatorAdminAccess(gatewaySnapshot.hello?.auth ?? null),
           onModelSetup: () => this.context.navigate("model-setup"),
         });
+    const composerState = getChatComposerState(this.presentationId);
     const publicationScope = this.captureConnectionScope();
     const publicationOwnerKey = () =>
       JSON.stringify([
@@ -441,6 +442,11 @@ export class ChatPane extends ChatPaneLayoutRender {
         ? (typing, preview) => this.sendTypingState(typing, preview)
         : undefined,
       ...composerAvailability,
+      disabledReason:
+        state.chatRunError?.kind === "auth_refresh" &&
+        composerAvailability.disabledReason === modelUnavailableMessage
+          ? null
+          : composerAvailability.disabledReason,
       modelSetupRequired:
         modelSetupRequired && !selectedSessionArchived && !restartRecoveryTombstoned,
       onModelSetup: () => this.context.navigate("model-setup"),
@@ -477,7 +483,10 @@ export class ChatPane extends ChatPaneLayoutRender {
             state,
             selectedSession,
             currentAgentId,
-            getChatComposerState(this.presentationId).capabilityMenuView.startsWith("tools:"),
+            composerState.capabilityMenuView.startsWith("tools:"),
+            composerState.capabilityMenuOpen &&
+              (composerState.capabilityMenuView === "skills" ||
+                composerState.capabilityMenuView.startsWith("library:")),
           ),
       swarmSessions: this.swarmHydrator?.rows ?? [],
       sessionHost: {
