@@ -145,13 +145,13 @@ function buildProgressRichBlocks(parts: RichText[]): InputRichBlock[] {
   return [paragraphBlock(joinRichText(parts, "\n"))];
 }
 
-function isStatusHeadlineWorkLine(
+function isStatusHeadlineVisibleLine(
   line: ChannelProgressDraftCompositorLine,
 ): line is Exclude<ChannelProgressDraftCompositorLine, string> {
   if (typeof line === "string") {
     return false;
   }
-  return !line.id?.startsWith("reasoning:") && !line.id?.startsWith("commentary:");
+  return !line.id?.startsWith("reasoning:");
 }
 
 export function renderTelegramProgressDraftPreview(
@@ -166,8 +166,8 @@ export function renderTelegramProgressDraftPreview(
       .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter(Boolean);
-    const workLines = lines.filter(isStatusHeadlineWorkLine);
-    const renderedLines = workLines.map(renderTelegramProgressLine).filter(Boolean);
+    const visibleLines = lines.filter(isStatusHeadlineVisibleLine);
+    const renderedLines = visibleLines.map(renderTelegramProgressLine).filter(Boolean);
     if (!richMessages) {
       const renderedStatusLines =
         statusLines.length > 1
@@ -182,10 +182,10 @@ export function renderTelegramProgressDraftPreview(
       statusLines.length > 1
         ? [boldRichText(statusLines[0] ?? ""), ...statusLines.slice(1).map(markdownLineToRichText)]
         : statusLines.map(markdownLineToRichText);
-    const richLineParts = workLines
+    const richLineParts = visibleLines
       .map(progressLineToRichText)
       .filter((part): part is RichText => part !== undefined);
-    const plainLineTexts = workLines
+    const plainLineTexts = visibleLines
       .map((line) => line.text)
       .map((line) => line.trim())
       .filter(Boolean);
