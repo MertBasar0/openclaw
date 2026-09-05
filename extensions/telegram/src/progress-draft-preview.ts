@@ -159,6 +159,7 @@ export function renderTelegramProgressDraftPreview(
   lines: readonly ChannelProgressDraftCompositorLine[],
   richMessages: boolean,
   statusHeadlineActive = false,
+  commentaryProgressEnabled = false,
 ): TelegramDraftPreview {
   const trimmed = text.trimEnd();
   if (statusHeadlineActive) {
@@ -166,7 +167,11 @@ export function renderTelegramProgressDraftPreview(
       .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter(Boolean);
-    const visibleLines = lines.filter(isStatusHeadlineVisibleLine);
+    // Only headline-only mode hides buffered reasoning. Commentary history keeps
+    // its reasoning rows even when a preamble supplies the headline.
+    const visibleLines = commentaryProgressEnabled
+      ? lines
+      : lines.filter(isStatusHeadlineVisibleLine);
     const renderedLines = visibleLines.map(renderTelegramProgressLine).filter(Boolean);
     if (!richMessages) {
       const renderedStatusLines =
@@ -186,7 +191,7 @@ export function renderTelegramProgressDraftPreview(
       .map(progressLineToRichText)
       .filter((part): part is RichText => part !== undefined);
     const plainLineTexts = visibleLines
-      .map((line) => line.text)
+      .map((line) => (typeof line === "string" ? line : line.text))
       .map((line) => line.trim())
       .filter(Boolean);
     const plainText = [...statusLines, ...plainLineTexts].join("\n");

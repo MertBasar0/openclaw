@@ -108,6 +108,7 @@ export function createProgressState(
           options?.lines ?? [],
           config.telegramCfg.richMessages === true,
           progressCompositor.hasStatusHeadline || progressCompositor.hasPlanProgress,
+          progressCompositor.commentaryProgressEnabled,
         ),
       );
       if (options?.flush) {
