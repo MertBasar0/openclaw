@@ -84,8 +84,12 @@ export async function submitEmbeddedAttemptPrompt(input: {
   leasedSteering?: SteeringLease;
   modelPrompt: string;
   onFinalPromptText: (prompt: string) => void;
+  /** Receives the prompt boundary rebased onto the normalized replay history. */
+  onReplayNormalized?: (prePromptMessageCount: number) => void;
   onSteeringAcknowledged: () => void;
   persistToolResultProjections: () => Promise<void>;
+  /** Prompt boundary captured before this submission; wired from the run's session runtime state. */
+  prePromptMessageCount?: number;
   prependContext?: string;
   promptActiveSession: PromptActiveSession;
   runtimeContextMessage?: RuntimeContextCustomMessage;
@@ -107,6 +111,19 @@ export async function submitEmbeddedAttemptPrompt(input: {
       : undefined;
   const normalizedReplayMessages = normalizeAssistantReplayContent(activeSession.messages);
   if (normalizedReplayMessages !== activeSession.messages) {
+    // Normalization drops and rewrites replay entries, so a prompt boundary
+    // captured before it can outrun the messages that remain and classify the
+    // current input and new tool results as history. Rebase it on the same
+    // normalization of the pre-prompt prefix: each entry's fate depends only on
+    // itself and the entries already emitted before it, so the prefix
+    // normalizes identically on its own.
+    if (input.prePromptMessageCount !== undefined) {
+      input.onReplayNormalized?.(
+        normalizeAssistantReplayContent(
+          activeSession.messages.slice(0, input.prePromptMessageCount),
+        ).length,
+      );
+    }
     activeSession.agent.state.messages = normalizedReplayMessages;
   }
 

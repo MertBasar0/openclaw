@@ -408,6 +408,10 @@ export async function runEmbeddedAttemptPromptPhase(
         onFinalPromptText: (prompt) => {
           promptState.finalPromptText = prompt;
         },
+        prePromptMessageCount: sessionRuntimeState.prePromptMessageCount,
+        onReplayNormalized: (prePromptMessageCount) => {
+          sessionRuntimeState.prePromptMessageCount = prePromptMessageCount;
+        },
         onSteeringAcknowledged: () => {
           leasedSteering = undefined;
         },
