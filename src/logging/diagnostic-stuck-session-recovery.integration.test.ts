@@ -960,6 +960,56 @@ describe("stuck session recovery integration", () => {
     expect(resetCommandLane(lane)).toBe(1);
     await expect(queued).resolves.toBe("drained");
   });
+  it("cancels and settles the selected owner before releasing its slot for a cron timeout", async () => {
+    // cleanupTimedOutAgentRun calls the same exported helper with reason
+    // "cron_timeout" and forceClear. Force-clear only fails and clears the
+    // owner, so without an operation-addressed expiry the backend keeps running
+    // after the slot is free to admit successor work.
+    const sharedSessionId = "shared-session-cron-timeout";
+    const timedOutKey = "agent:main:dm-cron-timeout";
+    const bystanderKey = "agent:main:group-bystander-cron";
+
+    const timedOut = createReplyOperation({
+      sessionKey: timedOutKey,
+      sessionId: sharedSessionId,
+      resetTriggered: false,
+    });
+    // A real backend finishes when cancelled, which is what lets the helper
+    // observe settlement instead of timing out on it.
+    const timedOutCancel = vi.fn<(reason?: string) => void>(() => timedOut.complete());
+    timedOut.attachBackend({ kind: "embedded", cancel: timedOutCancel, isStreaming: () => true });
+    timedOut.setPhase("running");
+
+    // A foreign owner shares the session id, so the id-addressed paths must stay
+    // off it while the named owner is still cancelled.
+    const bystander = createReplyOperation({
+      sessionKey: bystanderKey,
+      sessionId: sharedSessionId,
+      resetTriggered: false,
+    });
+    const bystanderCancel = vi.fn<(reason?: string) => void>(() => bystander.complete());
+    bystander.attachBackend({ kind: "embedded", cancel: bystanderCancel, isStreaming: () => true });
+    bystander.setPhase("running");
+
+    await abortAndDrainEmbeddedAgentRun({
+      sessionId: sharedSessionId,
+      sessionKey: timedOutKey,
+      settleMs: 50,
+      forceClear: true,
+      reason: "cron_timeout",
+    });
+
+    // The named owner is cancelled and settled, not merely unhooked.
+    expect(timedOutCancel).toHaveBeenCalled();
+    expect(timedOut.phase).not.toBe("running");
+    expect(timedOut.staleExpiryReason).toBe("no_activity");
+    expect(resolveActiveReplyRunSessionId(timedOutKey)).toBeUndefined();
+    // The foreign owner keeps its backend and its slot.
+    expect(bystanderCancel).not.toHaveBeenCalled();
+    expect(bystander.phase).toBe("running");
+    expect(resolveActiveReplyRunSessionId(bystanderKey)).toBe(sharedSessionId);
+  });
+
   it("leaves an embedded handle owned by another key registered and unaborted", async () => {
     // The handle is looked up by session id too, so the same collision would send
     // every handle-addressed cleanup side effect at a foreign, live backend.

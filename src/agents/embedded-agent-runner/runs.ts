@@ -19,6 +19,7 @@ import {
   isReplyRunAbortableForCompaction,
   listActiveReplyRunSessionIds,
   expireStaleReplyOperation,
+  type ReplyOperationStaleReason,
   replyRunRegistry,
   resolveActiveReplyOperationForSessionId,
   resolveActiveReplyRunSessionId,
@@ -1469,9 +1470,16 @@ export async function abortAndDrainEmbeddedAgentRun(params: {
     ? replyRunRegistry.get(params.sessionKey)
     : resolveActiveReplyOperationForSessionId(params.sessionId);
   // Abort and wait below are addressed by session id too, so they must not run
-  // against a handle this call does not own.
-  const embeddedRunHandleOwnedByAnotherKey =
-    capturedEmbeddedRunHandle !== undefined && embeddedRunHandle === undefined;
+  // while that id resolves to another key's owner or to a handle this call does
+  // not own.
+  const replyOperationBySessionId = resolveActiveReplyOperationForSessionId(params.sessionId);
+  const sessionIdResolvesToAnotherOwner =
+    Boolean(
+      params.sessionKey &&
+      replyOperationBySessionId &&
+      replyOperationBySessionId.key !== params.sessionKey,
+    ) ||
+    (capturedEmbeddedRunHandle !== undefined && embeddedRunHandle === undefined);
   if (
     params.reason === "stuck_recovery" &&
     replyOperation &&
@@ -1479,13 +1487,20 @@ export async function abortAndDrainEmbeddedAgentRun(params: {
   ) {
     return { aborted: false, drained: false, forceCleared: false };
   }
+  // Force-clear only fails and clears the owner; it cancels neither its abort
+  // signal nor its backend. Any caller that is about to release the slot must
+  // therefore expire the owner first, or the released run keeps executing while
+  // the slot admits successor work.
+  const expiresOwnerBeforeRelease =
+    params.reason === "stuck_recovery" || params.forceClear === true;
+  const staleExpiryReason: ReplyOperationStaleReason =
+    params.reason === "stuck_recovery" ? "stuck_recovery" : "no_activity";
   let releaseStaleExpiryBarrier: (() => void) | undefined;
-  const staleExpiryBarrier =
-    params.reason === "stuck_recovery"
-      ? new Promise<void>((resolve) => {
-          releaseStaleExpiryBarrier = resolve;
-        })
-      : undefined;
+  const staleExpiryBarrier = expiresOwnerBeforeRelease
+    ? new Promise<void>((resolve) => {
+        releaseStaleExpiryBarrier = resolve;
+      })
+    : undefined;
   // Recovery is a staleness expiry: stamp run_stalled on the reply operation
   // BEFORE any handle abort, or the run loop's abort handler re-enters
   // abortByUser and misattributes the watchdog kill to the user.
@@ -1496,12 +1511,12 @@ export async function abortAndDrainEmbeddedAgentRun(params: {
     followupAdmissionBarrierTimeout: settleMs + 1_000,
   };
   const expiredReplyRun =
-    params.reason === "stuck_recovery" &&
+    expiresOwnerBeforeRelease &&
     (replyOperation
-      ? expireStaleReplyOperation(replyOperation, "stuck_recovery", staleExpiryOptions)
-      : expireStaleReplyRunBySessionId(params.sessionId, "stuck_recovery", staleExpiryOptions));
+      ? expireStaleReplyOperation(replyOperation, staleExpiryReason, staleExpiryOptions)
+      : expireStaleReplyRunBySessionId(params.sessionId, staleExpiryReason, staleExpiryOptions));
   const stampedStaleReplyRun =
-    params.reason === "stuck_recovery" && replyOperation?.staleExpiryReason === "stuck_recovery";
+    expiresOwnerBeforeRelease && replyOperation?.staleExpiryReason === staleExpiryReason;
   const waitForExpiredOwnerSettlement = async () => {
     if (!stampedStaleReplyRun || !replyOperation) {
       return true;
@@ -1526,10 +1541,10 @@ export async function abortAndDrainEmbeddedAgentRun(params: {
       });
     }
     let aborted =
-      (!embeddedRunHandleOwnedByAnotherKey && abortEmbeddedAgentRun(params.sessionId)) ||
+      (!sessionIdResolvesToAnotherOwner && abortEmbeddedAgentRun(params.sessionId)) ||
       expiredReplyRun;
     const embeddedDrained =
-      (aborted || stampedStaleReplyRun) && !embeddedRunHandleOwnedByAnotherKey
+      (aborted || stampedStaleReplyRun) && !sessionIdResolvesToAnotherOwner
         ? await waitForEmbeddedAgentRunEnd(params.sessionId, settleMs)
         : false;
     const ownerSettled = await waitForExpiredOwnerSettlement();
