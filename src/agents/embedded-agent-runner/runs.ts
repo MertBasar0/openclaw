@@ -19,7 +19,6 @@ import {
   isReplyRunAbortableForCompaction,
   listActiveReplyRunSessionIds,
   expireStaleReplyOperation,
-  type ReplyOperationStaleReason,
   replyRunRegistry,
   resolveActiveReplyOperationForSessionId,
   resolveActiveReplyRunSessionId,
@@ -1493,8 +1492,7 @@ export async function abortAndDrainEmbeddedAgentRun(params: {
   // the slot admits successor work.
   const expiresOwnerBeforeRelease =
     params.reason === "stuck_recovery" || params.forceClear === true;
-  const staleExpiryReason: ReplyOperationStaleReason =
-    params.reason === "stuck_recovery" ? "stuck_recovery" : "no_activity";
+  const staleExpiryReason = params.reason === "stuck_recovery" ? "stuck_recovery" : "no_activity";
   let releaseStaleExpiryBarrier: (() => void) | undefined;
   const staleExpiryBarrier = expiresOwnerBeforeRelease
     ? new Promise<void>((resolve) => {
