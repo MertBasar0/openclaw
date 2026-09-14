@@ -1465,20 +1465,40 @@ export async function abortAndDrainEmbeddedAgentRun(params: {
   // exclusive either: two operations that share a session id repoint it at the
   // later one. Force-clear below acts on whatever this resolves to, so resolve
   // the owner from the key the caller named whenever it has one.
-  const replyOperation = params.sessionKey
+  // Resolving by key alone would let delayed cleanup reach a *successor*: once an
+  // execution ends, the same key can admit a new one under a different session id,
+  // and a late cron sweep carrying the old id would expire it. Require the owner to
+  // have actually owned the id we were handed. `hasOwnedSessionId` is lifetime-wide,
+  // so compaction rebinding — which legitimately changes the id mid-execution — still
+  // resolves, while an unrelated successor does not.
+  const replyOperationByKey = params.sessionKey
     ? replyRunRegistry.get(params.sessionKey)
+    : undefined;
+  const replyOperation = params.sessionKey
+    ? replyOperationByKey?.hasOwnedSessionId(params.sessionId)
+      ? replyOperationByKey
+      : undefined
     : resolveActiveReplyOperationForSessionId(params.sessionId);
   // Abort and wait below are addressed by session id too, so they must not run
   // while that id resolves to another key's owner or to a handle this call does
   // not own.
-  const replyOperationBySessionId = resolveActiveReplyOperationForSessionId(params.sessionId);
-  const sessionIdResolvesToAnotherOwner =
-    Boolean(
-      params.sessionKey &&
-      replyOperationBySessionId &&
-      replyOperationBySessionId.key !== params.sessionKey,
-    ) ||
-    (capturedEmbeddedRunHandle !== undefined && embeddedRunHandle === undefined);
+  // Expiry below can complete the owner and the helper then yields at setImmediate,
+  // so this must be re-read at the moment it is used: a replacement registered under
+  // the same session id during that window would otherwise be aborted on the strength
+  // of a snapshot describing the owner it replaced.
+  const sessionIdResolvesToAnotherOwner = () => {
+    const ownerBySessionId = resolveActiveReplyOperationForSessionId(params.sessionId);
+    const handleBySessionId = ACTIVE_EMBEDDED_RUNS.get(params.sessionId);
+    return (
+      Boolean(
+        params.sessionKey && ownerBySessionId && ownerBySessionId.key !== params.sessionKey,
+      ) ||
+      (capturedEmbeddedRunHandle !== undefined && embeddedRunHandle === undefined) ||
+      // The id now resolves to a handle this call never captured: a successor took
+      // the slot while we were expiring the owner we did capture.
+      (handleBySessionId !== undefined && handleBySessionId !== capturedEmbeddedRunHandle)
+    );
+  };
   if (
     params.reason === "stuck_recovery" &&
     replyOperation &&
@@ -1538,11 +1558,12 @@ export async function abortAndDrainEmbeddedAgentRun(params: {
         setImmediate(resolve);
       });
     }
-    let aborted =
-      (!sessionIdResolvesToAnotherOwner && abortEmbeddedAgentRun(params.sessionId)) ||
-      expiredReplyRun;
+    // Revalidated here, after expiry and the setImmediate yield above, so neither
+    // the abort nor the wait can land on work that replaced our captured owner.
+    const ownershipMovedOn = sessionIdResolvesToAnotherOwner();
+    let aborted = (!ownershipMovedOn && abortEmbeddedAgentRun(params.sessionId)) || expiredReplyRun;
     const embeddedDrained =
-      (aborted || stampedStaleReplyRun) && !sessionIdResolvesToAnotherOwner
+      (aborted || stampedStaleReplyRun) && !ownershipMovedOn
         ? await waitForEmbeddedAgentRunEnd(params.sessionId, settleMs)
         : false;
     const ownerSettled = await waitForExpiredOwnerSettlement();
