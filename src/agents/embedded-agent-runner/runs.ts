@@ -1496,7 +1496,14 @@ export async function abortAndDrainEmbeddedAgentRun(params: {
       (capturedEmbeddedRunHandle !== undefined && embeddedRunHandle === undefined) ||
       // The id now resolves to a handle this call never captured: a successor took
       // the slot while we were expiring the owner we did capture.
-      (handleBySessionId !== undefined && handleBySessionId !== capturedEmbeddedRunHandle)
+      (handleBySessionId !== undefined && handleBySessionId !== capturedEmbeddedRunHandle) ||
+      // Matching keys are not the same operation. Completing the captured owner
+      // frees its slot, so a replacement can be admitted under the same key *and*
+      // the same session id before the abort below runs. Only the operation this
+      // call captured may be cancelled, so compare identity rather than key.
+      (replyOperation !== undefined &&
+        ownerBySessionId !== undefined &&
+        ownerBySessionId !== replyOperation)
     );
   };
   if (

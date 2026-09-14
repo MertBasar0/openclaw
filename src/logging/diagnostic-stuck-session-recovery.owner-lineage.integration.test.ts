@@ -62,6 +62,55 @@ describe("stuck session recovery owner lineage", () => {
     expect(result.aborted).toBe(false);
   });
 
+  it("does not cancel a replacement holding the same key and session id with no handle", async () => {
+    // The narrowest shape: expiry completes the captured owner and frees its
+    // slot, a fresh visible turn is admitted under the *same* key and the *same*
+    // session id, and no embedded handle exists for either. Matching keys made
+    // the old predicate treat that replacement as the owner it replaced.
+    const sessionId = "same-key-same-id-replacement-session";
+    const sharedKey = "agent:main:dm-same-key-replacement";
+
+    let replacement: ReturnType<typeof createReplyOperation> | undefined;
+    const replacementCancel = vi.fn<(reason?: string) => void>();
+
+    const owner = createReplyOperation({
+      sessionKey: sharedKey,
+      sessionId,
+      resetTriggered: false,
+    });
+    const ownerCancel = vi.fn<(reason?: string) => void>(() => {
+      owner.complete();
+      // The freed slot immediately admits a new operation on both identifiers.
+      replacement = createReplyOperation({
+        sessionKey: sharedKey,
+        sessionId,
+        resetTriggered: false,
+      });
+      replacement.attachBackend({
+        kind: "embedded",
+        cancel: replacementCancel,
+        isStreaming: () => true,
+      });
+      replacement.setPhase("running");
+    });
+    owner.attachBackend({ kind: "embedded", cancel: ownerCancel, isStreaming: () => true });
+    owner.setPhase("running");
+
+    await abortAndDrainEmbeddedAgentRun({
+      sessionId,
+      sessionKey: sharedKey,
+      settleMs: 50,
+      forceClear: true,
+      reason: "cron_timeout",
+    });
+
+    // The owner we named is cancelled; the operation that took its place is not.
+    expect(ownerCancel).toHaveBeenCalled();
+    expect(replacementCancel).not.toHaveBeenCalled();
+    expect(replacement?.phase).toBe("running");
+    expect(resolveActiveReplyRunSessionId(sharedKey)).toBe(sessionId);
+  });
+
   it("does not abort a replacement that claims the session id while the owner is expiring", async () => {
     // Expiry can complete the owner synchronously, and the helper then yields at
     // setImmediate before the id-addressed abort. A replacement registered during
