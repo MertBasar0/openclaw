@@ -648,6 +648,24 @@ describe("createNativeApprovalForwardingFallbackSuppressor", () => {
     ).toBe(false);
   });
 
+  it("keeps the forwarded prompt while no native route runtime is running", () => {
+    // A configured route is not a running one. Suppressing on configuration
+    // alone leaves the chat with neither the native prompt nor the forwarded
+    // one, so the approval expires unanswered.
+    const shouldSuppress = createSuppressor();
+    const suppressionInput = {
+      cfg: {},
+      approvalKind: "exec",
+      target: { channel: "matrix", to: "room-1", source: "session" },
+      request: execRequest,
+    } as const;
+
+    // Same target the route matches, so only the runtime hint varies.
+    expect(shouldSuppress({ ...suppressionInput })).toBe(true);
+    expect(shouldSuppress({ ...suppressionInput, nativeRouteActive: true })).toBe(true);
+    expect(shouldSuppress({ ...suppressionInput, nativeRouteActive: false })).toBe(false);
+  });
+
   it("requires explicit-target eligibility before suppressing target forwarding", () => {
     expect(
       createSuppressor()({
