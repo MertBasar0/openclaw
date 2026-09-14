@@ -17,6 +17,8 @@ import { AsyncWorkScope } from "../shared/async-work-scope.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { createPendingApprovalRegistry } from "../shared/pending-approval-registry.js";
 import { isDeliverableMessageChannel, normalizeMessageChannel } from "../utils/message-channel.js";
+import { getGatewayNativeApprovalRuntime } from "./approval-gateway-runtime-context.js";
+import { hasActiveApprovalNativeRouteRuntime } from "./approval-native-route-coordinator.js";
 import { matchesApprovalRequestFilters } from "./approval-request-filters.js";
 import type { ChannelApprovalKind } from "./approval-types.js";
 import {
@@ -157,12 +159,29 @@ function shouldSkipForwardingFallback(params: {
   // Channel adapters can suppress generic fallback delivery when they already
   // own native approval UX for the same target.
   const adapter = resolveChannelApprovalAdapter(getLoadedChannelPlugin(channel));
+  // Native-route state is process-local and transient. Resolve it here and pass
+  // it as a hint, the same way the local prompt path does, so a channel that
+  // owns native approval UX only suppresses the fallback while that UX is
+  // actually running. Without it the chat gets neither prompt.
+  const accountId = params.target.accountId;
+  const nativeRouteActive =
+    getGatewayNativeApprovalRuntime()?.routeCoordinator.hasActiveRuntime({
+      channel,
+      accountId,
+      approvalKind: params.approvalKind,
+    }) ??
+    hasActiveApprovalNativeRouteRuntime({
+      channel,
+      accountId,
+      approvalKind: params.approvalKind,
+    });
   return (
     adapter?.delivery?.shouldSuppressForwardingFallback?.({
       cfg: params.cfg,
       approvalKind: params.approvalKind,
       target: params.target,
       request: buildSyntheticApprovalRequest(params.routeRequest),
+      nativeRouteActive,
     }) ?? false
   );
 }

@@ -717,6 +717,14 @@ export function createNativeApprovalForwardingFallbackSuppressor<
       nativeApprovalTargetsMatch({ channel: params.channel, left, right }));
 
   return (input: DeliverySuppressionInput): boolean => {
+    // Mirrors the local prompt path: native approval UX may only suppress the
+    // generic fallback while it is actually running. Otherwise the chat gets
+    // neither the native prompt nor the forwarded one.
+    // Only an explicit `false` refuses suppression, so a host that sends no hint
+    // keeps its previous behavior.
+    if (input.nativeRouteActive === false) {
+      return false;
+    }
     const forwardingTarget = params.normalizeForwardTarget(input.target);
     if (!forwardingTarget) {
       return false;

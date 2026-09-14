@@ -566,6 +566,14 @@ type ChannelApprovalDeliveryAdapter = {
     approvalKind: ChannelApprovalKind;
     target: ChannelApprovalForwardTarget;
     request: ExecApprovalRequest | PluginApprovalRequest | SystemAgentApprovalRequest;
+    /**
+     * Whether a native approval route runtime is currently serving this target,
+     * mirroring the hint the local prompt path already supplies. Native-route
+     * state is process-local and transient, so the host resolves it and the
+     * channel owns the UX decision without duplicating route lookup logic.
+     * Optional: a host that sends no hint keeps its previous behavior.
+     */
+    nativeRouteActive?: boolean;
   }) => boolean;
 };
 type ChannelApproveCommandBehavior =
