@@ -372,7 +372,7 @@ export async function resumeExistingCodexThread(
         ringZeroClientInstanceId !== undefined ||
         resumeBinding.ringZeroClientInstanceId !== undefined ||
         resumeBinding.ringZeroConfigFingerprint !== undefined ||
-        context.ringZeroActive === true;
+        context.ringZeroActive;
       if (
         !subscriptionReleased ||
         (handoffError instanceof CodexThreadPolicyHandoffError &&
