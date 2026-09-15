@@ -17,6 +17,7 @@ import {
   finalizeCodexAttemptResult,
   isCompletedFinalAnswer,
   isInvalidCodexImagePayloadError,
+  resolveCodexAppServerReplayBlockedReason,
 } from "./attempt-results.js";
 import { attemptTerminal, type EmbeddedRunAttemptResult } from "./attempt-terminal.js";
 import { TURN_FINALIZE_DRAIN_ABORT_GRACE_MS } from "./attempt-timeouts.js";
@@ -271,7 +272,9 @@ export async function finalizeCodexAttempt(
         clientClosedPromptError: clientClosedPromptErrorForFinal,
         clientClosedDiagnostic: state.clientClosedDiagnostic,
         timeout: state.timeout,
-        result,
+        replayBlockedReason: clientClosedPromptErrorForFinal
+          ? resolveCodexAppServerReplayBlockedReason(result)
+          : undefined,
         transport: appServer.start.transport,
         threadId: resourceState.thread.threadId,
         turnId: activeTurnId,

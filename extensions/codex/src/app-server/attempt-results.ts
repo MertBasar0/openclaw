@@ -115,11 +115,13 @@ export function isInvalidCodexImagePayloadError(message: unknown): boolean {
 
 /** Builds failure metadata when an app-server turn closes unexpectedly or times out. */
 export function buildCodexAppServerFailure(params: {
-  clientClosedPromptError?: unknown;
-  clientClosedDiagnostic?: unknown;
+  clientClosedPromptError?: string;
+  clientClosedDiagnostic?: string;
   timeout?: CodexAttemptTimeout;
-  result: EmbeddedRunAttemptResult;
-  transport: string;
+  replayBlockedReason?: NonNullable<
+    EmbeddedRunAttemptResult["codexAppServerFailure"]
+  >["replayBlockedReason"];
+  transport: NonNullable<EmbeddedRunAttemptResult["codexAppServerFailure"]>["transport"];
   threadId: string;
   turnId: string;
 }): EmbeddedRunAttemptResult["codexAppServerFailure"] {
@@ -131,7 +133,8 @@ export function buildCodexAppServerFailure(params: {
   if (!kind) {
     return undefined;
   }
-  const replayBlockedReason = resolveCodexAppServerReplayBlockedReason(params.result);
+  const replayBlockedReason =
+    kind === "client_closed_before_turn_completed" ? params.replayBlockedReason : undefined;
   const failureDiagnostics =
     kind === "client_closed_before_turn_completed" && params.clientClosedDiagnostic
       ? { transportError: params.clientClosedDiagnostic }
@@ -146,7 +149,7 @@ export function buildCodexAppServerFailure(params: {
     replaySafe: kind === "client_closed_before_turn_completed" && replayBlockedReason === undefined,
     ...(replayBlockedReason ? { replayBlockedReason } : {}),
     ...(failureDiagnostics ? { diagnostics: failureDiagnostics } : {}),
-  };
+  } satisfies NonNullable<EmbeddedRunAttemptResult["codexAppServerFailure"]>;
 }
 
 /** Applies final stopReason and errorMessage to this turn's assistant messages in snapshot. */
