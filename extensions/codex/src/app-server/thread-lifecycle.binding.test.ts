@@ -3487,12 +3487,9 @@ describe("Codex app-server thread lifecycle bindings", () => {
       await fixture.endTurn(threadId);
       const before = await readCodexAppServerBinding(sessionFile);
 
-      const error = await startOrResumeThread({
-        ...common,
-        developerInstructions: "replacement policy",
-      }).catch((cause: unknown) => cause);
-
-      expect(String((error as Error)?.message ?? error)).toContain("did not confirm unloading");
+      await expect(
+        startOrResumeThread({ ...common, developerInstructions: "replacement policy" }),
+      ).rejects.toThrow("did not confirm unloading");
       // The retry is only recoverable through a fresh client, so this one is retired.
       expect(abandonClient).toHaveBeenCalledTimes(1);
       // Its history must survive: the binding still names the same native thread.
