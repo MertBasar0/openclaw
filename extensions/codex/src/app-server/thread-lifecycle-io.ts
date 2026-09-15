@@ -371,7 +371,13 @@ export async function resumeExistingCodexThread(
       if (
         !subscriptionReleased ||
         (handoffError instanceof CodexThreadPolicyHandoffError &&
-          handoffError.outcome === "unknown")
+          handoffError.outcome === "unknown") ||
+        // Native thread/resume reloads configuration only for an idle thread, so a
+        // thread settled in systemError never confirms the unload from the client
+        // that already loaded it. Keeping that client makes every retry repeat this
+        // exact refusal; retiring it lets the next resume reload the same native
+        // thread, with its history, through a fresh client.
+        acceptedConfiguration.settledSystemError
       ) {
         // Revoked cleanup authority cannot block retiring the exact client;
         // detachment leaves sibling leases alive while preventing that client from being reacquired.
