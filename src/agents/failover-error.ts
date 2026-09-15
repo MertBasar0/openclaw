@@ -5,6 +5,7 @@
  */
 import { parseStrictNonNegativeInteger } from "@openclaw/normalization-core/number-coercion";
 import { formatCliCommand } from "../cli/command-format.js";
+import { createAbortError } from "../infra/abort-signal.js";
 import { isAgentRunStaleLifecycleError } from "../infra/agent-lifecycle-error.js";
 import { copyErrorDiagnostic } from "../infra/error-diagnostics.js";
 import { collectErrorGraphCandidates, formatErrorMessage, readErrorName } from "../infra/errors.js";
@@ -52,6 +53,36 @@ const RUNTIME_COORDINATION_ERROR_NAMES = new Set([
   "ActiveTurnClaimError",
 ]);
 
+const SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR = "session placement turn settlement is closed";
+const SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE =
+  "SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED";
+
+export function isSessionPlacementSettlementClosedError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+  if (typeof error === "string") {
+    return error === SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR;
+  }
+  if (typeof error !== "object") {
+    return false;
+  }
+  const candidate = error as { code?: unknown; message?: unknown };
+  return (
+    candidate.code === SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE ||
+    candidate.message === SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR
+  );
+}
+
+export function createSessionPlacementSettlementClosedAbortError(): Error {
+  const error = createAbortError(SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR) as Error & {
+    code: string;
+  };
+  error.code = SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE;
+  recordModelFallbackStop(error);
+  return error;
+}
+
 // Failed owned cleanup stops replay even for frozen errors crossing bundled chunks.
 // Keep the fact weakly keyed to the original error, never inferred from display text.
 const modelFallbackStops = resolveGlobalSingleton(
@@ -67,7 +98,8 @@ export function hasModelFallbackStop(error: unknown): boolean {
   return collectErrorGraphCandidates(error, resolveNestedErrors).some(
     (candidate) =>
       (candidate instanceof Error && modelFallbackStops.has(candidate)) ||
-      (isFailoverError(candidate) && isCliTerminalStopCode(candidate.code)),
+      (isFailoverError(candidate) && isCliTerminalStopCode(candidate.code)) ||
+      isSessionPlacementSettlementClosedError(candidate),
   );
 }
 

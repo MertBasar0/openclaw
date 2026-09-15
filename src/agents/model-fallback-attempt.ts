@@ -15,6 +15,7 @@ import {
   describeFailoverError,
   hasModelFallbackStop,
   isFailoverError,
+  isSessionPlacementSettlementClosedError,
   resolveModelFallbackError,
   type FallbackAttemptRecord,
 } from "./failover-error.js";
@@ -38,7 +39,11 @@ import type {
 import { modelKey } from "./model-ref-shared.js";
 import { isCliRuntimeAlias } from "./model-runtime-aliases.js";
 import { isCliProvider } from "./model-selection-cli.js";
-import { isAgentRunDirectAbortReason, isAgentRunRestartAbortReason } from "./run-termination.js";
+import {
+  isAgentRunDirectAbortReason,
+  isAgentRunRestartAbortReason,
+  isAgentRunSupersededAbortReason,
+} from "./run-termination.js";
 import { isSandboxProvisioningError } from "./sandbox/provisioning-error.js";
 import {
   runWithDeferredSessionSuspension,
@@ -172,6 +177,8 @@ function isTerminalAbortCandidate(candidate: unknown): boolean {
   }
   return (
     isAgentRunRestartAbortReason(candidate) ||
+    isAgentRunSupersededAbortReason(candidate) ||
+    isSessionPlacementSettlementClosedError(candidate) ||
     candidate.name === "TimeoutError" ||
     candidate.name === "ClientDisconnectError" ||
     isCronTerminalAbortReasonText(candidate.message)
@@ -182,14 +189,25 @@ function isTerminalAbortFromError(err: unknown): boolean {
   if (!(err instanceof Error)) {
     return false;
   }
-  if (isAgentRunRestartAbortReason(err)) {
+  if (
+    isAgentRunRestartAbortReason(err) ||
+    isAgentRunSupersededAbortReason(err) ||
+    isSessionPlacementSettlementClosedError(err)
+  ) {
     return true;
   }
   if (err.name !== "AbortError") {
     return false;
   }
   const causeCandidates = [err.cause, err.cause instanceof Error ? err.cause.cause : undefined];
-  if (causeCandidates.some(isAgentRunRestartAbortReason)) {
+  if (
+    causeCandidates.some(
+      (candidate) =>
+        isAgentRunRestartAbortReason(candidate) ||
+        isAgentRunSupersededAbortReason(candidate) ||
+        isSessionPlacementSettlementClosedError(candidate),
+    )
+  ) {
     return true;
   }
   return isOpenClawAbortableWrapper(err) && causeCandidates.some(isTerminalAbortCandidate);
@@ -227,6 +245,12 @@ function resolveChainStopReason(params: {
   }
   if (isAgentRunRestartAbortReason(err)) {
     return "agent_run_restart_abort";
+  }
+  if (isAgentRunSupersededAbortReason(err)) {
+    return "agent_run_superseded_abort";
+  }
+  if (hasModelFallbackStop(err) || isSessionPlacementSettlementClosedError(err)) {
+    return "session_placement_settlement_closed";
   }
   if (isTerminalAbortFromError(err)) {
     return "terminal_abort_wrapper";
@@ -732,6 +756,8 @@ export function shouldDiscardDeferredSessionSuspension(params: {
     isAgentRunTerminalTimeout(params.error) ||
     isAgentRunDirectAbortReason(params.error) ||
     isAgentRunRestartAbortReason(params.error) ||
+    isAgentRunSupersededAbortReason(params.error) ||
+    isSessionPlacementSettlementClosedError(params.error) ||
     isTerminalAbortFromError(params.error) ||
     isCommandLaneTaskTimeoutError(params.error)
   ) {

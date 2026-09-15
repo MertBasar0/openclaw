@@ -3,8 +3,10 @@ import { GatewayDrainingError } from "../process/gateway-work-admission.js";
 import { createCliOutputFailoverError } from "./cli-runner/output-error.js";
 import {
   FailoverError,
+  createSessionPlacementSettlementClosedAbortError,
   findCliTerminalStopError,
   findCliTimeoutError,
+  isSessionPlacementSettlementClosedError,
   recordModelFallbackStop,
   resolveModelFallbackError,
 } from "./failover-error.js";
@@ -56,6 +58,10 @@ const terminalStops = [
       return error;
     },
   },
+  {
+    name: "session placement turn settlement closed",
+    make: () => createSessionPlacementSettlementClosedAbortError(),
+  },
 ];
 
 const fallbackOptions = {
@@ -75,6 +81,15 @@ it("does not replay an unscoped preflight subclass on another model", async () =
   await expect(runWithModelFallback({ ...fallbackOptions, run })).rejects.toBe(error);
   expect(run).toHaveBeenCalledOnce();
   expect(providerHook).not.toHaveBeenCalled();
+});
+
+it("does not rotate models when session placement turn settlement is closed", async () => {
+  const error = createSessionPlacementSettlementClosedAbortError();
+  const run = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce("unexpected candidate 2");
+  await expect(runWithModelFallback({ ...fallbackOptions, run })).rejects.toBe(error);
+  expect(run).toHaveBeenCalledOnce();
+  expect(providerHook).not.toHaveBeenCalled();
+  expect(shouldDiscardDeferredSessionSuspension({ error })).toBe(true);
 });
 
 const wrappers = [

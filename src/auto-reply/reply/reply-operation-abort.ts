@@ -1,6 +1,8 @@
+import { isSessionPlacementSettlementClosedError } from "../../agents/failover-error.js";
 import { isFallbackSummaryError } from "../../agents/model-fallback-attempt.js";
 import {
   AGENT_RUN_RESTART_ABORT_STOP_REASON,
+  AGENT_RUN_SUPERSEDED_STOP_REASON,
   isAgentRunDirectAbortReason,
   isAgentRunRestartAbortReason,
   isAgentRunSupersededAbortReason,
@@ -24,7 +26,8 @@ function isReplyOperationUserAbort(replyOperation?: ReplyOperation): boolean {
   return (
     abortSignal?.aborted === true &&
     !isAgentRunRestartAbortReason(abortSignal.reason) &&
-    !isAgentRunSupersededAbortReason(abortSignal.reason)
+    !isAgentRunSupersededAbortReason(abortSignal.reason) &&
+    !isSessionPlacementSettlementClosedError(abortSignal.reason)
   );
 }
 
@@ -39,6 +42,36 @@ function isReplyOperationRestartAbort(replyOperation?: ReplyOperation): boolean 
   return abortSignal?.aborted === true && isAgentRunRestartAbortReason(abortSignal.reason);
 }
 
+function hasSupersededAbortCandidate(candidate: unknown): boolean {
+  if (!candidate) {
+    return false;
+  }
+  return (
+    isAgentRunSupersededAbortReason(candidate) || isSessionPlacementSettlementClosedError(candidate)
+  );
+}
+
+function hasSupersededAbortError(error: unknown): boolean {
+  const pending = [error];
+  const seen = new Set<unknown>();
+  for (const candidate of pending) {
+    if (!candidate || seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    if (hasSupersededAbortCandidate(candidate)) {
+      return true;
+    }
+    if (isFallbackSummaryError(candidate)) {
+      pending.push(...candidate.attempts.map((attempt) => attempt.error));
+    }
+    if (candidate instanceof Error && "cause" in candidate) {
+      pending.push(candidate.cause);
+    }
+  }
+  return false;
+}
+
 export function resolveReplyOperationTerminationFields(
   error: unknown,
   signal: AbortSignal | undefined,
@@ -48,7 +81,9 @@ export function resolveReplyOperationTerminationFields(
     ...resolveAgentRunErrorLifecycleFields(error, signal),
     ...(isReplyOperationRestartAbort(replyOperation)
       ? { aborted: true as const, stopReason: AGENT_RUN_RESTART_ABORT_STOP_REASON }
-      : {}),
+      : isReplyOperationSuperseded(replyOperation) || hasSupersededAbortError(error)
+        ? { aborted: true as const, stopReason: AGENT_RUN_SUPERSEDED_STOP_REASON }
+        : {}),
   };
 }
 
@@ -60,7 +95,11 @@ export function isReplyOperationSuperseded(replyOperation?: ReplyOperation): boo
     return true;
   }
   const abortSignal = replyOperation?.abortSignal;
-  return abortSignal?.aborted === true && isAgentRunSupersededAbortReason(abortSignal.reason);
+  return (
+    abortSignal?.aborted === true &&
+    (isAgentRunSupersededAbortReason(abortSignal.reason) ||
+      isSessionPlacementSettlementClosedError(abortSignal.reason))
+  );
 }
 
 export function resolveReplyOperationAbortReason(
@@ -69,7 +108,7 @@ export function resolveReplyOperationAbortReason(
 ): "user" | "restart" | "superseded" | undefined {
   return isAgentRunRestartAbortReason(error) || isReplyOperationRestartAbort(replyOperation)
     ? "restart"
-    : isReplyOperationSuperseded(replyOperation)
+    : isReplyOperationSuperseded(replyOperation) || hasSupersededAbortError(error)
       ? "superseded"
       : isAgentRunDirectAbortReason(error) || isReplyOperationUserAbort(replyOperation)
         ? "user"

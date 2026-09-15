@@ -20,7 +20,10 @@ import { AgentRunTerminalOutcomeError } from "./agent-run-terminal-error.js";
 import { abortable } from "./embedded-agent-runner/run/abortable.js";
 import { resolveEmbeddedRunAttemptTerminalState } from "./embedded-agent-runner/run/terminal-outcome.js";
 import { resolveEmbeddedRunTerminalTimeout } from "./embedded-agent-runner/run/terminal-timeout.js";
-import { FailoverError } from "./failover-error.js";
+import {
+  FailoverError,
+  createSessionPlacementSettlementClosedAbortError,
+} from "./failover-error.js";
 import { AgentHarnessPreflightError } from "./harness/errors.js";
 import { type ModelFallbackStepHandler, runFallbackAttempt } from "./model-fallback-attempt.js";
 import { runWithImageModelFallback } from "./model-fallback-image.js";
@@ -159,6 +162,10 @@ const stopCases: Array<{
   },
   { reason: "agent_run_direct_abort", make: () => ({ error: createAgentRunDirectAbortError() }) },
   { reason: "agent_run_restart_abort", make: () => ({ error: createAgentRunRestartAbortError() }) },
+  {
+    reason: "session_placement_settlement_closed",
+    make: () => ({ error: createSessionPlacementSettlementClosedAbortError() }),
+  },
   { reason: "terminal_abort_wrapper", make: async () => ({ error: await terminalAbortWrapper() }) },
 ];
 

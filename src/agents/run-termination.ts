@@ -1,10 +1,12 @@
 import {
   AGENT_RUN_ABORTED_STOP_REASON,
   AGENT_RUN_RESTART_ABORT_STOP_REASON,
+  AGENT_RUN_SUPERSEDED_STOP_REASON,
   normalizeAgentRunTimeoutPhase,
   normalizeProviderStarted,
   type AgentRunTimeoutPhase,
 } from "@openclaw/normalization-core/agent-run-terminal-outcome";
+import { isSessionPlacementSettlementClosedError } from "./failover-error.js";
 import {
   type FailoverError,
   findErrorProperty,
@@ -90,6 +92,7 @@ export function resolveAgentRunAbortLifecycleFields(signal: AbortSignal | undefi
   stopReason?:
     | typeof AGENT_RUN_ABORTED_STOP_REASON
     | typeof AGENT_RUN_RESTART_ABORT_STOP_REASON
+    | typeof AGENT_RUN_SUPERSEDED_STOP_REASON
     | "timeout";
 } {
   if (!signal?.aborted) {
@@ -97,9 +100,12 @@ export function resolveAgentRunAbortLifecycleFields(signal: AbortSignal | undefi
   }
   const stopReason = isAgentRunRestartAbortReason(signal.reason)
     ? AGENT_RUN_RESTART_ABORT_STOP_REASON
-    : isSignalTimeoutReason(signal.reason)
-      ? "timeout"
-      : AGENT_RUN_ABORTED_STOP_REASON;
+    : isAgentRunSupersededAbortReason(signal.reason) ||
+        isSessionPlacementSettlementClosedError(signal.reason)
+      ? AGENT_RUN_SUPERSEDED_STOP_REASON
+      : isSignalTimeoutReason(signal.reason)
+        ? "timeout"
+        : AGENT_RUN_ABORTED_STOP_REASON;
   return {
     aborted: true,
     stopReason,
@@ -142,6 +148,7 @@ export function resolveAgentRunErrorLifecycleFields(
   stopReason?:
     | typeof AGENT_RUN_ABORTED_STOP_REASON
     | typeof AGENT_RUN_RESTART_ABORT_STOP_REASON
+    | typeof AGENT_RUN_SUPERSEDED_STOP_REASON
     | "timeout";
   timeoutPhase?: AgentRunTimeoutPhase;
   providerStarted?: boolean;
@@ -156,6 +163,9 @@ export function resolveAgentRunErrorLifecycleFields(
   }
   if (isAgentRunRestartAbortReason(error)) {
     return { aborted: true, stopReason: AGENT_RUN_RESTART_ABORT_STOP_REASON };
+  }
+  if (isAgentRunSupersededAbortReason(error) || isSessionPlacementSettlementClosedError(error)) {
+    return { aborted: true, stopReason: AGENT_RUN_SUPERSEDED_STOP_REASON };
   }
   const timeout = resolveRunErrorTimeout(error);
   return timeout ? { stopReason: "timeout", ...timeout } : {};
