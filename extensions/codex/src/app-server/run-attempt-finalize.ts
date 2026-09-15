@@ -9,10 +9,14 @@ import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { appendSessionYieldContext } from "openclaw/plugin-sdk/session-transcript-runtime";
 import { classifyCodexModelCallFailureKind } from "./attempt-diagnostics.js";
 import {
+  applyTerminalOutcomeToAssistantMessages,
+  buildCodexAppServerFailure,
   buildCodexAppServerPromptTimeoutOutcome,
+  clearCompletedFinalAnswerYield,
   collectTerminalAssistantText,
+  finalizeCodexAttemptResult,
+  isCompletedFinalAnswer,
   isInvalidCodexImagePayloadError,
-  resolveCodexAppServerReplayBlockedReason,
 } from "./attempt-results.js";
 import { attemptTerminal, type EmbeddedRunAttemptResult } from "./attempt-terminal.js";
 import { TURN_FINALIZE_DRAIN_ABORT_GRACE_MS } from "./attempt-timeouts.js";
@@ -38,13 +42,11 @@ import { assertCodexBindingMayBeReplaced } from "./session-binding.js";
 import { captureCodexSettledTurnFinalizationContext } from "./settled-turn-context.js";
 import { normalizeCodexTrajectoryError, recordCodexTrajectoryCompletion } from "./trajectory.js";
 import { codexTranscriptMirrorRuntime } from "./transcript-mirror.js";
-import { readMirrorIdentity } from "./upstream-prompt-provenance.js";
 import {
   CodexUsageLimitPromptError,
   markCodexAuthProfileBlockedFromRateLimits,
   refreshCodexUsageLimitPromptError,
 } from "./usage-limit-error.js";
-import { buildCodexUserPromptMessage } from "./user-prompt-message.js";
 
 export async function finalizeCodexAttempt(
   resources: CodexAttemptResources,
@@ -264,35 +266,16 @@ export async function finalizeCodexAttempt(
         effectiveTimedOut || clientClosedPromptErrorForFinal
           ? "prompt"
           : projectedTerminal.promptErrorSource;
-      const codexAppServerFailureKind = clientClosedPromptErrorForFinal
-        ? "client_closed_before_turn_completed"
-        : state.timeout?.kind === "settlement"
-          ? "turn_settlement_timeout"
-          : undefined;
-      const replayBlockedReason = codexAppServerFailureKind
-        ? resolveCodexAppServerReplayBlockedReason(result)
-        : undefined;
       const promptTimeoutOutcome = buildCodexAppServerPromptTimeoutOutcome(state.timeout);
-      const failureDiagnostics =
-        codexAppServerFailureKind === "client_closed_before_turn_completed" &&
-        state.clientClosedDiagnostic
-          ? { transportError: state.clientClosedDiagnostic }
-          : state.timeout?.kind === "settlement"
-            ? { timeoutMs: state.timeout.timeoutMs }
-            : undefined;
-      const codexAppServerFailure = codexAppServerFailureKind
-        ? ({
-            kind: codexAppServerFailureKind,
-            transport: appServer.start.transport,
-            threadId: resourceState.thread.threadId,
-            turnId: activeTurnId,
-            replaySafe:
-              codexAppServerFailureKind === "client_closed_before_turn_completed" &&
-              replayBlockedReason === undefined,
-            ...(replayBlockedReason ? { replayBlockedReason } : {}),
-            ...(failureDiagnostics ? { diagnostics: failureDiagnostics } : {}),
-          } satisfies NonNullable<EmbeddedRunAttemptResult["codexAppServerFailure"]>)
-        : undefined;
+      const codexAppServerFailure = buildCodexAppServerFailure({
+        clientClosedPromptError: clientClosedPromptErrorForFinal,
+        clientClosedDiagnostic: state.clientClosedDiagnostic,
+        timeout: state.timeout,
+        result,
+        transport: appServer.start.transport,
+        threadId: resourceState.thread.threadId,
+        turnId: activeTurnId,
+      });
       const finalAborted = isFinalAborted();
       if (finalAborted && result.attemptUsage) {
         result.attemptUsage = { ...result.attemptUsage, contextUsage: { state: "unavailable" } };
@@ -328,27 +311,12 @@ export async function finalizeCodexAttempt(
       });
       // Failure enrichment can change the outcome after projection. Update this turn's
       // terminal rows before transcript hooks read them; earlier work keeps its own outcome.
-      for (const message of [
-        result.lastAssistant,
-        result.currentAttemptAssistant,
-        result.messagesSnapshot.find(
-          (candidate) => readMirrorIdentity(candidate) === `${activeTurnId}:assistant`,
-        ),
-      ]) {
-        if (message?.role === "assistant") {
-          const providerRefusal = message.diagnostics?.some(
-            (diagnostic) => diagnostic.type === "provider_refusal",
-          );
-          // The projector owns refusal classification. Preserve it unless a stronger
-          // local abort or prompt failure supersedes this turn's provider outcome.
-          if (!providerRefusal || finalAborted || finalPromptError) {
-            message.stopReason = finalAborted ? "aborted" : finalPromptError ? "error" : "stop";
-            message.errorMessage = finalPromptError
-              ? formatErrorMessage(finalPromptError)
-              : undefined;
-          }
-        }
-      }
+      applyTerminalOutcomeToAssistantMessages({
+        result,
+        activeTurnId,
+        finalAborted,
+        finalPromptError,
+      });
       return {
         effectiveTimedOut,
         finalPromptError,
@@ -363,21 +331,13 @@ export async function finalizeCodexAttempt(
     // Message-write hooks see the enriched native outcome. The same projection
     // runs after the bounded mirror join if Stop or the deadline arrives there.
     const initialTerminalOutcome = projectTerminalOutcome();
-    let terminalAssistantText = collectTerminalAssistantText(result);
-    let hasCompletedFinalAnswer = Boolean(
-      terminalAssistantText.trim().length > 0 &&
-      initialTerminalOutcome.turnSucceeded &&
-      !initialTerminalOutcome.finalAborted &&
-      !initialTerminalOutcome.effectiveTimedOut &&
-      !initialTerminalOutcome.finalPromptError &&
-      !state.localCompletionRequested,
-    );
+    let hasCompletedFinalAnswer = isCompletedFinalAnswer({
+      result,
+      ...initialTerminalOutcome,
+      localCompletionRequested: state.localCompletionRequested,
+    });
     if (hasCompletedFinalAnswer) {
-      toolState.yieldDetected = false;
-      toolState.yieldMessage = undefined;
-      toolState.yieldAcknowledgment = undefined;
-      result.yieldDetected = false;
-      result.yieldAcknowledgment = undefined;
+      clearCompletedFinalAnswerYield(toolState, result);
     }
     type MirrorOutcome = Awaited<ReturnType<typeof codexTranscriptMirrorRuntime.mirrorBestEffort>>;
     const unavailableMirror: MirrorOutcome = {
@@ -657,19 +617,18 @@ export async function finalizeCodexAttempt(
         }
       }
     }
-    terminalAssistantText = collectTerminalAssistantText(result);
-    hasCompletedFinalAnswer = Boolean(
-      terminalAssistantText.trim().length > 0 &&
-      turnSucceeded &&
-      !finalAborted &&
-      !effectiveTimedOut &&
-      !finalPromptError &&
-      !state.localCompletionRequested,
-    );
+    hasCompletedFinalAnswer = isCompletedFinalAnswer({
+      result,
+      turnSucceeded,
+      finalAborted,
+      effectiveTimedOut,
+      finalPromptError,
+      localCompletionRequested: state.localCompletionRequested,
+    });
     if (hasCompletedFinalAnswer) {
-      toolState.yieldDetected = false;
-      result.yieldDetected = false;
+      clearCompletedFinalAnswerYield(toolState, result);
     }
+    const terminalAssistantText = collectTerminalAssistantText(result);
     recordCodexTrajectoryCompletion(trajectoryRecorder, {
       attempt: params,
       result,
@@ -720,37 +679,25 @@ export async function finalizeCodexAttempt(
           },
     );
     // Preserve the exact result identity carrying host-issued TTS delivery provenance.
-    const finalizedResult: EmbeddedRunAttemptResult = Object.assign(result, {
-      ...(runtimeModelSelection ? { runtimeModelSelection } : {}),
-      ...(turnSucceeded && params.pluginRuntimeRefreshPending?.()
-        ? {
-            // Host-persisted input is absent from the native snapshot. The first
-            // handoff carries it once; later handoffs retain that existing prefix.
-            pluginRuntimeRefreshMessages:
-              params.suppressNextUserMessagePersistence && !params.pluginRuntimeRefreshMessages
-                ? [
-                    params.userTurnTranscriptRecorder?.getPersistedMessage?.() ??
-                      buildCodexUserPromptMessage(params),
-                    ...result.messagesSnapshot,
-                  ]
-                : result.messagesSnapshot,
-          }
-        : {}),
-      ...(toolState.yieldAcknowledgment
-        ? { yieldAcknowledgment: toolState.yieldAcknowledgment }
-        : {}),
-      ...(codexAppServerFailure ? { codexAppServerFailure } : {}),
-      ...(promptTimeoutOutcome ? { promptTimeoutOutcome } : {}),
-      ...(assistantTranscriptOwned ? { assistantTranscriptOwned: true } : {}),
-      ...(assistantTranscriptIdempotencyKey ? { assistantTranscriptIdempotencyKey } : {}),
-      ...(terminalAnchor ? { contextEngineTerminalAnchor: terminalAnchor } : {}),
-      ...(settledTurnFinalizationContext ? { settledTurnFinalizationContext } : {}),
-      ...(resourceState.runtimeArtifact ? { runtimeArtifact: resourceState.runtimeArtifact } : {}),
-      ...(resourceState.runtimeContinuationStarted ? { runtimeContinuationStarted: true } : {}),
-      ...(!finalAborted && !effectiveTimedOut && !finalPromptError && preparedAuthBinding
-        ? { authBindingFingerprint: preparedAuthBinding.fingerprint }
-        : {}),
+    const finalizedResult = finalizeCodexAttemptResult({
+      result,
       systemPromptReport,
+      turnSucceeded,
+      attemptParams: params,
+      runtimeModelSelection,
+      yieldAcknowledgment: toolState.yieldAcknowledgment,
+      codexAppServerFailure,
+      promptTimeoutOutcome,
+      assistantTranscriptOwned,
+      assistantTranscriptIdempotencyKey,
+      terminalAnchor,
+      settledTurnFinalizationContext,
+      runtimeArtifact: resourceState.runtimeArtifact,
+      runtimeContinuationStarted: resourceState.runtimeContinuationStarted,
+      finalAborted,
+      effectiveTimedOut,
+      finalPromptError,
+      preparedAuthBinding,
     });
     if (turnSucceeded && toolState.yieldDetected && !runAbortController.signal.aborted) {
       resourceState.nativeHookRelay?.authorizeRetentionAfterSuccessfulYield();
