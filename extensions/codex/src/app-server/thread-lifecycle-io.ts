@@ -368,6 +368,11 @@ export async function resumeExistingCodexThread(
         timeoutMs: CODEX_APP_SERVER_UNSUBSCRIBE_TIMEOUT_MS,
         assertCurrent: acceptedConfiguration.assertCurrent,
       }).catch(() => false);
+      const clientBoundThread =
+        ringZeroClientInstanceId !== undefined ||
+        resumeBinding.ringZeroClientInstanceId !== undefined ||
+        resumeBinding.ringZeroConfigFingerprint !== undefined ||
+        context.ringZeroActive === true;
       if (
         !subscriptionReleased ||
         (handoffError instanceof CodexThreadPolicyHandoffError &&
@@ -377,7 +382,9 @@ export async function resumeExistingCodexThread(
         // that already loaded it. Keeping that client makes every retry repeat this
         // exact refusal; retiring it lets the next resume reload the same native
         // thread, with its history, through a fresh client.
-        acceptedConfiguration.settledSystemError
+        // Client-bound (ring-zero) threads are excluded because replacing their client
+        // alters ringZeroClientInstanceId, which forces rotation and erases the binding.
+        (acceptedConfiguration.settledSystemError && !clientBoundThread)
       ) {
         // Revoked cleanup authority cannot block retiring the exact client;
         // detachment leaves sibling leases alive while preventing that client from being reacquired.
