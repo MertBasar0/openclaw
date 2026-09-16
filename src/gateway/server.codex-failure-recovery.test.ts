@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
@@ -71,56 +72,61 @@ it.each([
   const requests: ProviderRequest[] = [];
   const primaryRequests: ProviderRequest[] = [];
   const siblingReceived = createDeferred<ProviderRequest>();
-  const releaseSibling = createDeferred<void>();
-  const server = http.createServer(async (req, res) => {
+  const releaseSibling = createDeferred();
+  const server = http.createServer((req, res) => {
     if (req.method !== "POST" || req.url !== "/v1/responses") {
       res.writeHead(404).end();
       return;
     }
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const request = {
-      body: Buffer.concat(chunks).toString("utf8"),
-      threadId: req.headers["thread-id"],
-    };
-    requests.push(request);
-    if (request.body.includes("SIBLING_HELD")) {
-      siblingReceived.resolve(request);
-      await releaseSibling.promise;
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk: string) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      const request = { body, threadId: req.headers["thread-id"] };
+      requests.push(request);
+      if (body.includes("SIBLING_HELD")) {
+        siblingReceived.resolve(request);
+        void releaseSibling.promise.then(() => {
+          writeOpenAiResponsesText(res, {
+            text: "SIBLING_COMPLETE",
+            messageId: "sibling-message",
+            responseId: "sibling-response",
+          });
+        });
+        return;
+      }
+      primaryRequests.push(request);
+      if (failFirst && primaryRequests.length === 1) {
+        res.writeHead(400, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            error: {
+              message: "controlled settled failure",
+              type: "invalid_request_error",
+              code: "invalid_request",
+            },
+          }),
+        );
+        return;
+      }
       writeOpenAiResponsesText(res, {
-        text: "SIBLING_COMPLETE",
-        messageId: "sibling-message",
-        responseId: "sibling-response",
+        text: primaryRequests.length === 1 ? "INITIAL_REPLY" : "HISTORY_ALPHA NEW_POLICY_BETA",
+        messageId: `primary-message-${primaryRequests.length}`,
+        responseId: `primary-response-${primaryRequests.length}`,
       });
-      return;
-    }
-    primaryRequests.push(request);
-    if (failFirst && primaryRequests.length === 1) {
-      res.writeHead(400, { "content-type": "application/json" }).end(
-        JSON.stringify({
-          error: {
-            message: "controlled settled failure",
-            type: "invalid_request_error",
-            code: "invalid_request",
-          },
-        }),
-      );
-      return;
-    }
-    writeOpenAiResponsesText(res, {
-      text: primaryRequests.length === 1 ? "INITIAL_REPLY" : "HISTORY_ALPHA NEW_POLICY_BETA",
-      messageId: `primary-message-${primaryRequests.length}`,
-      responseId: `primary-response-${primaryRequests.length}`,
     });
   });
   onTestFinished(async () => {
     releaseSibling.resolve();
     server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
   const address = server.address();
   assert(address && typeof address !== "string", "controlled provider must bind a local port");
   const baseUrl = `http://127.0.0.1:${address.port}/v1`;
@@ -168,7 +174,6 @@ it.each([
         maxConcurrent: 2,
         timeoutSeconds: 60,
       },
-      entries: { main: { default: true } },
     },
     models: {
       mode: "replace",
@@ -254,13 +259,14 @@ it.each([
     await disconnectGatewayClient(gateway.client);
     await gateway.server.close();
   });
-  const sessionKey = "agent:main:recovery-proof";
-  const siblingSessionKey = "agent:main:recovery-sibling";
+  const runPrefix = randomUUID();
+  const sessionKey = `agent:main:recovery-proof-${runPrefix}`;
+  const siblingSessionKey = `agent:main:recovery-sibling-${runPrefix}`;
   const start = (message: string, idempotencyKey: string, targetSession = sessionKey) =>
     gateway.client.request<{ runId: string }>("chat.send", {
       sessionKey: targetSession,
       message,
-      idempotencyKey,
+      idempotencyKey: `${runPrefix}-${idempotencyKey}`,
       deliver: false,
     });
   const wait = (runId: string) =>
