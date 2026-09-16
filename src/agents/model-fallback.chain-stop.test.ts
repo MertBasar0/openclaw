@@ -20,15 +20,13 @@ import { AgentRunTerminalOutcomeError } from "./agent-run-terminal-error.js";
 import { abortable } from "./embedded-agent-runner/run/abortable.js";
 import { resolveEmbeddedRunAttemptTerminalState } from "./embedded-agent-runner/run/terminal-outcome.js";
 import { resolveEmbeddedRunTerminalTimeout } from "./embedded-agent-runner/run/terminal-timeout.js";
-import {
-  FailoverError,
-  createSessionPlacementSettlementClosedAbortError,
-} from "./failover-error.js";
+import { FailoverError, recordModelFallbackStop } from "./failover-error.js";
 import { AgentHarnessPreflightError } from "./harness/errors.js";
 import { type ModelFallbackStepHandler, runFallbackAttempt } from "./model-fallback-attempt.js";
 import { runWithImageModelFallback } from "./model-fallback-image.js";
 import { runWithModelFallback } from "./model-fallback-runner.js";
 import {
+  createSessionPlacementSettlementClosedAbortError,
   createAgentRunDirectAbortError,
   createAgentRunRestartAbortError,
 } from "./run-termination.js";
@@ -565,3 +563,44 @@ describe("model fallback chain-stop diagnostics", () => {
     },
   );
 });
+
+it.each(["cli_max_turns", "cli_turn_stopped", "cleanup"])(
+  "does not label %s as a closed settlement",
+  async (code) => {
+    const error = new FailoverError("terminal stop", { reason: "unknown", code });
+    if (code === "cleanup") {
+      recordModelFallbackStop(error);
+    }
+    const run = vi.fn().mockRejectedValue(error);
+    await expect(runWithModelFallback({ ...fallbackOptions, run })).rejects.toBe(error);
+    expect(run).toHaveBeenCalledOnce();
+    await capture.flush();
+    expect(
+      fallbackRecords().some(
+        (record) => record.attributes?.reason === "session_placement_settlement_closed",
+      ),
+    ).toBe(false);
+  },
+);
+
+it.each(["cause", "aggregate", "error"])(
+  "retains closed settlement diagnostics through %s",
+  async (kind) => {
+    const closed = createSessionPlacementSettlementClosedAbortError();
+    const error =
+      kind === "cause"
+        ? new Error("wrapper", { cause: closed })
+        : kind === "aggregate"
+          ? new AggregateError([closed], "wrapper")
+          : { error: closed };
+    const run = vi.fn().mockRejectedValue(error);
+    await expect(runWithModelFallback({ ...fallbackOptions, run })).rejects.toBe(error);
+    expect(run).toHaveBeenCalledOnce();
+    await capture.flush();
+    expect(
+      fallbackRecords().some(
+        (record) => record.attributes?.reason === "session_placement_settlement_closed",
+      ),
+    ).toBe(true);
+  },
+);

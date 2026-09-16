@@ -15,7 +15,7 @@ import { resolveSessionLane } from "./embedded-agent-runner/lanes.js";
 import { resolveEmbeddedRunSessionLanePolicy } from "./embedded-agent-runner/run/lane-runtime.js";
 import type { RunEmbeddedAgentParams } from "./embedded-agent-runner/run/params.js";
 import type { EmbeddedAgentRunResult } from "./embedded-agent-runner/types.js";
-import { createSessionPlacementSettlementClosedAbortError } from "./failover-error.js";
+import { createSessionPlacementSettlementClosedAbortError } from "./run-termination.js";
 import type { SandboxContext } from "./sandbox/types.js";
 import { beginForegroundSessionMaintenance } from "./session-maintenance/coordinator.js";
 import {

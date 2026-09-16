@@ -6,6 +6,7 @@ import {
   normalizeProviderStarted,
   type AgentRunTimeoutPhase,
 } from "@openclaw/normalization-core/agent-run-terminal-outcome";
+import { collectNestedErrorCandidates } from "@openclaw/normalization-core/error-coercion";
 import {
   type FailoverError,
   findErrorProperty,
@@ -77,7 +78,9 @@ export function isAgentRunRestartAbortReason(value: unknown): boolean {
 }
 
 export function isAgentRunSupersededAbortReason(value: unknown): boolean {
-  return hasAgentRunAbortCode(value, AGENT_RUN_SUPERSEDED_ABORT_ERROR_CODE);
+  return collectNestedErrorCandidates(value).some((candidate) =>
+    hasAgentRunAbortCode(candidate, AGENT_RUN_SUPERSEDED_ABORT_ERROR_CODE),
+  );
 }
 
 export function throwAgentRunRestartAbortReason(value: unknown): void {
@@ -86,29 +89,22 @@ export function throwAgentRunRestartAbortReason(value: unknown): void {
   }
 }
 
-export const SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR =
-  "session placement turn settlement is closed" as const;
-export const SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE =
-  "SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED" as const;
+const SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE =
+  "SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED";
 
+/** Mark loss of the turn's settlement lifetime without asserting a successor exists. */
+export function createSessionPlacementSettlementClosedAbortError(): Error {
+  return Object.assign(new Error("session placement turn settlement is closed"), {
+    name: "AbortError",
+    code: SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE,
+  });
+}
+
+/** Recognize the owner's typed marker through error wrappers, never display text. */
 export function isSessionPlacementSettlementClosedError(value: unknown): boolean {
-  try {
-    if (!value) {
-      return false;
-    }
-    if (typeof value === "string") {
-      return value === SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR;
-    }
-    if (typeof value !== "object") {
-      return false;
-    }
-    return (
-      ("code" in value && value.code === SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE) ||
-      ("message" in value && value.message === SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR)
-    );
-  } catch {
-    return false;
-  }
+  return collectNestedErrorCandidates(value).some((candidate) =>
+    hasAgentRunAbortCode(candidate, SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE),
+  );
 }
 
 export function resolveAgentRunAbortLifecycleFields(signal: AbortSignal | undefined): {
@@ -124,8 +120,7 @@ export function resolveAgentRunAbortLifecycleFields(signal: AbortSignal | undefi
   }
   const stopReason = isAgentRunRestartAbortReason(signal.reason)
     ? AGENT_RUN_RESTART_ABORT_STOP_REASON
-    : isAgentRunSupersededAbortReason(signal.reason) ||
-        isSessionPlacementSettlementClosedError(signal.reason)
+    : isAgentRunSupersededAbortReason(signal.reason)
       ? AGENT_RUN_SUPERSEDED_STOP_REASON
       : isSignalTimeoutReason(signal.reason)
         ? "timeout"
@@ -188,7 +183,7 @@ export function resolveAgentRunErrorLifecycleFields(
   if (isAgentRunRestartAbortReason(error)) {
     return { aborted: true, stopReason: AGENT_RUN_RESTART_ABORT_STOP_REASON };
   }
-  if (isAgentRunSupersededAbortReason(error) || isSessionPlacementSettlementClosedError(error)) {
+  if (isAgentRunSupersededAbortReason(error)) {
     return { aborted: true, stopReason: AGENT_RUN_SUPERSEDED_STOP_REASON };
   }
   const timeout = resolveRunErrorTimeout(error);

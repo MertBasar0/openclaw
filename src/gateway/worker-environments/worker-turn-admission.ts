@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createSessionPlacementSettlementClosedAbortError } from "../../agents/failover-error.js";
+import { createSessionPlacementSettlementClosedAbortError } from "../../agents/run-termination.js";
 import type {
   SessionPlacementTurnParams,
   LocalTurnPlacementClaim,

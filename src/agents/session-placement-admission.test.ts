@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { rotateAgentEventLifecycleGeneration } from "../infra/agent-events.js";
 import { enqueueCommandInLane, resetCommandLane } from "../process/command-queue.js";
 import { createDeferredCore } from "../shared/deferred.js";
+import { isSessionPlacementSettlementClosedError } from "./run-termination.js";
 
 const settleRequesterAfterSessionSpawns = vi.hoisted(() => vi.fn(() => true));
 vi.mock("./subagents/registry/subagent-registry.js", () => ({
@@ -10,11 +11,7 @@ vi.mock("./subagents/registry/subagent-registry.js", () => ({
 
 import { createTestAdmittedRunContext } from "./admitted-run-context.test-support.js";
 import { resolveSessionLane } from "./embedded-agent-runner/lanes.js";
-import {
-  hasModelFallbackStop,
-  isSessionPlacementSettlementClosedError,
-  resolveModelFallbackError,
-} from "./failover-error.js";
+import { hasModelFallbackStop, resolveModelFallbackError } from "./failover-error.js";
 import {
   captureSessionPlacementCompactionSuccessorAssertion,
   installSessionPlacementAdmissionProvider,
@@ -485,7 +482,7 @@ describe("local turn placement admission", () => {
     expect(events).toEqual(["claim", "turn", "release", "settle"]);
   });
 
-  it.each(["settled", "reset"] as const)(
+  it.each(["settled", "reset-without-successor", "reset-with-successor"] as const)(
     "closes a standalone CLI settlement assertion after its lane task is %s",
     async (ending) => {
       const sessionId = `standalone-${ending}`;
@@ -504,15 +501,17 @@ describe("local turn placement admission", () => {
       );
       await started.promise;
       try {
-        if (ending === "reset") {
+        if (ending !== "settled") {
           expect(resetCommandLane(resolveSessionLane(sessionId))).toBe(1);
-          await withLocalSessionPlacementTurnSettlement(
-            { sessionId, runId: `${sessionId}-replacement` },
-            async (assertCurrent) => {
-              assertCurrent();
-              return { meta: { durationMs: 1 } };
-            },
-          );
+          if (ending === "reset-with-successor") {
+            await withLocalSessionPlacementTurnSettlement(
+              { sessionId, runId: `${sessionId}-replacement` },
+              async (assertCurrent) => {
+                assertCurrent();
+                return { meta: { durationMs: 1 } };
+              },
+            );
+          }
         } else {
           release.resolve();
           await running;

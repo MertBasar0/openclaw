@@ -1,11 +1,10 @@
-import { isSessionPlacementSettlementClosedError } from "../../agents/failover-error.js";
 import { isFallbackSummaryError } from "../../agents/model-fallback-attempt.js";
 import {
-  AGENT_RUN_RESTART_ABORT_STOP_REASON,
-  AGENT_RUN_SUPERSEDED_STOP_REASON,
   isAgentRunDirectAbortReason,
   isAgentRunRestartAbortReason,
   isAgentRunSupersededAbortReason,
+  isSessionPlacementSettlementClosedError,
+  resolveAgentRunAbortLifecycleFields,
   resolveAgentRunErrorLifecycleFields,
 } from "../../agents/run-termination.js";
 import { CommandLaneClearedError, GatewayDrainingError } from "../../process/command-queue.js";
@@ -42,48 +41,17 @@ function isReplyOperationRestartAbort(replyOperation?: ReplyOperation): boolean 
   return abortSignal?.aborted === true && isAgentRunRestartAbortReason(abortSignal.reason);
 }
 
-function hasSupersededAbortCandidate(candidate: unknown): boolean {
-  if (!candidate) {
-    return false;
-  }
-  return (
-    isAgentRunSupersededAbortReason(candidate) || isSessionPlacementSettlementClosedError(candidate)
-  );
-}
-
-function hasSupersededAbortError(error: unknown): boolean {
-  const pending = [error];
-  const seen = new Set<unknown>();
-  for (const candidate of pending) {
-    if (!candidate || seen.has(candidate)) {
-      continue;
-    }
-    seen.add(candidate);
-    if (hasSupersededAbortCandidate(candidate)) {
-      return true;
-    }
-    if (isFallbackSummaryError(candidate)) {
-      pending.push(...candidate.attempts.map((attempt) => attempt.error));
-    }
-    if (candidate instanceof Error && "cause" in candidate) {
-      pending.push(candidate.cause);
-    }
-  }
-  return false;
-}
-
 export function resolveReplyOperationTerminationFields(
   error: unknown,
   signal: AbortSignal | undefined,
   replyOperation?: ReplyOperation,
 ) {
+  const ownerReason = resolveReplyOperationAbortReason(replyOperation);
   return {
     ...resolveAgentRunErrorLifecycleFields(error, signal),
-    ...(isReplyOperationRestartAbort(replyOperation)
-      ? { aborted: true as const, stopReason: AGENT_RUN_RESTART_ABORT_STOP_REASON }
-      : isReplyOperationSuperseded(replyOperation) || hasSupersededAbortError(error)
-        ? { aborted: true as const, stopReason: AGENT_RUN_SUPERSEDED_STOP_REASON }
-        : {}),
+    ...(ownerReason === "restart" || ownerReason === "superseded"
+      ? { aborted: true as const, stopReason: ownerReason }
+      : {}),
   };
 }
 
@@ -95,24 +63,28 @@ export function isReplyOperationSuperseded(replyOperation?: ReplyOperation): boo
     return true;
   }
   const abortSignal = replyOperation?.abortSignal;
-  return (
-    abortSignal?.aborted === true &&
-    (isAgentRunSupersededAbortReason(abortSignal.reason) ||
-      isSessionPlacementSettlementClosedError(abortSignal.reason))
-  );
+  return abortSignal?.aborted === true && isAgentRunSupersededAbortReason(abortSignal.reason);
 }
 
 export function resolveReplyOperationAbortReason(
   replyOperation?: ReplyOperation,
   error?: unknown,
+  signal: AbortSignal | undefined = replyOperation?.abortSignal,
 ): "user" | "restart" | "superseded" | undefined {
-  return isAgentRunRestartAbortReason(error) || isReplyOperationRestartAbort(replyOperation)
+  // Operation-owned restart/supersession precedes a concurrent thrown marker.
+  return isReplyOperationRestartAbort(replyOperation)
     ? "restart"
-    : isReplyOperationSuperseded(replyOperation) || hasSupersededAbortError(error)
+    : isReplyOperationSuperseded(replyOperation)
       ? "superseded"
-      : isAgentRunDirectAbortReason(error) || isReplyOperationUserAbort(replyOperation)
+      : resolveAgentRunAbortLifecycleFields(signal).stopReason === "timeout"
         ? "user"
-        : undefined;
+        : isAgentRunRestartAbortReason(error)
+          ? "restart"
+          : isAgentRunSupersededAbortReason(error)
+            ? "superseded"
+            : isAgentRunDirectAbortReason(error) || isReplyOperationUserAbort(replyOperation)
+              ? "user"
+              : undefined;
 }
 
 export function resolveRestartLifecycleError(

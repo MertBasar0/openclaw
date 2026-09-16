@@ -5,7 +5,6 @@
  */
 import { parseStrictNonNegativeInteger } from "@openclaw/normalization-core/number-coercion";
 import { formatCliCommand } from "../cli/command-format.js";
-import { createAbortError } from "../infra/abort-signal.js";
 import { isAgentRunStaleLifecycleError } from "../infra/agent-lifecycle-error.js";
 import { copyErrorDiagnostic } from "../infra/error-diagnostics.js";
 import { collectErrorGraphCandidates, formatErrorMessage, readErrorName } from "../infra/errors.js";
@@ -34,8 +33,7 @@ import {
 } from "./harness/errors.js";
 import {
   isSessionPlacementSettlementClosedError,
-  SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR,
-  SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE,
+  isAgentRunSupersededAbortReason,
 } from "./run-termination.js";
 
 export {
@@ -58,18 +56,6 @@ const RUNTIME_COORDINATION_ERROR_NAMES = new Set([
   "ActiveTurnClaimError",
 ]);
 
-export { isSessionPlacementSettlementClosedError };
-
-export function createSessionPlacementSettlementClosedAbortError(): Error {
-  // SAFETY: createAbortError returns Error; adding code property requires type assertion
-  const error = createAbortError(SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR) as Error & {
-    code: string;
-  };
-  error.code = SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE;
-  recordModelFallbackStop(error);
-  return error;
-}
-
 // Failed owned cleanup stops replay even for frozen errors crossing bundled chunks.
 // Keep the fact weakly keyed to the original error, never inferred from display text.
 const modelFallbackStops = resolveGlobalSingleton(
@@ -82,17 +68,26 @@ export function recordModelFallbackStop(error: Error): void {
 }
 
 export function hasModelFallbackStop(error: unknown): boolean {
-  return collectErrorGraphCandidates(error, resolveNestedErrors).some(
-    (candidate) =>
-      (candidate instanceof Error && modelFallbackStops.has(candidate)) ||
-      (isFailoverError(candidate) && isCliTerminalStopCode(candidate.code)) ||
-      isSessionPlacementSettlementClosedError(candidate),
+  return (
+    isSessionPlacementSettlementClosedError(error) ||
+    isAgentRunSupersededAbortReason(error) ||
+    collectErrorGraphCandidates(error, resolveNestedErrors).some(
+      (candidate) =>
+        (candidate instanceof Error && modelFallbackStops.has(candidate)) ||
+        (isFailoverError(candidate) && isCliTerminalStopCode(candidate.code)),
+    )
   );
 }
 
 function resolveNestedErrors(candidate: Record<string, unknown>): unknown[] {
   const errors = candidate.errors;
-  return [candidate.error, candidate.cause, ...(Array.isArray(errors) ? errors : [])];
+  const nested = [candidate.error, candidate.cause, ...(Array.isArray(errors) ? errors : [])];
+  try {
+    nested.push(candidate.suppressed);
+  } catch {
+    // An opaque disposal branch must not hide the other recorded CLI facts.
+  }
+  return nested;
 }
 
 /**
