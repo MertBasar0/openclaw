@@ -108,6 +108,40 @@ describe("reply-operation-abort", () => {
     });
   });
 
+  it.each([
+    ["restart", createAgentRunRestartAbortError()],
+    ["supersession", createAgentRunSupersededAbortError()],
+  ])(
+    "preserves caller cancellation over an error-level %s without an operation",
+    (_name, error) => {
+      const controller = new AbortController();
+      controller.abort(new Error("caller cancelled"));
+      expect(resolveReplyOperationAbortReason(undefined, error, controller.signal)).toBe("user");
+      expect(resolveReplyOperationTerminationFields(error, controller.signal)).toEqual({
+        aborted: true,
+        stopReason: "aborted",
+      });
+    },
+  );
+
+  it.each([
+    ["restart", createAgentRunRestartAbortError(), createAgentRunSupersededAbortError()],
+    ["superseded", createAgentRunSupersededAbortError(), createAgentRunRestartAbortError()],
+  ])(
+    "preserves a typed caller %s over a conflicting error marker without an operation",
+    (expectedReason, signalReason, error) => {
+      const controller = new AbortController();
+      controller.abort(signalReason);
+      expect(resolveReplyOperationAbortReason(undefined, error, controller.signal)).toBe(
+        expectedReason,
+      );
+      expect(resolveReplyOperationTerminationFields(error, controller.signal)).toEqual({
+        aborted: true,
+        stopReason: expectedReason,
+      });
+    },
+  );
+
   it("resolves restart for restart abort error", () => {
     const error = createAgentRunRestartAbortError();
     expect(resolveReplyOperationAbortReason(undefined, error)).toBe("restart");

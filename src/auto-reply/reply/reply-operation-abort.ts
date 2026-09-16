@@ -14,19 +14,27 @@ export function buildRestartLifecycleReplyText(): string {
   return "⚠️ Gateway is restarting. Please wait a few seconds and try again.";
 }
 
-function isReplyOperationUserAbort(replyOperation?: ReplyOperation): boolean {
-  if (
-    replyOperation?.result?.kind === "aborted" &&
-    replyOperation.result.code === "aborted_by_user"
-  ) {
-    return true;
+function resolveSignalAbortReason(
+  signal: AbortSignal | undefined,
+): "user" | "restart" | "superseded" | undefined {
+  const stopReason = resolveAgentRunAbortLifecycleFields(signal).stopReason;
+  if (stopReason === "restart" || stopReason === "superseded") {
+    return stopReason;
   }
-  const abortSignal = replyOperation?.abortSignal;
+  return stopReason && !isSessionPlacementSettlementClosedError(signal?.reason)
+    ? "user"
+    : undefined;
+}
+
+function isUserAbortSignal(signal: AbortSignal | undefined): boolean {
+  return resolveSignalAbortReason(signal) === "user";
+}
+
+function isReplyOperationUserAbort(replyOperation?: ReplyOperation): boolean {
   return (
-    abortSignal?.aborted === true &&
-    !isAgentRunRestartAbortReason(abortSignal.reason) &&
-    !isAgentRunSupersededAbortReason(abortSignal.reason) &&
-    !isSessionPlacementSettlementClosedError(abortSignal.reason)
+    (replyOperation?.result?.kind === "aborted" &&
+      replyOperation.result.code === "aborted_by_user") ||
+    isUserAbortSignal(replyOperation?.abortSignal)
   );
 }
 
@@ -71,20 +79,19 @@ export function resolveReplyOperationAbortReason(
   error?: unknown,
   signal: AbortSignal | undefined = replyOperation?.abortSignal,
 ): "user" | "restart" | "superseded" | undefined {
-  // Operation-owned restart/supersession precedes a concurrent thrown marker.
+  // Operation-owned settlement precedes the caller signal, which precedes thrown markers.
   return isReplyOperationRestartAbort(replyOperation)
     ? "restart"
     : isReplyOperationSuperseded(replyOperation)
       ? "superseded"
-      : resolveAgentRunAbortLifecycleFields(signal).stopReason === "timeout"
-        ? "user"
-        : isAgentRunRestartAbortReason(error)
+      : (resolveSignalAbortReason(signal) ??
+        (isAgentRunRestartAbortReason(error)
           ? "restart"
           : isAgentRunSupersededAbortReason(error)
             ? "superseded"
             : isAgentRunDirectAbortReason(error) || isReplyOperationUserAbort(replyOperation)
               ? "user"
-              : undefined;
+              : undefined));
 }
 
 export function resolveRestartLifecycleError(
