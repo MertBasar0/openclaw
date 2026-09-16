@@ -7,6 +7,7 @@ import { assert, expect, it, onTestFinished, vi } from "vitest";
 import { writeOpenAiResponsesText } from "../../test/helpers/openai-responses-sse.js";
 import { createDeferred, withTestTimeout } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { createPluginStateKeyedStore } from "../plugin-state/plugin-state-store.js";
 import { captureEnv } from "../test-utils/env.js";
 import { disconnectGatewayClient, startGatewayWithClient } from "./test-helpers.e2e.js";
 
@@ -321,13 +322,25 @@ it.each([
       expect(readyThreads.has(refused.runId)).toBe(false);
     }
     expect(primaryRequests).toHaveLength(1);
-    await start("/codex binding", "binding");
-    await vi.waitFor(
-      async () => {
-        const history = await gateway.client.request("chat.history", { sessionKey, limit: 20 });
-        expect(JSON.stringify(history)).toContain(`Thread: ${previous.threadId}`);
-      },
-      { timeout: 10_000 },
+    const history = await gateway.client.request<{ sessionId: string }>("chat.history", {
+      sessionKey,
+      limit: 20,
+    });
+    const bindings = createPluginStateKeyedStore<unknown>("codex", {
+      namespace: "app-server-thread-bindings",
+      maxEntries: 50_000,
+      overflowPolicy: "reject-new",
+    });
+    expect(await bindings.entries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          value: expect.objectContaining({
+            sessionId: history.sessionId,
+            state: "active",
+            binding: expect.objectContaining({ threadId: previous.threadId }),
+          }),
+        }),
+      ]),
     );
 
     releaseSibling.resolve();
