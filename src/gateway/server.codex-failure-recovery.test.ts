@@ -466,7 +466,9 @@ it.each(cases)(
       expect(requests).toHaveLength(3);
       return;
     }
-    const exitGate = shutdown ? holdNativeExit(nativeProcesses, previous.threadId) : undefined;
+    const exitGate = shutdown
+      ? holdNativeExit(nativeProcesses, previous.threadId, shutdown === "unconfirmed")
+      : undefined;
     if (exitGate) onTestFinished(exitGate.release);
     const beforeRecoveryProcesses = nativeProcesses.size;
     const continued = await start("Continue with changed instructions.", "second");
@@ -523,7 +525,11 @@ it.each(cases)(
 );
 
 /** Hold only the observed native child's exit; protocol, writer lock and run cancellation stay real. */
-function holdNativeExit(processes: Map<ChildProcess, { output: string }>, threadId: string) {
+function holdNativeExit(
+  processes: Map<ChildProcess, { output: string }>,
+  threadId: string,
+  withholdExitConfirmation: boolean,
+) {
   const matches = [...processes].filter(([, captured]) => captured.output.includes(threadId));
   expect(matches).toHaveLength(1);
   const child = matches[0]?.[0];
@@ -545,6 +551,43 @@ function holdNativeExit(processes: Map<ChildProcess, { output: string }>, thread
     return stdin;
   });
   const destroy = vi.spyOn(stdin, "destroy").mockImplementation(() => stdin);
+  // Lost exit notification and stale child status must not become a successful
+  // shutdown receipt. Keep actual Node exit state separately for teardown.
+  let restoreExitConfirmation = () => {};
+  if (withholdExitConfirmation) {
+    let exitCode = child.exitCode;
+    let signalCode = child.signalCode;
+    const exitDescriptor = Object.getOwnPropertyDescriptor(child, "exitCode");
+    const signalDescriptor = Object.getOwnPropertyDescriptor(child, "signalCode");
+    assert(exitDescriptor && signalDescriptor);
+    Object.defineProperty(child, "exitCode", {
+      configurable: true,
+      get: () => null,
+      set: (value: typeof exitCode) => {
+        exitCode = value;
+      },
+    });
+    Object.defineProperty(child, "signalCode", {
+      configurable: true,
+      get: () => null,
+      set: (value: typeof signalCode) => {
+        signalCode = value;
+      },
+    });
+    const once = child.once.bind(child);
+    const receipt = vi.spyOn(child, "once").mockImplementation((event, listener) => {
+      if (event === "exit" && closing) {
+        waiting.resolve();
+        return child;
+      }
+      return once(event, listener);
+    });
+    restoreExitConfirmation = () => {
+      receipt.mockRestore();
+      Object.defineProperty(child, "exitCode", { ...exitDescriptor, value: exitCode });
+      Object.defineProperty(child, "signalCode", { ...signalDescriptor, value: signalCode });
+    };
+  }
   const kill = nodeProcess.kill;
   const signal = vi.spyOn(nodeProcess, "kill").mockImplementation((targetPid, value) => {
     if ((targetPid === pid || targetPid === -pid) && (value === "SIGKILL" || value === "SIGTERM"))
@@ -567,6 +610,7 @@ function holdNativeExit(processes: Map<ChildProcess, { output: string }>, thread
       if (released) return;
       released = true;
       child.off("newListener", onListener);
+      restoreExitConfirmation();
       end.mockRestore();
       destroy.mockRestore();
       signal.mockRestore();
