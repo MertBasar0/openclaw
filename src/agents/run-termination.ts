@@ -6,7 +6,6 @@ import {
   normalizeProviderStarted,
   type AgentRunTimeoutPhase,
 } from "@openclaw/normalization-core/agent-run-terminal-outcome";
-import { isSessionPlacementSettlementClosedError } from "./failover-error.js";
 import {
   type FailoverError,
   findErrorProperty,
@@ -84,6 +83,31 @@ export function isAgentRunSupersededAbortReason(value: unknown): boolean {
 export function throwAgentRunRestartAbortReason(value: unknown): void {
   if (isAgentRunRestartAbortReason(value)) {
     throw value;
+  }
+}
+
+export const SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR =
+  "session placement turn settlement is closed" as const;
+export const SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE =
+  "SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED" as const;
+
+export function isSessionPlacementSettlementClosedError(value: unknown): boolean {
+  try {
+    if (!value) {
+      return false;
+    }
+    if (typeof value === "string") {
+      return value === SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR;
+    }
+    if (typeof value !== "object") {
+      return false;
+    }
+    return (
+      ("code" in value && value.code === SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE) ||
+      ("message" in value && value.message === SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR)
+    );
+  } catch {
+    return false;
   }
 }
 

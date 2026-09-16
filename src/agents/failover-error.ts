@@ -32,6 +32,11 @@ import {
   AgentHarnessSessionSupersededError,
   isAgentHarnessPreflightError,
 } from "./harness/errors.js";
+import {
+  isSessionPlacementSettlementClosedError,
+  SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR,
+  SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE,
+} from "./run-termination.js";
 
 export {
   FailoverError,
@@ -53,28 +58,10 @@ const RUNTIME_COORDINATION_ERROR_NAMES = new Set([
   "ActiveTurnClaimError",
 ]);
 
-const SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR = "session placement turn settlement is closed";
-const SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE =
-  "SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED";
-
-export function isSessionPlacementSettlementClosedError(error: unknown): boolean {
-  if (!error) {
-    return false;
-  }
-  if (typeof error === "string") {
-    return error === SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR;
-  }
-  if (typeof error !== "object") {
-    return false;
-  }
-  const candidate = error as { code?: unknown; message?: unknown };
-  return (
-    candidate.code === SESSION_PLACEMENT_TURN_SETTLEMENT_CLOSED_ERROR_CODE ||
-    candidate.message === SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR
-  );
-}
+export { isSessionPlacementSettlementClosedError };
 
 export function createSessionPlacementSettlementClosedAbortError(): Error {
+  // SAFETY: createAbortError returns Error; adding code property requires type assertion
   const error = createAbortError(SESSION_PLACEMENT_SETTLEMENT_CLOSED_ERROR) as Error & {
     code: string;
   };
