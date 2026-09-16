@@ -23,17 +23,17 @@ type ReadyThread = {
 
 it.each([
   {
-    name: "recovers the next send after a settled failure with new instructions and native history",
+    name: "recovers a settled failure",
     failFirst: true,
     activeSibling: false,
   },
   {
-    name: "recovers a settled failure while an active sibling completes on the previous client",
+    name: "leaves active siblings alone",
     failFirst: true,
     activeSibling: true,
   },
   {
-    name: "reloads a healthy thread with new instructions on its existing client",
+    name: "reloads a healthy thread",
     failFirst: false,
     activeSibling: false,
   },
@@ -312,6 +312,42 @@ it.each([
   }
 
   await fs.writeFile(instruction, "NEW_POLICY_BETA");
+  if (siblingRunId) {
+    for (const key of ["second", "retry"]) {
+      const refused = await start("Continue with changed instructions.", key);
+      const result = await wait(refused.runId);
+      expect(result.status).toBe("error");
+      expect(result.error).toContain("did not confirm unloading");
+      expect(readyThreads.has(refused.runId)).toBe(false);
+    }
+    expect(primaryRequests).toHaveLength(1);
+    await start("/codex binding", "binding");
+    await vi.waitFor(
+      async () => {
+        const history = await gateway.client.request("chat.history", { sessionKey, limit: 20 });
+        expect(JSON.stringify(history)).toContain(`Thread: ${previous.threadId}`);
+      },
+      { timeout: 10_000 },
+    );
+
+    releaseSibling.resolve();
+    expect(await wait(siblingRunId)).toMatchObject({ status: "ok" });
+    const siblingThread = await ready(siblingRunId);
+    await fs.writeFile(instruction, "INITIAL_POLICY");
+    const continuedSibling = await start(
+      "Continue the sibling.",
+      "sibling-next",
+      siblingSessionKey,
+    );
+    expect(await wait(continuedSibling.runId)).toMatchObject({ status: "ok" });
+    expect(await ready(continuedSibling.runId)).toMatchObject({
+      threadId: siblingThread.threadId,
+      clientId: previous.clientId,
+    });
+    expect(primaryRequests).toHaveLength(1);
+    expect(requests).toHaveLength(3);
+    return;
+  }
   const continued = await start("Continue with changed instructions.", "second");
   expect(await wait(continued.runId)).toMatchObject({ status: "ok" });
   const recovered = await ready(continued.runId);
@@ -331,14 +367,5 @@ it.each([
   const history = await gateway.client.request("chat.history", { sessionKey, limit: 20 });
   expect(JSON.stringify(history)).toContain("HISTORY_ALPHA NEW_POLICY_BETA");
 
-  if (siblingRunId) {
-    releaseSibling.resolve();
-    expect(await wait(siblingRunId)).toMatchObject({ status: "ok" });
-    const siblingHistory = await gateway.client.request("chat.history", {
-      sessionKey: siblingSessionKey,
-      limit: 20,
-    });
-    expect(JSON.stringify(siblingHistory)).toContain("SIBLING_COMPLETE");
-  }
-  expect(requests).toHaveLength(activeSibling ? 3 : 2);
+  expect(requests).toHaveLength(2);
 });

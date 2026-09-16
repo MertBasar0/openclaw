@@ -9,6 +9,7 @@ import {
   unsubscribeCodexThreadBestEffort,
 } from "./attempt-client-cleanup.js";
 import { resolveCodexAppServerLocalHomeDir } from "./auth-start-options.js";
+import { hasCodexAppServerSiblingThreadWork } from "./client-runtime.js";
 import {
   CodexAppServerRpcError,
   isCodexAppServerOverloadError,
@@ -30,6 +31,7 @@ import {
 import type { CodexThread } from "./protocol.js";
 import { isCodexThreadReadMissingError } from "./rpc-error.js";
 import type { CodexAppServerThreadBinding } from "./session-binding.js";
+import { getCurrentSharedClientEntry } from "./shared-client-lifecycle.js";
 import {
   fingerprintCodexThreadConfig,
   readActiveCodexTurnIdsFromResume,
@@ -51,6 +53,7 @@ import { resolveCodexAppServerModelProvider } from "./thread-model-selection.js"
 import { CodexThreadPolicyHandoffError, refreshCodexThreadPolicy } from "./thread-policy.js";
 import { buildThreadResumeParams, buildThreadStartParams } from "./thread-requests.js";
 import { resumeCodexAppServerThread } from "./thread-resume.js";
+import { hasCodexAppServerSiblingRouteWork } from "./turn-router.js";
 
 function resolveCodexThreadRolloutPath(thread: CodexThread): string | undefined {
   const rolloutPath = thread.path?.trim();
@@ -113,13 +116,19 @@ export async function resumeExistingCodexThread(
       resumeBinding.ringZeroClientInstanceId !== undefined ||
       resumeBinding.ringZeroConfigFingerprint !== undefined ||
       context.ringZeroActive;
+    const sharedEntry = getCurrentSharedClientEntry(params.client);
     if (
       configuration.settledSystemError &&
       !clientBoundThread &&
-      resumeBinding.connectionScope !== "supervision"
+      resumeBinding.connectionScope !== "supervision" &&
+      // This attempt owns one lease. Other leases and pending startups can
+      // keep the retired process, including its old writer, alive.
+      (!sharedEntry || (sharedEntry.activeLeases <= 1 && sharedEntry.pendingAcquires === 0)) &&
+      !hasCodexAppServerSiblingThreadWork(params.client, resumeBinding.threadId) &&
+      !hasCodexAppServerSiblingRouteWork(params.client, resumeBinding.threadId)
     ) {
-      // Native reload requires Idle. Retire before resume writes so startup can
-      // reacquire the same history while existing sibling leases drain.
+      // Native reload requires Idle. A sibling keeps the old writer alive after
+      // retirement, so only an otherwise inactive client can recover this way.
       await abandonClient();
       throw new CodexThreadClientReplacementError();
     }
