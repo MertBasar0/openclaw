@@ -549,7 +549,12 @@ function holdNativeExit(processes: Map<ChildProcess, { output: string }>, thread
       return true;
     return kill(pid, value);
   });
-  const childKill = vi.spyOn(child, "kill").mockImplementation(() => true);
+  const killChild = child.kill.bind(child);
+  const childKill = vi
+    .spyOn(child, "kill")
+    .mockImplementation((value) =>
+      value === "SIGCONT" || value === "SIGSTOP" ? killChild(value) : true,
+    );
   let released = false;
   return {
     child,
