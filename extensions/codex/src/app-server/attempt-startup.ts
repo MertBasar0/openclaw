@@ -614,26 +614,12 @@ export async function startCodexAttemptThread(params: {
                 startupClientForAbandonedRequestCleanup = undefined;
               }
             }
-            throw error;
           } finally {
             if (!startupAttemptSucceeded) {
               if (releaseSharedClientLease === startupClientLease) {
                 releaseSharedClientLease = undefined;
               }
               startupClientLease?.();
-              if (
-                startupAttemptError instanceof CodexThreadClientReplacementError &&
-                startupClient
-              ) {
-                // Releasing the last lease starts closure; the native writer lock
-                // belongs to the old process until its physical exit is confirmed.
-                const closed = await startupClient.closeAndWait();
-                if (!closed.exited) {
-                  throw new AgentHarnessPreflightError(
-                    "The previous conversation process did not confirm shutdown; the conversation was preserved.",
-                  );
-                }
-              }
               if (
                 shouldRetireCodexStartupClient(
                   startupAttemptError,
@@ -648,6 +634,17 @@ export async function startCodexAttemptThread(params: {
               }
             }
           }
+          if (startupAttemptError instanceof CodexThreadClientReplacementError && startupClient) {
+            // Releasing the last lease starts closure; the native writer lock
+            // belongs to the old process until its physical exit is confirmed.
+            const closed = await startupClient.closeAndWait();
+            if (!closed.exited) {
+              throw new AgentHarnessPreflightError(
+                "The previous conversation process did not confirm shutdown; the conversation was preserved.",
+              );
+            }
+          }
+          throw startupAttemptError;
         };
 
         let replacedSettledFailureClient = false;

@@ -361,7 +361,9 @@ it.each(cases)(
     }
     const previous = await ready(first.runId);
     expect(previous.action).toBe("started");
-    if (idleThread) expect(previous.clientId).toBe(idleThread.clientId);
+    if (idleThread) {
+      expect(previous.clientId).toBe(idleThread.clientId);
+    }
     expect(primaryRequests).toHaveLength(1);
     expect(primaryRequests[0]).toMatchObject({
       body: expect.stringContaining("INITIAL_POLICY"),
@@ -469,7 +471,9 @@ it.each(cases)(
     const exitGate = shutdown
       ? holdNativeExit(nativeProcesses, previous.threadId, shutdown === "unconfirmed")
       : undefined;
-    if (exitGate) onTestFinished(exitGate.release);
+    if (exitGate) {
+      onTestFinished(exitGate.release);
+    }
     const beforeRecoveryProcesses = nativeProcesses.size;
     const continued = await start("Continue with changed instructions.", "second");
     if (exitGate) {
@@ -518,8 +522,12 @@ it.each(cases)(
     const history = await gateway.client.request("chat.history", { sessionKey, limit: 20 });
     expect(JSON.stringify(history)).toContain("HISTORY_ALPHA NEW_POLICY_BETA");
 
-    if (exitGate) expect(nativeProcesses.size).toBe(beforeRecoveryProcesses + 1);
-    if (idleSibling === "persistent") await continueIdleSibling(recovered.clientId);
+    if (exitGate) {
+      expect(nativeProcesses.size).toBe(beforeRecoveryProcesses + 1);
+    }
+    if (idleSibling === "persistent") {
+      await continueIdleSibling(recovered.clientId);
+    }
     expect(requests).toHaveLength(idleSibling ? 4 : 2);
   },
 );
@@ -543,7 +551,9 @@ function holdNativeExit(
   const onListener = (event: string) => {
     // close() installs its exit handler before ending stdin. closeAndWait()
     // subsequently subscribes to physical exit, after closure has begun.
-    if (event === "exit" && closing) waiting.resolve();
+    if (event === "exit" && closing) {
+      waiting.resolve();
+    }
   };
   child.on("newListener", onListener);
   const end = vi.spyOn(stdin, "end").mockImplementation(() => {
@@ -588,10 +598,11 @@ function holdNativeExit(
       Object.defineProperty(child, "signalCode", { ...signalDescriptor, value: signalCode });
     };
   }
-  const kill = nodeProcess.kill;
+  const kill = nodeProcess.kill.bind(nodeProcess);
   const signal = vi.spyOn(nodeProcess, "kill").mockImplementation((targetPid, value) => {
-    if ((targetPid === pid || targetPid === -pid) && (value === "SIGKILL" || value === "SIGTERM"))
+    if ((targetPid === pid || targetPid === -pid) && (value === "SIGKILL" || value === "SIGTERM")) {
       return true;
+    }
     return kill(targetPid, value);
   });
   syncBuiltinESMExports();
@@ -607,7 +618,9 @@ function holdNativeExit(
     waiting: waiting.promise,
     exited: exited.promise,
     release: () => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       child.off("newListener", onListener);
       restoreExitConfirmation();
