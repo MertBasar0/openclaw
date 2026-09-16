@@ -3,14 +3,11 @@ import http from "node:http";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { assert, expect, it, vi } from "vitest";
-import {
-  disconnectGatewayClient,
-  startGatewayWithClient,
-} from "../src/gateway/test-helpers.e2e.js";
-import { captureEnv } from "../src/test-utils/env.js";
-import { writeOpenAiResponsesText } from "./helpers/openai-responses-sse.js";
-import { createDeferred, withTestTimeout } from "./helpers/promise.js";
-import { useAutoCleanupTempDirTracker } from "./helpers/temp-dir.js";
+import { writeOpenAiResponsesText } from "../../test/helpers/openai-responses-sse.js";
+import { createDeferred, withTestTimeout } from "../../test/helpers/promise.js";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { captureEnv } from "../test-utils/env.js";
+import { disconnectGatewayClient, startGatewayWithClient } from "./test-helpers.e2e.js";
 
 type ProviderRequest = {
   body: string;
