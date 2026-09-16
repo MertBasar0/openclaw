@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { assert, expect, it, vi } from "vitest";
+import { assert, expect, it, onTestFinished, vi } from "vitest";
 import { writeOpenAiResponsesText } from "../../test/helpers/openai-responses-sse.js";
 import { createDeferred, withTestTimeout } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
@@ -36,8 +36,8 @@ it.each([
     failFirst: false,
     activeSibling: false,
   },
-])("chat.send $name", { timeout: 180_000 }, async ({ failFirst, activeSibling }, context) => {
-  const dirs = useAutoCleanupTempDirTracker(context.onTestFinished);
+])("chat.send $name", { timeout: 180_000 }, async ({ failFirst, activeSibling }) => {
+  const dirs = useAutoCleanupTempDirTracker(onTestFinished);
   const root = await fs.realpath(dirs.make("gateway-native-recovery-"));
   const workspace = path.join(root, "workspace");
   const state = path.join(root, "state");
@@ -115,7 +115,7 @@ it.each([
       responseId: `primary-response-${primaryRequests.length}`,
     });
   });
-  context.onTestFinished(async () => {
+  onTestFinished(async () => {
     releaseSibling.resolve();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -149,7 +149,7 @@ it.each([
   };
   const env = captureEnv(Object.keys(values));
   Object.assign(process.env, values);
-  context.onTestFinished(() => env.restore());
+  onTestFinished(() => env.restore());
   const model = "gpt-5.5";
   const cfg = {
     gateway: {
@@ -249,7 +249,7 @@ it.each([
       }
     },
   });
-  context.onTestFinished(async () => {
+  onTestFinished(async () => {
     releaseSibling.resolve();
     await disconnectGatewayClient(gateway.client);
     await gateway.server.close();
