@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
+import nodeProcess from "node:process";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { assert, expect, it, onTestFinished, vi } from "vitest";
 import { writeOpenAiResponsesText } from "../../test/helpers/openai-responses-sse.js";
@@ -528,6 +529,7 @@ function holdNativeExit(processes: Map<ChildProcess, { output: string }>, thread
   const child = matches[0]?.[0];
   assert(child?.stdin && child.pid, "the native thread must belong to a captured process");
   const stdin = child.stdin;
+  const pid = child.pid;
   const waiting = createDeferred();
   const exited = createDeferred();
   let closing = false;
@@ -543,12 +545,13 @@ function holdNativeExit(processes: Map<ChildProcess, { output: string }>, thread
     return stdin;
   });
   const destroy = vi.spyOn(stdin, "destroy").mockImplementation(() => stdin);
-  const kill = process.kill;
-  const signal = vi.spyOn(process, "kill").mockImplementation((pid, value) => {
-    if ((pid === child.pid || pid === -child.pid!) && (value === "SIGKILL" || value === "SIGTERM"))
+  const kill = nodeProcess.kill;
+  const signal = vi.spyOn(nodeProcess, "kill").mockImplementation((targetPid, value) => {
+    if ((targetPid === pid || targetPid === -pid) && (value === "SIGKILL" || value === "SIGTERM"))
       return true;
-    return kill(pid, value);
+    return kill(targetPid, value);
   });
+  syncBuiltinESMExports();
   const killChild = child.kill.bind(child);
   const childKill = vi
     .spyOn(child, "kill")
@@ -567,6 +570,7 @@ function holdNativeExit(processes: Map<ChildProcess, { output: string }>, thread
       end.mockRestore();
       destroy.mockRestore();
       signal.mockRestore();
+      syncBuiltinESMExports();
       childKill.mockRestore();
       stdin.end();
     },
