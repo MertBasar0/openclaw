@@ -43,6 +43,7 @@ import {
   isOpenClawManagedCodexThread,
   readCodexSessionMeta,
 } from "./session-catalog-provenance.js";
+import { CodexCatalogSourceBackoff } from "./session-catalog-source-backoff.js";
 import type {
   CodexSessionCatalogControl,
   CodexSessionCatalogControlFactory,
@@ -52,6 +53,7 @@ import type {
 } from "./session-catalog-types.js";
 
 const CODEX_SESSION_CATALOG_LIST_TTL_MS = 32_000;
+// Each source can need 20 exclusion pages; retain several query shapes per source.
 const CODEX_SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES = 32;
 
 type CodexCatalogRequestOptions = {
@@ -441,7 +443,8 @@ export function createCodexSessionCatalogControl(params: {
     OpenClawConfig,
     Map<string, CodexCatalogRequestOptions>
   >();
-  const catalogPagesByConfig = new WeakMap<OpenClawConfig, CodexCatalogPageCache>();
+  const catalogPagesByConfig = new WeakMap<OpenClawConfig, Map<string, CodexCatalogPageCache>>();
+  const sourceBackoff = new CodexCatalogSourceBackoff(now);
   const resolveRequestOptions = (
     startOptions: CodexAppServerStartOptions,
     agentId: string | undefined,
@@ -602,10 +605,17 @@ export function createCodexSessionCatalogControl(params: {
         if (!runtimeConfig) {
           return await control.listPage(pageParams);
         }
-        let cache = catalogPagesByConfig.get(runtimeConfig);
+        let sources = catalogPagesByConfig.get(runtimeConfig);
+        if (!sources) {
+          sources = new Map();
+          catalogPagesByConfig.set(runtimeConfig, sources);
+        }
+        // A full walk of other homes must not evict this source before its next poll.
+        const sourceKey = JSON.stringify([agentId, source?.sourceHomeId ?? null]);
+        let cache = sources.get(sourceKey);
         if (!cache) {
           cache = { settled: new Map(), pending: new Map() };
-          catalogPagesByConfig.set(runtimeConfig, cache);
+          sources.set(sourceKey, cache);
         }
         const key = codexCatalogPageCacheKey(pageParams, agentId, source);
         const cached = cache.settled.get(key);
@@ -632,6 +642,16 @@ export function createCodexSessionCatalogControl(params: {
           }
           return await waitForCodexCatalogPage(pending.page, pending.producerOperationId);
         }
+        const attempt = sourceBackoff.begin(runtimeConfig, agentId, source?.sourceHomeId);
+        if (!attempt.allowed) {
+          if (cached) {
+            if (listDiagnostics) {
+              listDiagnostics.fields.staleHits++;
+            }
+            return cached.value;
+          }
+          throw attempt.error;
+        }
         if (listDiagnostics) {
           if (cached) {
             listDiagnostics.fields.staleHits++;
@@ -647,6 +667,7 @@ export function createCodexSessionCatalogControl(params: {
           .listPage(pageParams, diagnostics ?? null)
           .then(
             (value) => {
+              attempt.resolved();
               cache.settled.delete(key);
               cache.settled.set(key, {
                 value,
@@ -656,6 +677,7 @@ export function createCodexSessionCatalogControl(params: {
               return value;
             },
             (error: unknown) => {
+              attempt.rejected(error);
               if (cached && cache.settled.get(key) === cached) {
                 cached.expiresAt = now();
               }

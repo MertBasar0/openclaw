@@ -155,6 +155,22 @@ describe("runGatewayUpdate", () => {
     await fs.writeFile(path.join(tempDir, "openclaw.mjs"), "export {};\n", "utf-8");
   });
 
+  async function withWindowsPackageManagerSimulation<T>(run: () => Promise<T>): Promise<T> {
+    const bunVersion = Object.getOwnPropertyDescriptor(process.versions, "bun");
+    if (bunVersion) {
+      // These cases simulate Windows command selection on a non-Windows host. Keep
+      // Bun's real system-Node probe from searching for a Windows executable here.
+      Object.defineProperty(process.versions, "bun", { ...bunVersion, value: undefined });
+    }
+    try {
+      return await withMockedWindowsPlatform(run);
+    } finally {
+      if (bunVersion) {
+        Object.defineProperty(process.versions, "bun", bunVersion);
+      }
+    }
+  }
+
   async function createStableTagRunner(params: {
     stableTag: string;
     onDoctor?: () => Promise<void>;
@@ -1167,7 +1183,8 @@ describe("runGatewayUpdate", () => {
       "refused by caller",
     );
     expect(beforeGitMutation).toHaveBeenCalledWith({
-      metadataUnreadable: expect.stringContaining("exited 128"),
+      sha: upstreamSha,
+      metadataUnreadable: `git show ${upstreamSha}:package.json exited 128`,
     });
   });
 
@@ -1813,7 +1830,7 @@ describe("runGatewayUpdate", () => {
       },
     });
 
-    const result = await withMockedWindowsPlatform(() =>
+    const result = await withWindowsPackageManagerSimulation(() =>
       runWithCommand(runCommand, { channel: "dev" }),
     );
 
@@ -1864,7 +1881,8 @@ describe("runGatewayUpdate", () => {
         PNPM_CONFIG_PREFER_OFFLINE: "false",
         pnpm_config_prefer_offline: undefined,
       },
-      () => withMockedWindowsPlatform(() => runWithCommand(runCommand, { channel: "dev" })),
+      () =>
+        withWindowsPackageManagerSimulation(() => runWithCommand(runCommand, { channel: "dev" })),
     );
 
     expect(result.status).toBe("ok");
@@ -2614,7 +2632,7 @@ describe("runGatewayUpdate", () => {
       },
     });
 
-    await withMockedWindowsPlatform(async () => {
+    await withWindowsPackageManagerSimulation(async () => {
       const result = await runWithCommand(runCommand, { channel: "dev" });
 
       expect(result.status).toBe("ok");
@@ -2649,7 +2667,7 @@ describe("runGatewayUpdate", () => {
       },
     });
 
-    await withMockedWindowsPlatform(async () => {
+    await withWindowsPackageManagerSimulation(async () => {
       const result = await runWithCommand(runCommand, { channel: "dev" });
 
       expect(result.status).toBe("ok");

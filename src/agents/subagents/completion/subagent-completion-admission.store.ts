@@ -3,6 +3,10 @@ import {
   loadDeliveryQueueEntryInDatabase,
   upsertBoundDeliveryQueueEntryInDatabase,
 } from "../../../infra/delivery-queue-sqlite-bound.js";
+import {
+  getDeliveryQueueEntryOwnersInDatabase,
+  type DeliveryQueueStoredStatus,
+} from "../../../infra/delivery-queue-sqlite.kernel.js";
 import { scheduleSessionDelivery } from "../../../infra/session-delivery-queue-runtime.js";
 import {
   prepareClaimedSessionDelivery,
@@ -30,7 +34,11 @@ import {
 } from "../../../tasks/task-registry.store.kernel.js";
 import type { TaskRecord } from "../../../tasks/task-registry.types.js";
 import { resolveTaskCleanupAfter } from "../../../tasks/task-retention.js";
-import { ensureCompletionState, ensureDeliveryState } from "../registry/subagent-delivery-state.js";
+import {
+  ensureCompletionState,
+  ensureDeliveryState,
+  isCompletedRequesterDeliveryBlocked,
+} from "../registry/subagent-delivery-state.js";
 import { SUBAGENT_ENDED_REASON_KILLED } from "../registry/subagent-lifecycle-events.js";
 import { resolveFinalizedSubagentTaskState } from "../registry/subagent-registry-completion.js";
 import {
@@ -38,6 +46,7 @@ import {
   markRequesterSettleWakePending,
 } from "../registry/subagent-registry-lifecycle-delivery.js";
 import { subagentRuns } from "../registry/subagent-registry-memory.js";
+import { publishSubagentRunsAfterAtomicStore } from "../registry/subagent-registry-state.js";
 import {
   bindSubagentRunRecord,
   loadSubagentRunsForChildSessionFromSqlite,
@@ -66,7 +75,10 @@ function invokeSynchronousHook(hook: (() => unknown) | undefined): void {
   }
 }
 
-function publishCommittedSubagent(subagent: SubagentRunRecord): void {
+function publishCommittedSubagent(
+  subagent: SubagentRunRecord,
+  deferredObserverEvents: Array<() => void> = [],
+): Array<() => void> {
   const live = subagentRuns.get(subagent.runId);
   if (live) {
     for (const key of Object.keys(live)) {
@@ -76,11 +88,13 @@ function publishCommittedSubagent(subagent: SubagentRunRecord): void {
   } else {
     subagentRuns.set(subagent.runId, subagent);
   }
+  publishSubagentRunsAfterAtomicStore(subagentRuns, [subagent.runId], deferredObserverEvents);
+  return deferredObserverEvents;
 }
 
 export function publishCommittedRecords(subagent: SubagentRunRecord, task: TaskRecord): void {
-  publishCommittedSubagent(subagent);
   const deferredObserverEvents: Array<() => void> = [];
+  publishCommittedSubagent(subagent, deferredObserverEvents);
   const published = publishTaskRecordAfterAtomicStore(task, { deferredObserverEvents });
   syncFlowFromTaskAfterTaskMutation(published, "atomic completion admission");
   for (const emitObserverEvent of deferredObserverEvents) {
@@ -120,7 +134,7 @@ export function admitSubagentCompletionDelivery(params: {
   databaseOptions?: OpenClawStateDatabaseOptions;
   /** Transaction cut points used by the real-store crash-consistency tests. */
   testHooks?: AdmissionTestHooks;
-}): { claimed: boolean } {
+}): { claimed: boolean; status: DeliveryQueueStoredStatus } {
   assertCorrelatedEntry(params);
   const boundQueue = bindDeliveryQueueEntry({
     queueName: SESSION_DELIVERY_QUEUE_NAME,
@@ -160,7 +174,13 @@ export function admitSubagentCompletionDelivery(params: {
       invokeSynchronousHook(() => params.testHooks?.afterMutation?.("subagent", database));
       upsertTaskRunRowInDatabase(database, boundTask);
       invokeSynchronousHook(() => params.testHooks?.afterMutation?.("task", database));
-      return { claimed };
+      const status =
+        getDeliveryQueueEntryOwnersInDatabase(
+          database,
+          [SESSION_DELIVERY_QUEUE_NAME],
+          params.queueEntry.id,
+        ).get(SESSION_DELIVERY_QUEUE_NAME)?.status ?? "pending";
+      return { claimed, status };
     },
     params.databaseOptions,
     { operationLabel: "subagent completion delivery admission" },
@@ -262,7 +282,9 @@ export function reconcileRetiredSubagentCancellation(
     }
     subagent.killReconciliation = undefined;
     upsertSubagentRunRowInDatabase(database, bindSubagentRunRecord(subagent));
-    deferSqlitePostCommitPublication(database.db, () => publishCommittedSubagent(subagent));
+    deferSqlitePostCommitPublication(database.db, () => {
+      publishCommittedSubagent(subagent).forEach((emit) => emit());
+    });
     return true;
   });
 }
@@ -272,6 +294,7 @@ export function blockSubagentCompletionDelivery(params: {
   taskId: string;
   reason: string;
   suspendedReason?: "expiry" | "permanent_failure";
+  lastDropReason?: NonNullable<SubagentRunRecord["delivery"]>["lastDropReason"];
   disposition?: NonNullable<SubagentRunRecord["delivery"]>["disposition"];
   databaseOptions?: OpenClawStateDatabaseOptions;
 }): boolean {
@@ -303,7 +326,9 @@ export function blockSubagentCompletionDelivery(params: {
       });
       subagent.suppressCompletionDelivery = true;
       upsertSubagentRunRowInDatabase(database, bindSubagentRunRecord(subagent));
-      deferSqlitePostCommitPublication(database.db, () => publishCommittedSubagent(subagent));
+      deferSqlitePostCommitPublication(database.db, () => {
+        publishCommittedSubagent(subagent).forEach((emit) => emit());
+      });
       return true;
     }
     if (
@@ -341,12 +366,21 @@ export function blockSubagentCompletionDelivery(params: {
       announcedAt: undefined,
       suspendedAt: params.suspendedReason ? (delivery.suspendedAt ?? now) : delivery.suspendedAt,
       suspendedReason: params.suspendedReason ?? delivery.suspendedReason,
+      lastDropReason: params.lastDropReason ?? delivery.lastDropReason,
       nextAttemptAt: undefined,
       queueId: undefined,
     });
     Object.assign(subagent, { cleanupHandled: false, wakeOnDescendantSettle: undefined });
     if (params.suspendedReason) {
-      markRequesterSettleWakePending(subagent);
+      if (isCompletedRequesterDeliveryBlocked(subagent)) {
+        // This requester already ran. An ordinary settle wake would replay it;
+        // a separately owned yield batch still has genuine unfinished work.
+        if (subagent.requesterSettleWake?.requesterYieldBatch !== true) {
+          subagent.requesterSettleWake = undefined;
+        }
+      } else {
+        markRequesterSettleWakePending(subagent);
+      }
     } else {
       subagent.suppressCompletionDelivery = true;
     }

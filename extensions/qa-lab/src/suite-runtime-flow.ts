@@ -1,5 +1,5 @@
 // Qa Lab plugin module implements suite runtime flow behavior.
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -7,7 +7,6 @@ import { resolveModelRefFromString } from "openclaw/plugin-sdk/agent-runtime";
 import { formatErrorMessage as formatQaErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { formatMemoryDreamingDay } from "openclaw/plugin-sdk/memory-core-host-status";
 import { resolveSessionTranscriptsDirForAgent } from "openclaw/plugin-sdk/memory-host-core";
-import { createPluginStateSyncKeyedStore } from "openclaw/plugin-sdk/plugin-state-store-runtime";
 import { buildAgentSessionKey } from "openclaw/plugin-sdk/routing";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
 import * as browserRuntime from "./browser-runtime.js";
@@ -36,39 +35,6 @@ type QaSuiteScenarioFlowEnv = {
   transport: QaSuiteRuntimeEnv["transport"] & QaScenarioRuntimeEnv["transport"];
 } & Omit<QaSuiteRuntimeEnv, "transport">;
 
-function activeMemoryToggleKey(sessionKey: string) {
-  return createHash("sha256").update(sessionKey, "utf8").digest("hex");
-}
-
-function setActiveMemorySessionDisabled(
-  env: QaSuiteScenarioFlowEnv,
-  sessionKey: string,
-  disabled: boolean,
-) {
-  const store = createPluginStateSyncKeyedStore<{
-    sessionKey: string;
-    disabled: true;
-    updatedAt: number;
-  }>("active-memory", {
-    namespace: "session-toggles",
-    maxEntries: 10_000,
-    env: {
-      ...process.env,
-      OPENCLAW_STATE_DIR: path.join(env.gateway.tempRoot, "state"),
-    },
-  });
-  const key = activeMemoryToggleKey(sessionKey);
-  if (disabled) {
-    store.register(key, {
-      sessionKey,
-      disabled: true,
-      updatedAt: Date.now(),
-    });
-    return;
-  }
-  store.delete(key);
-}
-
 const qaSuiteScenarioIdentityDeps = {
   fs,
   path,
@@ -85,8 +51,6 @@ const qaSuiteScenarioIdentityDeps = {
   hasModelSwitchContinuitySignal: modelSwitchEval.hasModelSwitchContinuitySignal,
   formatMemoryDreamingDay,
   resolveSessionTranscriptsDirForAgent,
-  activeMemoryToggleKey,
-  setActiveMemorySessionDisabled,
   buildAgentSessionKey,
   normalizeLowercaseStringOrEmpty,
 };
@@ -184,7 +148,10 @@ type QaSuiteScenarioFlowApiParams = QaSuiteScenarioDepsParams & {
   };
 };
 
-function createQaSuiteScenarioDeps(params: QaSuiteScenarioDepsParams) {
+function createQaSuiteScenarioDeps(
+  params: QaSuiteScenarioDepsParams,
+  webOpenPage: ReturnType<typeof webRuntime.createQaWebPageOpener>,
+) {
   const waitForAccountOutboundMessage: typeof suiteRuntimeTransport.waitForOutboundMessage = (
     state,
     predicate,
@@ -231,14 +198,7 @@ function createQaSuiteScenarioDeps(params: QaSuiteScenarioDepsParams) {
     browserOpenTab: browserRuntime.qaBrowserOpenTab,
     browserSnapshot: browserRuntime.qaBrowserSnapshot,
     browserAct: browserRuntime.qaBrowserAct,
-    webOpenPage: async (webParams: Parameters<typeof webRuntime.qaWebOpenPage>[0]) => {
-      const opened = await webRuntime.qaWebOpenPage({
-        ...webParams,
-        repoRoot: params.env.repoRoot,
-      });
-      params.env.webSessionIds.add(opened.pageId);
-      return opened;
-    },
+    webOpenPage,
     webWait: webRuntime.qaWebWait,
     webType: webRuntime.qaWebType,
     webSnapshot: webRuntime.qaWebSnapshot,
@@ -294,22 +254,23 @@ function createQaSuiteScenarioDeps(params: QaSuiteScenarioDepsParams) {
 function createQaSuiteScenarioFlowApi(
   params: QaSuiteScenarioFlowApiParams & { signal: AbortSignal },
 ) {
-  return {
+  const createWebPageOpener = (signal?: AbortSignal) => {
+    const open = webRuntime.createQaWebPageOpener(params.env.webSessionIds, signal);
+    return (webParams: Parameters<typeof webRuntime.qaWebOpenPage>[0]) =>
+      open({ ...webParams, repoRoot: params.env.repoRoot });
+  };
+  const api = {
     ...createQaScenarioRuntimeApi({
       env: params.env,
       scenario: params.scenario,
-      deps: createQaSuiteScenarioDeps({
-        env: params.env,
-        runScenario: params.runScenario,
-        splitModelRef: params.splitModelRef,
-        formatErrorMessage: params.formatErrorMessage,
-        liveTurnTimeoutMs: params.liveTurnTimeoutMs,
-        resolveQaLiveTurnTimeoutMs: params.resolveQaLiveTurnTimeoutMs,
-      }),
+      deps: createQaSuiteScenarioDeps(params, createWebPageOpener(params.signal)),
       constants: params.constants,
     }),
     signal: params.signal,
   };
+  // DSL finally actions may need a new page after the scenario deadline.
+  // They share the suite owner and seal, but not the expired acquisition signal.
+  return { api, cleanupApi: { ...api, webOpenPage: createWebPageOpener() } };
 }
 
 function createQaScenarioDeadline(timeoutMs?: number) {
@@ -414,7 +375,7 @@ export async function runQaSuiteScenarioDefinition(params: QaSuiteScenarioFlowAp
   const vars: Record<string, unknown> = {};
   const deadline = createQaScenarioDeadline(params.scenario.execution.timeoutMs);
   try {
-    const api = createQaSuiteScenarioFlowApi({
+    const { api, cleanupApi } = createQaSuiteScenarioFlowApi({
       ...params,
       signal: deadline.signal,
       runScenario: createQaSuiteScenarioStepRunner(params.env, params.scenario, vars, deadline, {
@@ -424,6 +385,7 @@ export async function runQaSuiteScenarioDefinition(params: QaSuiteScenarioFlowAp
     });
     return await runScenarioFlow({
       api,
+      cleanupApi,
       flow: params.scenario.execution.flow,
       scenarioTitle: params.scenario.title,
       vars,

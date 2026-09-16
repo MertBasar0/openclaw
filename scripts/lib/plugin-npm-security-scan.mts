@@ -188,6 +188,25 @@ CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
   1,
 );
 
+// Process-inspection fixtures added after 9.4 deliberately run bounded child commands.
+// Keep their exact reviewed counts out of the already-shipped inventories above.
+CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
+  "@openclaw/codex:dangerous-exec:src/app-server/transport-process-snapshot.test.ts",
+  3,
+);
+CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
+  "@openclaw/codex:dangerous-exec:src/app-server/transport-procfs.test-support.ts",
+  3,
+);
+CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
+  "@openclaw/codex:dangerous-exec:src/app-server/test-support/transport-process-blocked-command.test-support.mjs",
+  2,
+);
+CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
+  "@openclaw/codex:dangerous-exec:src/app-server/test-support/transport-process-starvation.test-support.mjs",
+  1,
+);
+
 const CURRENT_SECURITY_INVENTORY_POLICY: PluginSecurityInventoryPolicy = {
   layout: CURRENT_REVIEWED_RELEASE_LAYOUT,
   optionalPackedFindingCounts: CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS,

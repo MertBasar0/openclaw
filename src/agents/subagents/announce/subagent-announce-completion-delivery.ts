@@ -3,6 +3,7 @@
  */
 import { sanitizePendingFinalDeliveryText } from "../../../auto-reply/reply/pending-final-delivery-state.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+import { waitForGatewayDispatch } from "../../../gateway/server-in-process-dispatch.js";
 import { sourceDeliveryTargetsMatch } from "../../../infra/outbound/source-delivery-plan.js";
 import { shouldPreserveUserFacingSessionStateForInputProvenance } from "../../../sessions/input-provenance.js";
 import { deriveSessionChatTypeFromKey } from "../../../sessions/session-chat-type-shared.js";
@@ -16,6 +17,7 @@ import {
 } from "../../embedded-agent-runner/delivery-evidence.js";
 import { hasVisibleCompletionResult } from "../../internal-event-contract.js";
 import type { AgentInternalEvent } from "../../internal-events.js";
+import { createAgentRunDirectAbortError } from "../../run-termination.js";
 import {
   SourceOwnerChangedError,
   sourceOwnerChangedResult,
@@ -41,9 +43,14 @@ export async function runAnnounceAgentCall(params: {
   resolveGatewayContext?: import("../../../gateway/server-methods/types.js").GatewayContextResolver;
 }): Promise<unknown> {
   const deadline = new AbortController();
-  const signal = params.signal
-    ? AbortSignal.any([params.signal, deadline.signal])
-    : deadline.signal;
+  const sourceLifecycle = new AbortController();
+  const lifecycleSignal = params.signal
+    ? AbortSignal.any([params.signal, sourceLifecycle.signal])
+    : sourceLifecycle.signal;
+  const signal = AbortSignal.any([lifecycleSignal, deadline.signal]);
+  // A private input stays owned by Gateway admission when an observer times out.
+  // Caller or source lifecycle cancellation still stops that underlying turn.
+  const executionSignal = params.privateCompletion ? lifecycleSignal : signal;
   const timer =
     params.timeoutMs === undefined
       ? undefined
@@ -53,7 +60,8 @@ export async function runAnnounceAgentCall(params: {
         );
   timer?.unref?.();
   try {
-    return await dispatchSubagentAnnounceAgent(params.agentParams, {
+    signal.throwIfAborted();
+    const dispatch = dispatchSubagentAnnounceAgent(params.agentParams, {
       cancelOnDeadline: true,
       privateCompletion: params.privateCompletion,
       expectFinal: params.expectFinal,
@@ -62,20 +70,28 @@ export async function runAnnounceAgentCall(params: {
       ),
       operatorRoleActor: { kind: "system" },
       delegatedToolPolicyHandoff: params.delegatedToolPolicyHandoff,
-      signal,
+      signal: executionSignal,
       // Accepted queue waits belong to session admission; execution belongs to
       // the requester runtime budget, not the announcement handoff deadline.
       onAccepted: () => clearTimeout(timer),
       onExecutionStarted: () => {
-        signal.throwIfAborted();
+        executionSignal.throwIfAborted();
         if (!params.isExecutionAllowed()) {
-          throw new SourceOwnerChangedError();
+          sourceLifecycle.abort(new SourceOwnerChangedError());
+          // Classify execution immediately, before Gateway observes cancellation.
+          throw createAgentRunDirectAbortError();
         }
         // Execution can be observed before acceptance on an already-running replay.
         clearTimeout(timer);
       },
       resolveGatewayContext: params.resolveGatewayContext,
     });
+    return params.privateCompletion
+      ? await waitForGatewayDispatch("agent", dispatch, undefined, signal)
+      : await dispatch;
+  } catch (error) {
+    sourceLifecycle.signal.throwIfAborted();
+    throw error;
   } finally {
     clearTimeout(timer);
   }

@@ -2,6 +2,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { isMainThread } from "node:worker_threads";
 import { resolveStateDir } from "../config/paths.js";
 import { isGatewayExternallySupervised } from "../infra/gateway-supervision.js";
 import { enableNodeSqliteKyselyStatementCache } from "../infra/kysely-sync.js";
@@ -28,6 +29,7 @@ import {
   type SqliteTransactionOptions,
 } from "../infra/sqlite-transaction.js";
 import { isSqliteSchemaVersionError } from "../infra/sqlite-user-version.js";
+import { registerSqliteWalWriteAdmission } from "../infra/sqlite-wal-write-admission.js";
 import {
   configureSqliteConnectionPragmas,
   configureSqlitePreSchemaPragmas,
@@ -97,6 +99,7 @@ import {
   isIncognitoOpenClawAgentSqlitePath,
   resolveOpenClawAgentSqlitePath,
 } from "./openclaw-agent-db.paths.js";
+import { runOpenClawAgentWriteAdmission } from "./openclaw-agent-write-admission.js";
 import {
   clearOpenClawDatabaseQuarantine,
   createOpenClawDatabaseVerificationError,
@@ -428,6 +431,16 @@ function* openOpenClawAgentDatabaseSteps(
     finishPhase("registration");
     cache.leases.set(pathname, { leaseId, env: leaseEnvironment });
     cache.databases.set(pathname, database);
+    if (isMainThread) {
+      const writeOptions = { agentId, path: pathname, env: leaseEnvironment };
+      registerSqliteWalWriteAdmission(db, (operation) =>
+        runOpenClawAgentWriteAdmission(writeOptions, () => {
+          if (getOpenClawAgentDatabaseIfOpen(writeOptions) === database) {
+            operation();
+          }
+        }),
+      );
+    }
     getOpenClawDatabaseMaintenanceScope()?.own(database.db, "agent-handles", () =>
       closeMaintenanceAgentDatabase(database),
     );
@@ -601,17 +614,6 @@ export function readOpenIncognitoAgentDatabaseGeneration(): number {
 /** Returns whether this exact process-held database is incognito/in-memory. */
 export function isIncognitoOpenClawAgentDatabase(database: OpenClawAgentDatabase): boolean {
   return cache.incognito.has(database);
-}
-
-/** List process-held agent databases without opening or inspecting fixture state. */
-export function listOpenClawAgentDatabasesForTest(): Array<{ agentId: string; path: string }> {
-  return [...cache.databases.values()]
-    .filter((database) => database.db.isOpen)
-    .map((database) => ({ agentId: database.agentId, path: database.path }))
-    .toSorted(
-      (left, right) =>
-        left.agentId.localeCompare(right.agentId) || left.path.localeCompare(right.path),
-    );
 }
 
 /** Close and unregister one unambiguous transient agent database by filesystem identity. */

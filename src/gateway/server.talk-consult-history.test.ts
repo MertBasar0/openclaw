@@ -25,7 +25,7 @@ import { clearSessionStoreCacheForTest } from "../config/sessions/store-writer-s
 import { getSessionWorkAdmissionRelease } from "../sessions/session-lifecycle-admission.js";
 import { onInternalSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import {
-  closeOpenClawAgentDatabaseByPath,
+  closeOpenClawAgentDatabaseByPathAsync,
   resolveOpenClawAgentSqlitePath,
 } from "../state/openclaw-agent-db.js";
 import { ensureProfileForEmail } from "../state/user-profiles.js";
@@ -38,7 +38,7 @@ import { createDirectChatContext } from "./server-chat.agent-events.test-helpers
 import { handleGatewayRequest } from "./server-methods.js";
 import type { GatewayClient, GatewayRequestContext, RespondFn } from "./server-methods/types.js";
 import { createTranscriptUpdateBroadcastHandler } from "./server-session-events.js";
-import { createTalkClientAgentConsultRunner } from "./talk-client-agent-consult.js";
+import { createTalkClientAgentConsultRunner } from "./talk/client-agent-consult.js";
 import {
   createGatewaySuiteHarness,
   dispatchInboundMessageMock,
@@ -573,7 +573,7 @@ describe("Browser Talk consult input custody", () => {
       const databasePath = resolveOpenClawAgentSqlitePath(
         toDatabaseOptions(resolveSqliteTranscriptReadScope(scope())),
       );
-      expect(closeOpenClawAgentDatabaseByPath(databasePath)).toBe(true);
+      expect(await closeOpenClawAgentDatabaseByPathAsync(databasePath)).toBe(true);
       clearSessionStoreCacheForTest();
       expectVisibleSpeechOnly(await historyMessages(), "reopened chat.history", true);
       for (const manager of [
@@ -716,7 +716,7 @@ describe("Direct Talk consult history after call closure", () => {
         const databasePath = resolveOpenClawAgentSqlitePath(
           toDatabaseOptions(resolveSqliteTranscriptReadScope(scope())),
         );
-        expect(closeOpenClawAgentDatabaseByPath(databasePath)).toBe(true);
+        expect(await closeOpenClawAgentDatabaseByPathAsync(databasePath)).toBe(true);
         clearSessionStoreCacheForTest();
         for (const [view, messages] of [
           ["chat.history", history],

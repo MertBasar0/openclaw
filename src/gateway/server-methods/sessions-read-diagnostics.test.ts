@@ -73,14 +73,20 @@ function controlProjectionClock() {
     });
 }
 
-test("captures fast list and subscription snapshots with logging disabled and no request identities", async () => {
+test.each(["channel-only", "slow-warning"])("attributes %s operations", async (mode) => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {
     const context = requestContext(await seedSessions());
     context.subscribeSessionEvents = vi.fn();
     const client = { ...identifiedClient("owner@example.com"), connId: "private-connection" };
-    const request = { agentId: "main", limit: 1 };
-    setDiagnosticsEnabledForProcess(false);
-    vi.mocked(sessionLog.isEnabled).mockReturnValue(false);
+    const request = { agentId: "main", limit: 1, includeDerivedTitles: true };
+    const warn = mode === "slow-warning";
+    const catalogDelay = warn ? 1_100 : 0;
+    setDiagnosticsEnabledForProcess(warn);
+    vi.mocked(sessionLog.isEnabled).mockReturnValue(warn);
+    context.readPreparedGatewayModelCatalog = async () => {
+      clock += catalogDelay;
+      return undefined;
+    };
     const projection = controlProjectionClock();
     const trace = createDiagnosticTraceContext();
     const events: unknown[] = [];
@@ -109,7 +115,7 @@ test("captures fast list and subscription snapshots with logging disabled and no
         pid: process.pid,
         threadId,
         isMainThread,
-        handlerElapsedMs: 20,
+        handlerElapsedMs: 20 + catalogDelay,
         cacheRole: "projection-owner",
         prepareSyncMs: 20,
         projectionPasses: 1,
@@ -119,7 +125,7 @@ test("captures fast list and subscription snapshots with logging disabled and no
       });
       expect(events[1]).toMatchObject({
         operation: "sessions.subscribe",
-        handlerElapsedMs: 0,
+        handlerElapsedMs: catalogDelay,
         cacheRole: "completed-hit",
         selectedRowCount: 1,
         handlerOutcome: "returned",
@@ -136,7 +142,11 @@ test("captures fast list and subscription snapshots with logging disabled and no
         expect(serialized).not.toContain(privateValue);
       }
       expect(serialized).not.toContain("agent:main:");
-      expect(sessionLog.warn).not.toHaveBeenCalled();
+      if (warn) {
+        expect(records.map((record) => record.fields)).toEqual(events);
+      } else {
+        expect(sessionLog.warn).not.toHaveBeenCalled();
+      }
     } finally {
       diagnostics.unsubscribe(collect);
     }
@@ -164,7 +174,7 @@ test("captures a fast failed projection while preserving the original error", as
         listSessions({
           client: identifiedClient("owner@example.com"),
           context,
-          request: { agentId: "main", limit: 1 },
+          request: { agentId: "main", limit: 1, includeDerivedTitles: true },
         }),
       ).rejects.toBe(failure);
       expect(events).toHaveLength(1);
@@ -188,7 +198,7 @@ test("separates producer work, follower wait, and completed hits under their own
     const config = await seedSessions();
     const context = requestContext(config);
     const client = identifiedClient("owner@example.com");
-    const request = { agentId: "main", limit: 1 };
+    const request = { agentId: "main", limit: 1, includeDerivedTitles: true };
     const catalog = vi.fn(async () => undefined);
     context.readPreparedGatewayModelCatalog = catalog;
     const projection = controlProjectionClock();
@@ -304,7 +314,7 @@ test("accumulates the bounded visibility repairs without counting yielded waits 
     const result = await listSessions({
       client: identifiedClient("viewer@example.com"),
       context: requestContext(config),
-      request: { agentId: "main", limit: 1 },
+      request: { agentId: "main", limit: 1, includeDerivedTitles: true },
     });
     expect(result.sessions.map((row) => row.key)).toEqual(["agent:main:repair-fourth"]);
     expect(records).toHaveLength(1);
@@ -377,7 +387,7 @@ test("preserves the original projection error even when its slow diagnostic sink
       listSessions({
         client: identifiedClient("owner@example.com"),
         context,
-        request: { agentId: "main" },
+        request: { agentId: "main", includeDerivedTitles: true },
       }),
     ).rejects.toBe(failure);
     expect(sessionLog.warn).toHaveBeenCalledOnce();

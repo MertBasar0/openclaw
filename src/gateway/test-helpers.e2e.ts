@@ -6,7 +6,7 @@ import path from "node:path";
 import { rawDataToString } from "@openclaw/gateway-client/websocket-data";
 import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "../../packages/gateway-client/src/websocket.js";
 import {
   type HelloOk,
   type ModelCatalogTarget,
@@ -73,7 +73,10 @@ export async function connectGatewayClient(params: {
   maxProtocol?: number;
   timeoutMs?: number;
   timeoutMessage?: string;
+  signal?: AbortSignal;
+  verifyCleanup?: (cleanup: () => Promise<void>) => Promise<void>;
 }) {
+  params.signal?.throwIfAborted();
   const role = params.role ?? "operator";
   const scopes = params.scopes ?? (role === "node" ? [] : undefined);
   const platform = params.platform ?? process.platform;
@@ -128,6 +131,8 @@ export async function connectGatewayClient(params: {
       timeoutMessage: params.timeoutMessage ?? "gateway connect timeout",
       closeMessage: "gateway closed during connect",
       unrefTimeout: true,
+      signal: params.signal,
+      verifyCleanup: params.verifyCleanup,
     },
   );
 }
@@ -146,7 +151,7 @@ type DeviceAuthConnectResponse = {
 
 function waitForDeviceAuthMessage<T>(
   ws: WebSocket,
-  read: (data: WebSocket.RawData) => T | undefined,
+  read: (data: RawData) => T | undefined,
   timeoutMessage: string,
 ): Promise<T> {
   const message = new Promise<T>((resolve, reject) => {
@@ -162,7 +167,7 @@ function waitForDeviceAuthMessage<T>(
     };
     const onClose = (code: number, reason: Buffer) =>
       onError(new Error(`closed ${code}: ${rawDataToString(reason)}`));
-    const onMessage = (data: WebSocket.RawData) => {
+    const onMessage = (data: RawData) => {
       try {
         const value = read(data);
         if (value !== undefined) {

@@ -57,6 +57,7 @@ import type {
 import type {
   GatewayModelCatalogSnapshot,
   PreparedGatewayModelCatalog,
+  PreparedGatewayModelCatalogReadResult,
 } from "../server-model-catalog.types.js";
 import type { DedupeEntry } from "../server-shared.js";
 import type { GatewayEventLoopHealth } from "../server/event-loop-health.js";
@@ -241,6 +242,9 @@ type GatewayKernelContext = {
     agentDir?: string;
     workspaceDir?: string;
   }) => Promise<PreparedGatewayModelCatalog | undefined>;
+  readPreparedGatewayModelCatalogBatch?: (
+    agentIds: readonly string[],
+  ) => Promise<PreparedGatewayModelCatalogReadResult[]>;
   readChatMetadata: (params: ChatMetadataReadParams) => Promise<ChatMetadataResult>;
   readChatStartupProjection?: (
     params: ChatStartupProjectionReadParams,
@@ -441,7 +445,7 @@ export type GatewayRequestOptions = {
 
 /** Commit-time guard captured by the pre-dispatch session participation check. */
 export type SessionMutationAuthorization = {
-  talkSessionTarget?: import("../talk-session-target.types.js").PreparedTalkSessionTarget;
+  talkSessionTarget?: import("../talk/session-target.types.js").PreparedTalkSessionTarget;
   assertCurrent: () => void;
   /** Original host/session authority for committed input custody, without the selection precondition. */
   assertAdmittedInputCurrent?: () => void;

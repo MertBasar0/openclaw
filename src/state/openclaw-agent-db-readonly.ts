@@ -11,10 +11,13 @@ import { withCommittedOpenClawAgentDatabaseReadOnly } from "./openclaw-agent-db-
 import {
   openOpenClawAgentDatabaseReadOnly,
   readOpenClawAgentDatabaseReadOnly,
-  withFreshOpenClawAgentDatabaseReadOnly,
   type OpenClawAgentDatabaseReadOnlyResult,
   type OpenClawAgentReadOnlyDatabase,
 } from "./openclaw-agent-db-readonly-open.js";
+import {
+  withScopedOpenClawAgentDatabaseReadOnly,
+  type OpenClawAgentDatabaseReadOnlyBehavior,
+} from "./openclaw-agent-db-readonly-scope.js";
 import {
   assertCanonicalAgentPersistenceVersion,
   assertSupportedAgentSchemaVersion,
@@ -34,11 +37,6 @@ export {
   type OpenClawAgentReadOnlyDatabaseHandle,
   type OpenClawAgentDatabaseReadOnlyOpenResult,
 } from "./openclaw-agent-db-readonly-open.js";
-
-type OpenClawAgentDatabaseReadOnlyBehavior = {
-  throwOnMissingTable?: boolean;
-  allowExtension?: boolean;
-};
 
 /**
  * Look up a process-held handle without adopting writer-side failures.
@@ -116,7 +114,11 @@ export function withOpenClawAgentDatabaseReadOnly<T>(
   }
   const reusable = processOpened && !processOpened.db.isTransaction ? processOpened : undefined;
   if (!reusable) {
-    return withFreshOpenClawAgentDatabaseReadOnly(operation, { ...options, agentId }, behavior);
+    return withScopedOpenClawAgentDatabaseReadOnly(
+      operation,
+      { ...options, agentId, path: pathname },
+      behavior,
+    );
   }
   // Share only this admission's fresh value; a later read must check again.
   const userVersion = assertSupportedAgentSchemaVersion(reusable.db, pathname);
