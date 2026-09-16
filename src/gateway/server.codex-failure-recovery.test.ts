@@ -285,8 +285,10 @@ it.each([
   const previous = await ready(first.runId);
   expect(previous.action).toBe("started");
   expect(primaryRequests).toHaveLength(1);
-  expect(primaryRequests[0].body).toContain("INITIAL_POLICY");
-  expect(primaryRequests[0].threadId).toBe(previous.threadId);
+  expect(primaryRequests[0]).toMatchObject({
+    body: expect.stringContaining("INITIAL_POLICY"),
+    threadId: previous.threadId,
+  });
 
   let siblingRunId: string | undefined;
   if (activeSibling) {
@@ -315,9 +317,11 @@ it.each([
     expect(recovered.clientId).toBe(previous.clientId);
   }
   expect(primaryRequests).toHaveLength(2);
-  expect(primaryRequests[1].threadId).toBe(previous.threadId);
-  expect(primaryRequests[1].body).toContain("HISTORY_ALPHA");
-  expect(primaryRequests[1].body).toContain("NEW_POLICY_BETA");
+  expect(primaryRequests[1]).toMatchObject({
+    threadId: previous.threadId,
+    body: expect.stringContaining("HISTORY_ALPHA"),
+  });
+  expect(primaryRequests[1]).toMatchObject({ body: expect.stringContaining("NEW_POLICY_BETA") });
   const history = await gateway.client.request("chat.history", { sessionKey, limit: 20 });
   expect(JSON.stringify(history)).toContain("HISTORY_ALPHA NEW_POLICY_BETA");
 
