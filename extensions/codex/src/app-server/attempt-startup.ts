@@ -255,6 +255,9 @@ export async function startCodexAttemptThread(params: {
           try {
             const attemptParams = params.buildAttemptParams();
             params.assertCurrent?.();
+            if (startupAbandonController.signal.aborted) {
+              throw new CodexAppServerStartupError("aborted");
+            }
             startupClient = await params.attemptClientFactory({
               assertCurrent: params.assertCurrent,
               startOptions: params.appServer.start,
@@ -619,6 +622,19 @@ export async function startCodexAttemptThread(params: {
               }
               startupClientLease?.();
               if (
+                startupAttemptError instanceof CodexThreadClientReplacementError &&
+                startupClient
+              ) {
+                // Releasing the last lease starts closure; the native writer lock
+                // belongs to the old process until its physical exit is confirmed.
+                const closed = await startupClient.closeAndWait();
+                if (!closed.exited) {
+                  throw new AgentHarnessPreflightError(
+                    "The previous conversation process did not confirm shutdown; the conversation was preserved.",
+                  );
+                }
+              }
+              if (
                 shouldRetireCodexStartupClient(
                   startupAttemptError,
                   params.spawnedBy,
@@ -649,8 +665,9 @@ export async function startCodexAttemptThread(params: {
               throw error;
             }
             replacedSettledFailureClient ||= clientRetired;
-            const refreshedSharedClient =
-              selectionChanged || clientRetired
+            const refreshedSharedClient = clientRetired
+              ? undefined
+              : selectionChanged
                 ? retireSharedCodexAppServerClientIfCurrent(attemptedClient)
                 : clearSharedCodexAppServerClientIfCurrent(attemptedClient);
             if (startupClientForAbandonedRequestCleanup === attemptedClient) {

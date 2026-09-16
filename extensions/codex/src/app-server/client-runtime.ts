@@ -657,6 +657,12 @@ export function hasCodexAppServerSiblingThreadWork(
   if (runtime.protectedThreads.size > 0) {
     return true;
   }
+  // Ephemeral history exists only on this process, even after its turn settles.
+  for (const [retainedThreadId, retained] of runtime.retainedThreads) {
+    if (retainedThreadId !== threadId && retained.ephemeralPolicy !== undefined) {
+      return true;
+    }
+  }
   for (const claimedThreadId of runtime.claimedThreads.keys()) {
     if (claimedThreadId !== threadId) {
       return true;
