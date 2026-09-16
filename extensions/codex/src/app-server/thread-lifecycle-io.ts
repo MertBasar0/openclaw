@@ -36,6 +36,7 @@ import {
 } from "./thread-fingerprints.js";
 import {
   CodexThreadBindingConflictError,
+  CodexThreadClientReplacementError,
   CodexThreadStartRequestError,
 } from "./thread-lifecycle-errors.js";
 import { resolveCodexThreadAgentDir } from "./thread-lifecycle-preflight.js";
@@ -107,6 +108,21 @@ export async function resumeExistingCodexThread(
     disposeConfiguration = configuration.dispose;
     await context.releaseRetainedThread(configuration.assertCurrent);
     configuration.assertCurrent();
+    const clientBoundThread =
+      ringZeroClientInstanceId !== undefined ||
+      resumeBinding.ringZeroClientInstanceId !== undefined ||
+      resumeBinding.ringZeroConfigFingerprint !== undefined ||
+      context.ringZeroActive;
+    if (
+      configuration.settledSystemError &&
+      !clientBoundThread &&
+      resumeBinding.connectionScope !== "supervision"
+    ) {
+      // Native reload requires Idle. Retire before resume writes so startup can
+      // reacquire the same history while existing sibling leases drain.
+      await abandonClient();
+      throw new CodexThreadClientReplacementError();
+    }
     const authProfileId =
       resumeBinding.connectionScope === "supervision"
         ? undefined
@@ -368,23 +384,10 @@ export async function resumeExistingCodexThread(
         timeoutMs: CODEX_APP_SERVER_UNSUBSCRIBE_TIMEOUT_MS,
         assertCurrent: acceptedConfiguration.assertCurrent,
       }).catch(() => false);
-      const clientBoundThread =
-        ringZeroClientInstanceId !== undefined ||
-        resumeBinding.ringZeroClientInstanceId !== undefined ||
-        resumeBinding.ringZeroConfigFingerprint !== undefined ||
-        context.ringZeroActive;
       if (
         !subscriptionReleased ||
         (handoffError instanceof CodexThreadPolicyHandoffError &&
-          handoffError.outcome === "unknown") ||
-        // Native thread/resume reloads configuration only for an idle thread, so a
-        // thread settled in systemError never confirms the unload from the client
-        // that already loaded it. Keeping that client makes every retry repeat this
-        // exact refusal; retiring it lets the next resume reload the same native
-        // thread, with its history, through a fresh client.
-        // Client-bound (ring-zero) threads are excluded because replacing their client
-        // alters ringZeroClientInstanceId, which forces rotation and erases the binding.
-        (acceptedConfiguration.settledSystemError && !clientBoundThread)
+          handoffError.outcome === "unknown")
       ) {
         // Revoked cleanup authority cannot block retiring the exact client;
         // detachment leaves sibling leases alive while preventing that client from being reacquired.

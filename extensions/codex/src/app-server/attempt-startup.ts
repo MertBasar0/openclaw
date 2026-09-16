@@ -85,6 +85,7 @@ import {
   type CodexAppServerClientOptions,
   type CodexAppServerClientFactory,
 } from "./shared-client.js";
+import { CodexThreadClientReplacementError } from "./thread-lifecycle-errors.js";
 import {
   startOrResumeThread,
   type CodexAppServerThreadLifecycleBinding,
@@ -633,20 +634,25 @@ export async function startCodexAttemptThread(params: {
           }
         };
 
+        let replacedSettledFailureClient = false;
         for (let attempt = 1; attempt <= CODEX_APP_SERVER_STARTUP_MAX_ATTEMPTS; attempt += 1) {
           try {
             return await startupAttempt();
           } catch (error) {
             const selectionChanged = isCodexAppServerStartSelectionChangedError(error);
+            const clientRetired = error instanceof CodexThreadClientReplacementError;
             if (
               startupAbandonController.signal.aborted ||
-              (!selectionChanged && !isCodexAppServerConnectionClosedError(error))
+              (clientRetired && replacedSettledFailureClient) ||
+              (!clientRetired && !selectionChanged && !isCodexAppServerConnectionClosedError(error))
             ) {
               throw error;
             }
-            const refreshedSharedClient = selectionChanged
-              ? retireSharedCodexAppServerClientIfCurrent(attemptedClient)
-              : clearSharedCodexAppServerClientIfCurrent(attemptedClient);
+            replacedSettledFailureClient ||= clientRetired;
+            const refreshedSharedClient =
+              selectionChanged || clientRetired
+                ? retireSharedCodexAppServerClientIfCurrent(attemptedClient)
+                : clearSharedCodexAppServerClientIfCurrent(attemptedClient);
             if (startupClientForAbandonedRequestCleanup === attemptedClient) {
               startupClientForAbandonedRequestCleanup = undefined;
             }
@@ -664,11 +670,13 @@ export async function startCodexAttemptThread(params: {
               );
               throw error;
             }
-            const retryDelayMs = selectionChanged ? 0 : 1_000 * 2 ** (attempt - 1);
+            const retryDelayMs = selectionChanged || clientRetired ? 0 : 1_000 * 2 ** (attempt - 1);
             embeddedAgentLog.warn(
-              selectionChanged
-                ? "codex app-server executable selection changed during startup; restarting app-server and retrying"
-                : "codex app-server connection closed during startup; restarting app-server and retrying",
+              clientRetired
+                ? "codex app-server retired a settled failed client; resuming on a fresh client"
+                : selectionChanged
+                  ? "codex app-server executable selection changed during startup; restarting app-server and retrying"
+                  : "codex app-server connection closed during startup; restarting app-server and retrying",
               {
                 attempt,
                 nextAttempt: attempt + 1,

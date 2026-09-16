@@ -135,11 +135,6 @@ export type CodexThreadResumePreparation = {
   assertConfigured: () => void;
   assertCurrent: () => void;
   dispose: () => void;
-  /**
-   * The thread was settled in `systemError` when its configuration was observed.
-   * Native `thread/resume` only reloads configuration for an idle thread, so such
-   * a thread can never confirm the unload from the client that already loaded it.
-   */
   settledSystemError: boolean;
 };
 
