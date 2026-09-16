@@ -17,23 +17,14 @@ import {
   CODEX_APP_SERVER_UNSUBSCRIBE_TIMEOUT_MS,
   CodexAppServerUnsafeSubscriptionError,
   closeCodexStartupClientBestEffort,
+  shouldRetireCodexStartupClient,
   unsubscribeCodexThreadBestEffort,
 } from "./attempt-client-cleanup.js";
 import { buildCodexPluginThreadConfigEligibilityLogData } from "./attempt-diagnostics.js";
 import { verifyStartupArtifact } from "./attempt-runtime-artifact.js";
-import {
-  CodexAppServerStartupError,
-  isCodexAppServerStartupError,
-  withCodexStartupTimeout,
-} from "./attempt-timeouts.js";
+import { CodexAppServerStartupError, withCodexStartupTimeout } from "./attempt-timeouts.js";
 import { ensureCodexAppServerClientRuntime } from "./client-runtime.js";
-import {
-  isCodexAppServerBrokenPipeError,
-  isCodexAppServerConnectionClosedError,
-  isCodexAppServerOverloadError,
-  isCodexAppServerRequestTimeoutError,
-  type CodexAppServerClient,
-} from "./client.js";
+import { isCodexAppServerConnectionClosedError, type CodexAppServerClient } from "./client.js";
 import { startCodexComputerUseHealthMonitor } from "./computer-use-health.js";
 import { ensureCodexComputerUse } from "./computer-use.js";
 import {
@@ -727,26 +718,4 @@ export async function startCodexAttemptThread(params: {
   } finally {
     params.signal.removeEventListener("abort", abandonStartupAcquire);
   }
-}
-
-function shouldRetireCodexStartupClient(
-  error: unknown,
-  spawnedBy: EmbeddedRunAttemptParams["spawnedBy"],
-  signal: AbortSignal,
-): boolean {
-  if (
-    signal.aborted ||
-    isCodexAppServerStartupError(error) ||
-    isCodexAppServerRequestTimeoutError(error)
-  ) {
-    return true;
-  }
-  // Model-independent preflights preserve healthy conversations. A handoff with
-  // an uncertain native write owns its retirement at the resume boundary.
-  return (
-    !isCodexAppServerStartSelectionChangedError(error) &&
-    !isCodexAppServerOverloadError(error) &&
-    !(error instanceof AgentHarnessPreflightError && error.scope === undefined) &&
-    (isCodexAppServerBrokenPipeError(error) || !spawnedBy)
-  );
 }

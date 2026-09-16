@@ -487,6 +487,9 @@ it.each(cases)(
         expect(
           await gateway.client.request("chat.abort", { sessionKey, runId: continued.runId }),
         ).toMatchObject({ aborted: true });
+        expect(exitGate.child.exitCode).toBeNull();
+        expect(exitGate.child.signalCode).toBeNull();
+        expect(nodeProcess.kill(exitGate.pid, 0)).toBe(true);
       } else if (shutdown === "unconfirmed") {
         expect(await wait(continued.runId)).toMatchObject({
           status: "error",
@@ -598,9 +601,14 @@ function holdNativeExit(
       Object.defineProperty(child, "signalCode", { ...signalDescriptor, value: signalCode });
     };
   }
+  // Containment stops the launcher before killing its native child. Keep it
+  // stopped after stdin closes: on resume it mirrors the child's fatal signal.
   const kill = nodeProcess.kill.bind(nodeProcess);
   const signal = vi.spyOn(nodeProcess, "kill").mockImplementation((targetPid, value) => {
-    if ((targetPid === pid || targetPid === -pid) && (value === "SIGKILL" || value === "SIGTERM")) {
+    if (
+      (targetPid === pid || targetPid === -pid) &&
+      (value === "SIGKILL" || value === "SIGTERM" || (closing && value === "SIGCONT"))
+    ) {
       return true;
     }
     return kill(targetPid, value);
@@ -610,11 +618,12 @@ function holdNativeExit(
   const childKill = vi
     .spyOn(child, "kill")
     .mockImplementation((value) =>
-      value === "SIGCONT" || value === "SIGSTOP" ? killChild(value) : true,
+      value === "SIGSTOP" || (value === "SIGCONT" && !closing) ? killChild(value) : true,
     );
   let released = false;
   return {
     child,
+    pid,
     waiting: waiting.promise,
     exited: exited.promise,
     release: () => {
@@ -630,6 +639,7 @@ function holdNativeExit(
       syncBuiltinESMExports();
       childKill.mockRestore();
       stdin.end();
+      killChild("SIGCONT");
     },
   };
 }
