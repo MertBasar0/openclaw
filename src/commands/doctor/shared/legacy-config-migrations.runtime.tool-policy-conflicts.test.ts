@@ -14,7 +14,7 @@ function runRegisteredMigrations(raw: unknown): { config: unknown; changes: stri
 }
 
 function isValid(config: unknown): boolean {
-  return validateConfigObjectWithPlugins(config, { pluginValidation: "core-only" }).ok === true;
+  return validateConfigObjectWithPlugins(config, { pluginValidation: "core-only" }).ok;
 }
 
 describe("tool policy allow/alsoAllow conflict repair", () => {

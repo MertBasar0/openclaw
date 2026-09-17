@@ -15,7 +15,7 @@ function readGrantList(
   if (!Array.isArray(list) || list.length === 0) {
     return null;
   }
-  return list.every((entry) => typeof entry === "string") ? (list as string[]) : null;
+  return list.every((entry) => typeof entry === "string") ? list : null;
 }
 
 function visitConflictingToolPolicies(
@@ -50,7 +50,7 @@ function visitConflictingToolPolicies(
 }
 
 /** Reports tool policy scopes that set both allow and alsoAllow, without changing them. */
-export function findConflictingToolPolicyPaths(value: unknown, path: string[] = []): string[] {
+function findConflictingToolPolicyPaths(value: unknown, path: string[] = []): string[] {
   const matchedPaths: string[] = [];
   visitConflictingToolPolicies(value, path, false, matchedPaths);
   return matchedPaths;
