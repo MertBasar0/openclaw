@@ -21,6 +21,15 @@ import type { TalkAgentConsultAuthority } from "../client-gateway-control.js";
 import type { PreparedTalkSessionTarget } from "../session-target.types.js";
 import type { RelayToolCallLedger } from "./tool-call-ledger.js";
 
+type TalkRealtimeRelayVoiceBarrier = {
+  readonly active: boolean;
+  readonly callId: string;
+  readonly callIds: Set<string>;
+  heldCount: number;
+  ready?: Promise<void>;
+  release: (callId?: string) => void;
+};
+
 export const RELAY_SESSION_TTL_MS = 30 * 60 * 1000;
 export const MAX_AUDIO_BASE64_BYTES = 512 * 1024;
 const MAX_RELAY_SESSIONS_PER_CONN = 2;
@@ -218,6 +227,7 @@ export type RelaySession = {
   voiceSessionCreated: boolean;
   voiceTranscriptSeq: number;
   voiceTranscriptQueue: BoundedSerialQueue;
+  voiceTranscriptBarrier?: TalkRealtimeRelayVoiceBarrier;
   confirmationReadiness: ReturnType<typeof createClientVoiceConfirmationReadiness>;
   voiceSessionClose?: Promise<void>;
   closing?: { reason: "completed" | "error"; completion?: Promise<void> };
@@ -353,6 +363,7 @@ export function broadcastRelaySessionClosed(
 }
 
 export function cancelRelayTurn(session: RelaySession, turnId: string, reason: string): void {
+  session.voiceTranscriptBarrier?.release();
   const cancelled = session.harness.talk.cancelTurn({ turnId, payload: { reason } });
   broadcastToOwner(session.context, session.connId, {
     relaySessionId: session.id,

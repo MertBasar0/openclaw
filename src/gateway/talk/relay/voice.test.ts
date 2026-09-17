@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createClientVoiceConfirmationReadiness } from "../../../talk/client-voice-confirmation-readiness.js";
 import { VOICE_TRANSCRIPT_QUEUE_POLICY } from "../../../talk/voice-transcript.js";
 import type { RelaySession } from "./state.js";
-import { closeRelayVoiceSession, enqueueRelayVoiceTranscript } from "./voice.js";
+import {
+  acquireTalkRealtimeRelayVoiceBarrier,
+  closeRelayVoiceSession,
+  enqueueRelayVoiceTranscript,
+  releaseTalkRealtimeRelayVoiceBarrier,
+} from "./voice.js";
 
 const voiceSessionMocks = vi.hoisted(() => ({
   appendRelayVoiceTranscript: vi.fn(),
@@ -144,5 +149,128 @@ describe("realtime relay voice transcript persistence", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("holds transcripts during active barrier and drains in FIFO sequence on release", async () => {
+    const { session } = createRelaySession();
+    const barrier = await acquireTalkRealtimeRelayVoiceBarrier(session, "call-1");
+    expect(barrier.active).toBe(true);
+    expect(barrier.heldCount).toBe(0);
+
+    expect(enqueueRelayVoiceTranscript(session, "user", "one")).toBe(true);
+    expect(enqueueRelayVoiceTranscript(session, "assistant", "two")).toBe(true);
+    expect(barrier.heldCount).toBe(2);
+
+    // Writes are held; appendRelayVoiceTranscript has not been called
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).not.toHaveBeenCalled();
+
+    // Release barrier
+    releaseTalkRealtimeRelayVoiceBarrier(session, "call-1");
+    expect(barrier.active).toBe(false);
+
+    await session.voiceTranscriptQueue.flush();
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).toHaveBeenCalledTimes(2);
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ role: "user", text: "one" }),
+    );
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ role: "assistant", text: "two" }),
+    );
+  });
+
+  it("coordinates multiple concurrent tool calls under the same barrier", async () => {
+    const { session } = createRelaySession();
+    const barrier1 = await acquireTalkRealtimeRelayVoiceBarrier(session, "call-a");
+    const barrier2 = await acquireTalkRealtimeRelayVoiceBarrier(session, "call-b");
+    expect(barrier1).toBe(barrier2);
+    expect(barrier1.callIds).toEqual(new Set(["call-a", "call-b"]));
+
+    enqueueRelayVoiceTranscript(session, "user", "during-calls");
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).not.toHaveBeenCalled();
+
+    // Releasing call-a leaves barrier active for call-b
+    releaseTalkRealtimeRelayVoiceBarrier(session, "call-a");
+    expect(barrier1.active).toBe(true);
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).not.toHaveBeenCalled();
+
+    // Releasing call-b releases gate
+    releaseTalkRealtimeRelayVoiceBarrier(session, "call-b");
+    expect(barrier1.active).toBe(false);
+
+    await session.voiceTranscriptQueue.flush();
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).toHaveBeenCalledOnce();
+  });
+
+  it("synchronously reserves ownership on concurrent overlapping acquisitions", async () => {
+    const { session } = createRelaySession();
+    const [barrier1, barrier2] = await Promise.all([
+      acquireTalkRealtimeRelayVoiceBarrier(session, "call-overlap-1"),
+      acquireTalkRealtimeRelayVoiceBarrier(session, "call-overlap-2"),
+    ]);
+    expect(barrier1).toBe(barrier2);
+    expect(barrier1.callIds).toEqual(new Set(["call-overlap-1", "call-overlap-2"]));
+    expect(barrier1.active).toBe(true);
+
+    enqueueRelayVoiceTranscript(session, "user", "during-overlap");
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).not.toHaveBeenCalled();
+
+    releaseTalkRealtimeRelayVoiceBarrier(session, "call-overlap-1");
+    expect(barrier1.active).toBe(true);
+
+    releaseTalkRealtimeRelayVoiceBarrier(session, "call-overlap-2");
+    expect(barrier1.active).toBe(false);
+
+    await session.voiceTranscriptQueue.flush();
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).toHaveBeenCalledOnce();
+  });
+
+  it("safety timeout releases barrier after 60s", async () => {
+    vi.useFakeTimers();
+    try {
+      const { session } = createRelaySession();
+      const barrier = await acquireTalkRealtimeRelayVoiceBarrier(session, "call-timeout");
+      expect(barrier.active).toBe(true);
+
+      enqueueRelayVoiceTranscript(session, "user", "will timeout");
+      expect(voiceSessionMocks.appendRelayVoiceTranscript).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(barrier.active).toBe(false);
+      expect(session.context.logGateway?.warn).toHaveBeenCalledWith(
+        expect.stringContaining("barrier timed out"),
+      );
+
+      await session.voiceTranscriptQueue.flush();
+      expect(voiceSessionMocks.appendRelayVoiceTranscript).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("force-releases barrier when heldCount approaches queue capacity", async () => {
+    const { session, failSession } = createRelaySession();
+    const barrier = await acquireTalkRealtimeRelayVoiceBarrier(session, "call-overflow");
+    expect(barrier.active).toBe(true);
+
+    // Enqueue 38 items (maxPendingCount 40 - 2)
+    for (let i = 0; i < 38; i++) {
+      expect(enqueueRelayVoiceTranscript(session, "user", `msg ${i}`)).toBe(true);
+    }
+
+    // Barrier was force-released at threshold
+    expect(barrier.active).toBe(false);
+    expect(failSession).not.toHaveBeenCalled();
+    expect(session.context.logGateway?.warn).toHaveBeenCalledWith(
+      expect.stringContaining("barrier reached capacity threshold"),
+    );
+
+    // Subsequent enqueue still succeeds
+    expect(enqueueRelayVoiceTranscript(session, "assistant", "msg 39")).toBe(true);
+    expect(failSession).not.toHaveBeenCalled();
+
+    await session.voiceTranscriptQueue.flush();
+    expect(voiceSessionMocks.appendRelayVoiceTranscript).toHaveBeenCalledTimes(39);
   });
 });

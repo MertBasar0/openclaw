@@ -61,7 +61,6 @@ import {
   cancelTalkRealtimeRelayTurn,
   createTalkRealtimeRelaySession as createTalkRealtimeRelaySessionRaw,
   ensureTalkRealtimeRelayVoiceSession,
-  flushTalkRealtimeRelayVoiceWrites,
   registerTalkRealtimeRelayAgentRun,
   sendTalkRealtimeRelayAudio,
   steerTalkRealtimeRelayAgentRun,
@@ -952,10 +951,7 @@ describe("talk realtime gateway relay", () => {
         });
         bridgeRequest?.onTranscript?.("user", "relay hello", true);
         bridgeRequest?.onTranscript?.("assistant", "relay response", true);
-        await flushTalkRealtimeRelayVoiceWrites({
-          relaySessionId: session.relaySessionId,
-          connId: "conn-voice",
-        });
+        await relaySessions.get(session.relaySessionId)?.voiceTranscriptQueue.flush();
 
         const events = readSessionTranscriptMessageEvents({
           agentId: "main",
@@ -1317,10 +1313,7 @@ describe("talk realtime gateway relay", () => {
       await vi.advanceTimersByTimeAsync(1_999);
       expect(warn).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
-      await flushTalkRealtimeRelayVoiceWrites({
-        relaySessionId: session.relaySessionId,
-        connId: "conn-voice-failure",
-      });
+      await relaySessions.get(session.relaySessionId)?.voiceTranscriptQueue.flush();
 
       expect(warn).toHaveBeenCalledExactlyOnceWith(
         expect.stringContaining("realtime relay transcript append failed"),
@@ -5829,10 +5822,7 @@ describe("talk realtime gateway relay", () => {
       }
       bridgeRequest?.onTranscript?.("user", text, true);
 
-      await flushTalkRealtimeRelayVoiceWrites({
-        relaySessionId: session.relaySessionId,
-        connId: "conn-1",
-      });
+      await relaySessions.get(session.relaySessionId)?.voiceTranscriptQueue.flush();
       await nextEventLoopTurn();
       if (reply) {
         expect(

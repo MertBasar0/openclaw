@@ -100,15 +100,12 @@ export function ensureTalkRealtimeRelayVoiceSession(params: {
 function retireRelayAgentRuns(session: RelaySession, reason?: string): void {
   if (reason !== undefined) {
     for (const [runId, sessionKey] of session.activeAgentRuns) {
-      abortChatRunById(session.context, {
-        runId,
-        sessionKey,
-        stopReason: reason,
-      });
+      abortChatRunById(session.context, { runId, sessionKey, stopReason: reason });
     }
   }
   session.activeAgentRuns.clear();
   session.activeAgentToolCalls.clear();
+  session.voiceTranscriptBarrier?.release();
 }
 
 export function pruneInactiveRelayAgentRuns(session: RelaySession): number {
@@ -476,14 +473,6 @@ export function cancelTalkRealtimeRelayProviderToolCall(
   session.providerToolCallIds.delete(mappedRelayCallId);
   session.relayToolCallIdsByProviderId.delete(providerCallId);
   return relayCallId;
-}
-
-/** Wait for server-owned final transcript appends before a relay consult is authorized. */
-export async function flushTalkRealtimeRelayVoiceWrites(params: {
-  relaySessionId: string;
-  connId: string;
-}): Promise<void> {
-  await getRelaySession(params.relaySessionId, params.connId).voiceTranscriptQueue.flush();
 }
 
 /** Applies realtime voice-control text to the active agent-consult chat run. */
