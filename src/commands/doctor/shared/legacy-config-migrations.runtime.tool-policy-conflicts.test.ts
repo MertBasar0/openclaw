@@ -1,5 +1,10 @@
 // Covers doctor repair for tool policy scopes that set both allow and alsoAllow.
 import { describe, expect, it } from "vitest";
+import {
+  isToolAllowed,
+  resolveSandboxToolPolicyForAgent,
+} from "../../../agents/sandbox/tool-policy.js";
+import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { validateConfigObjectWithPlugins } from "../../../config/validation.js";
 import { LEGACY_CONFIG_MIGRATIONS } from "./legacy-config-migrations.js";
 
@@ -43,8 +48,8 @@ describe("tool policy allow/alsoAllow conflict repair", () => {
 
   it("repairs per-agent and per-provider tool policy scopes", () => {
     const raw = {
-      tools: { byProvider: { openai: { allow: ["message"], alsoAllow: ["exec"] } } },
-      agents: { entries: { main: { tools: { allow: ["message"], alsoAllow: ["read"] } } } },
+      tools: { byProvider: { sandbox: { allow: ["message"], alsoAllow: ["exec"] } } },
+      agents: { entries: { sandbox: { tools: { allow: ["message"], alsoAllow: ["read"] } } } },
     };
     expect(isValid(raw)).toBe(false);
 
@@ -52,11 +57,49 @@ describe("tool policy allow/alsoAllow conflict repair", () => {
 
     expect(res.changes).toEqual(
       expect.arrayContaining([
-        "Merged tools.byProvider.openai.alsoAllow into tools.byProvider.openai.allow.",
-        "Merged agents.entries.main.tools.alsoAllow into agents.entries.main.tools.allow.",
+        "Merged tools.byProvider.sandbox.alsoAllow into tools.byProvider.sandbox.allow.",
+        "Merged agents.entries.sandbox.tools.alsoAllow into agents.entries.sandbox.tools.allow.",
       ]),
     );
     expect(isValid(res.config)).toBe(true);
+    expect(runRegisteredMigrations(res.config)).toEqual({ config: res.config, changes: [] });
+  });
+
+  it.each([
+    {
+      scope: "agent",
+      global: { alsoAllow: ["exec"] },
+      agent: { allow: ["read", "message"], alsoAllow: ["message"] },
+    },
+    {
+      scope: "global with an agent extras override",
+      global: { allow: ["read"], alsoAllow: ["exec"] },
+      agent: { alsoAllow: ["message"] },
+    },
+    {
+      scope: "global with an empty agent extras override",
+      global: { allow: ["read"], alsoAllow: ["exec"] },
+      agent: { alsoAllow: [] },
+    },
+  ])("preserves sandbox permissions for a conflict at $scope", ({ global, agent }) => {
+    const raw: OpenClawConfig = {
+      tools: { sandbox: { tools: global } },
+      agents: {
+        ownership: "explicit",
+        entries: { restricted: { tools: { sandbox: { tools: agent } } } },
+      },
+    };
+    const before = resolveSandboxToolPolicyForAgent(raw, "restricted");
+    expect(isToolAllowed(before, "read")).toBe(true);
+    expect(isToolAllowed(before, "exec")).toBe(false);
+
+    const res = runRegisteredMigrations(raw);
+    const after = resolveSandboxToolPolicyForAgent(res.config as OpenClawConfig, "restricted");
+
+    expect(isToolAllowed(after, "exec")).toBe(false);
+    expect(after).toStrictEqual(before);
+    expect(res.config).toMatchObject(raw);
+    expect(res.changes.some((change) => change.startsWith("Merged "))).toBe(false);
   });
 
   it("leaves the profile-bound repair to own its scopes", () => {

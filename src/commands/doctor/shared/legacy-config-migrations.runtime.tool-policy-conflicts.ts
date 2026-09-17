@@ -33,6 +33,10 @@ function visitConflictingToolPolicies(
   if (!isRecord(value)) {
     return;
   }
+  // Sandbox allow and alsoAllow inherit independently; merging either scope can widen grants.
+  if (path.at(-2) === "tools" && path.at(-1) === "sandbox") {
+    return;
+  }
   if (isToolPolicyPath(path)) {
     const allow = readGrantList(value, "allow");
     const alsoAllow = readGrantList(value, "alsoAllow");
