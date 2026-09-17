@@ -135,6 +135,8 @@ model value into a different embedding model. See [llama.cpp](/plugins/llama-cpp
 
     Doctor also warns when `plugins.allow` is non-empty and tool policy uses wildcard or plugin-owned tool entries. `tools.allow: ["*"]` only matches tools from plugins that actually load; it does not bypass the exclusive plugin allowlist.
 
+    A tool policy scope that sets both `allow` and `alsoAllow` fails validation. `doctor --fix` merges `alsoAllow` into `allow` for the affected scope, at the root `tools` policy, per-agent and per-provider policies, and channel or gateway tool policies, and reports each merge. Plugin-owned `plugins.entries.*.config` is left to the owning plugin's doctor contract. Gateway startup applies the same repair, so an otherwise valid config carrying only this conflict no longer blocks boot.
+
     `doctor --fix` removes `workspace: null` from `agents.entries.<id>` so normal workspace resolution can apply. It also removes invalid `heartbeat.activeHours` windows from agent entries and `agents.defaults`, preserving other heartbeat settings. Reconfigure a valid window if needed; without an explicit or inherited window, heartbeat hours are unrestricted. These repairs also apply after migrating a legacy `agents.list` roster.
 
   </Accordion>
