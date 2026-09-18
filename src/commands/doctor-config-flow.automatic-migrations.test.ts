@@ -15,6 +15,60 @@ import { withDoctorConfigPreflightHome } from "./doctor-config-preflight.test-su
 
 afterEach(() => closeOpenClawStateDatabaseForTest());
 
+it.each([
+  { extra: "session_status", repaired: true },
+  { extra: "exec", repaired: false },
+])(
+  "persists only a permission-preserving agent profile repair ($extra)",
+  async ({ extra, repaired }) => {
+    await withDoctorConfigPreflightHome(async (home) => {
+      await withEnvAsync(
+        {
+          OPENCLAW_UPDATE_IN_PROGRESS: undefined,
+          OPENCLAW_UPDATE_POST_CORE_CONVERGENCE: undefined,
+          OPENCLAW_UPDATE_DEFER_CONFIGURED_PLUGIN_INSTALL_REPAIR: undefined,
+          OPENCLAW_UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE: undefined,
+          OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+        },
+        async () => {
+          const raw: OpenClawConfig = {
+            gateway: { mode: "local", port: await getFreePort() },
+            plugins: { enabled: false },
+            tools: { alsoAllow: ["exec"] },
+            agents: {
+              ownership: "explicit",
+              entries: {
+                restricted: {
+                  tools: {
+                    profile: "minimal",
+                    allow: ["session_status", "exec"],
+                    alsoAllow: [extra],
+                  },
+                },
+              },
+            },
+          };
+          const configPath = await writeOpenClawConfig(home, raw);
+          const original = await fs.readFile(configPath, "utf8");
+
+          await prepareDoctorContext(configPath);
+
+          const saved = await readConfigFileSnapshot();
+          expect(saved.valid).toBe(repaired);
+          expect(saved.sourceConfig.agents?.entries?.restricted?.tools?.alsoAllow).toEqual(
+            repaired ? [] : [extra],
+          );
+          if (repaired) {
+            expect(await fs.readFile(`${configPath}.bak`, "utf8")).toBe(original);
+          } else {
+            expect(saved.raw).toBe(original);
+          }
+        },
+      );
+    });
+  },
+);
+
 it("preserves sandbox override bytes and effective permissions during Doctor repair", async () => {
   await withDoctorConfigPreflightHome(async (home) => {
     await withEnvAsync(

@@ -33,7 +33,7 @@ describe("tool policy allow/alsoAllow conflict repair", () => {
     expect(isValid(res.config)).toBe(true);
     const tools = (res.config as { tools: { allow: string[]; alsoAllow?: string[] } }).tools;
     expect(tools.allow).toEqual(["message", "read", "exec"]);
-    expect(tools).not.toHaveProperty("alsoAllow");
+    expect(tools.alsoAllow).toEqual([]);
   });
 
   it("repairs the conflict when the scope already selects the full profile", () => {
