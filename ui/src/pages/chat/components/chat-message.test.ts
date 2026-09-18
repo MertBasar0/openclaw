@@ -932,6 +932,7 @@ describe("grouped chat rendering", () => {
 
   it.each([
     { state: "failed", label: "Not sent", actionLabel: undefined },
+    { state: "failed", label: "Not sent", actionLabel: "Check failure" },
     { state: "unconfirmed", label: "Delivery unconfirmed", actionLabel: undefined },
     { state: "unconfirmed", label: "Delivery unconfirmed", actionLabel: "Check delivery" },
     { state: "waiting-reconnect", label: "Waiting for reconnect", actionLabel: undefined },
@@ -965,7 +966,8 @@ describe("grouped chat rendering", () => {
       expect(status.dataset.sendState).toBe(state);
       expect(status.title).toBe("Delivery diagnostic");
       const reconnecting = state === "waiting-reconnect";
-      const canDiscard = (state === "unconfirmed" || reconnecting) && !actionLabel;
+      const canDiscard =
+        (state === "failed" || state === "unconfirmed" || reconnecting) && !actionLabel;
       expect(status.textContent?.replace(/\s+/g, " ").trim()).toBe(
         `· ${label}${reconnecting ? "" : ` · ${actionLabel ?? "Retry"}`}${canDiscard ? " · Discard" : ""}`,
       );
