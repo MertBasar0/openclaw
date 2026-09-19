@@ -18,6 +18,7 @@ import {
   assertMSTeamsPollMigration,
   assertMSTeamsPluginFiles,
 } from "./msteams-polls.mjs";
+import * as sessionSourceFixture from "./session-source-fixture.mjs";
 import { assertUpgradeVolumeMigrated, seedUpgradeVolume } from "./sqlite-volume.mjs";
 
 const command = process.argv[2];
@@ -38,6 +39,23 @@ const PERSONA_FILES = new Map([
 const LEGACY_SESSION_MAIN_ID = "upgrade-main-session";
 const LEGACY_SESSION_DIRECT_ID = "upgrade-direct-session";
 const LEGACY_SESSION_GROUP_ID = "upgrade-group-session";
+const LEGACY_ACP_META = {
+  backend: "acpx",
+  agent: "codex",
+  runtimeSessionName: "upgrade-acp-session",
+  identity: {
+    state: "resolved",
+    acpxRecordId: "upgrade-acpx-record",
+    acpxSessionId: "upgrade-acpx-session",
+    agentSessionId: "upgrade-agent-session",
+    source: "ensure",
+    lastUpdatedAt: 1710000000000,
+  },
+  mode: "persistent",
+  runtimeOptions: { model: "gpt-5.5", runtimeMode: "plan", thinking: "low" },
+  state: "idle",
+  lastActivityAt: 1710000000000,
+};
 const PLUGIN_DECLARED_SURFACE_GROUPS = [
   "channels",
   "providers",
@@ -194,6 +212,7 @@ function seedLegacySessionMetadata(stateDir, perAgent) {
       updatedAt: baseUpdatedAt + 200,
       lastChannel: "slack",
       lastTo: "CUPGRADE",
+      ...(getScenario() === "acpx-openclaw-tools-bridge" ? { acp: LEGACY_ACP_META } : {}),
     },
   });
   for (const sessionId of [
@@ -380,6 +399,7 @@ function seedState() {
   });
   // Volume imports start in per-agent JSON; other scenarios cover the older shared-store move.
   seedLegacySessionMetadata(stateDir, scenario === "sqlite-volume");
+  sessionSourceFixture.recordLegacySessionSources(stateDir);
   seedLegacyExecApprovalPolicy(stateDir);
   if (scenario === "msteams-polls") {
     seedMSTeamsPollMigration(stateDir, requireEnv("OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT"));
@@ -1053,18 +1073,21 @@ function assertSessionMetadataMigrated(stateDir, stage) {
   const legacyStorePath = path.join(stateDir, "sessions", "sessions.json");
   const agentSessionsDir = path.join(stateDir, "agents", "main", "sessions");
   const targetStorePath = path.join(agentSessionsDir, "sessions.json");
-  assert(
-    !fs.existsSync(legacyStorePath),
-    `legacy sessions.json survived migration: ${legacyStorePath}`,
-  );
-
   const { source, store } = readMigratedSessionStore(stateDir, targetStorePath);
+  sessionSourceFixture.assertLegacySessionSourceDisposition(legacyStorePath, source);
   const main = store["agent:main:main"];
   const direct = store["agent:main:+15551234567"];
   const group = store["agent:main:slack:channel:cupgrade"];
   assert(main?.sessionId === LEGACY_SESSION_MAIN_ID, "main legacy session row missing");
   assert(direct?.sessionId === LEGACY_SESSION_DIRECT_ID, "direct legacy session row missing");
   assert(group?.sessionId === LEGACY_SESSION_GROUP_ID, "channel legacy session row missing");
+  if (getScenario() === "acpx-openclaw-tools-bridge") {
+    assertStrict.deepEqual(
+      group.acp,
+      LEGACY_ACP_META,
+      "saved ACP session or model selection changed",
+    );
+  }
   const migratedSessions = [
     [LEGACY_SESSION_MAIN_ID, main],
     [LEGACY_SESSION_DIRECT_ID, direct],
@@ -1599,39 +1622,55 @@ function assertRecoverableUpdateJson([file, expectedVersion, observationRoot, ba
   return denied;
 }
 
-function assertExpectedMissingCodexOutcome(result, expectedVersion) {
+function assertExpectedMissingCodexOutcomes(result, expectedVersion) {
   const plugins = result.postUpdate?.plugins;
   assert(result.before?.version === "2026.9.2", "missing Codex fixture used the wrong baseline");
   assert(result.run?.status === "succeeded", "missing Codex update run did not finish");
   assert(plugins?.status === "warning", "missing Codex update omitted its final plugin warning");
   const failures = plugins.npm?.outcomes?.filter((outcome) => outcome?.status === "error") ?? [];
   assert(
-    failures.length === 1,
-    "missing Codex update must retain exactly its named failed attempt",
+    failures.length === 1 || failures.length === 2,
+    "missing Codex update must retain only its named failed source history",
   );
-  const failure = failures[0];
-  const missingPackage =
+  const failure = failures.at(-1);
+  const missingNpmPackage =
     `Failed to install missing configured plugin "codex" from @openclaw/codex: ` +
     `Package not found on npm: @openclaw/codex@${expectedVersion}.`;
+  const missingClawHubPackage =
+    'Failed to install missing configured plugin "codex" from clawhub:@openclaw/codex: Package not found on ClawHub.';
   assert(
     failure.pluginId === "codex" &&
       failure.code === undefined &&
       typeof failure.message === "string" &&
-      failure.message.startsWith(missingPackage),
+      (failure.message.startsWith(missingNpmPackage) || failure.message === missingClawHubPackage),
     "missing Codex update retained an unexpected plugin failure",
   );
+  if (failures.length === 2) {
+    // The updater retains the failed source transition before the final attempt.
+    const transition = failures[0];
+    assert(
+      failure.message === missingClawHubPackage &&
+        transition.pluginId === "codex" &&
+        transition.code === undefined &&
+        transition.message ===
+          "@openclaw/codex unavailable; using clawhub:@openclaw/codex instead.",
+      "missing Codex update retained an unexpected source transition",
+    );
+  }
   const repairCommand = "openclaw plugins update codex";
-  assert(
-    plugins.warnings?.some(
-      (warning) =>
-        warning.pluginId === "codex" &&
-        warning.reason === failure.message &&
-        warning.guidance?.includes(repairCommand) &&
-        warning.message?.includes(`Run \`${repairCommand}\``),
-    ),
-    "missing Codex update omitted matching actionable recovery guidance",
-  );
-  return failure;
+  for (const outcome of failures) {
+    assert(
+      plugins.warnings?.some(
+        (warning) =>
+          warning.pluginId === "codex" &&
+          warning.reason === outcome.message &&
+          warning.guidance?.includes(repairCommand) &&
+          warning.message?.includes(`Run \`${repairCommand}\``),
+      ),
+      "missing Codex update omitted matching actionable recovery guidance",
+    );
+  }
+  return failures;
 }
 
 function assertSuccessfulUpdateJson([file, expectedVersion, observationRoot]) {
@@ -1650,15 +1689,16 @@ function assertSuccessfulUpdateJson([file, expectedVersion, observationRoot]) {
       "Worker cell used the wrong published driver",
     );
   }
-  const expectedMissingPluginFailure =
+  const expectedMissingPluginFailures =
     getScenario() === "missing-configured-plugin-migration"
-      ? assertExpectedMissingCodexOutcome(result, expectedVersion)
-      : undefined;
+      ? assertExpectedMissingCodexOutcomes(result, expectedVersion)
+      : [];
   assert(
     plugins?.status !== "error" &&
       !plugins?.sync?.errors?.length &&
       !plugins?.npm?.outcomes?.some(
-        (outcome) => outcome?.status === "error" && outcome !== expectedMissingPluginFailure,
+        (outcome) =>
+          outcome?.status === "error" && !expectedMissingPluginFailures.includes(outcome),
       ) &&
       !plugins?.integrityDrifts?.length,
     "successful update failed plugin convergence",
@@ -1672,7 +1712,14 @@ function assertSuccessfulUpdateJson([file, expectedVersion, observationRoot]) {
     `successful update version changed: ${String(result?.after?.version)}`,
   );
   assert(
-    Array.isArray(result?.steps) && result.steps.every((step) => step?.exitCode === 0),
+    Array.isArray(result?.steps) &&
+      result.steps.every(
+        (step) =>
+          step?.exitCode === 0 ||
+          (step?.name === "openclaw doctor" &&
+            step.exitCode === 86 &&
+            step.advisory?.kind === "package-post-install-doctor"),
+      ),
     "successful update contained a failed core step",
   );
 }
@@ -1922,6 +1969,8 @@ function assertMobilePairingEvidence(files) {
 
 if (command === "list-scenarios") {
   process.stdout.write(`${JSON.stringify([...SCENARIOS])}\n`);
+} else if (command === "missing-load-path") {
+  await import("./missing-load-path.mjs");
 } else if (command === "seed") {
   seedState();
 } else if (command === "seed-msteams-doctor") {

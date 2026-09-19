@@ -42,7 +42,7 @@ type Host = {
   snapshot: () => SessionGateway["snapshot"];
   permissions: Pick<
     ReturnType<typeof createSessionPermissionProjection>,
-    "observeEventRow" | "applyRow"
+    "observeEventRow" | "applyRow" | "reconcileRow"
   >;
   mutations: Pick<
     ReturnType<typeof createSessionMutations>,
@@ -86,7 +86,7 @@ type Host = {
 };
 
 export function createSessionReconciliation(host: Host) {
-  const pendingFields = ["pinned", "pinnedAt", "unread"] as const;
+  const pendingFields = ["pinned", "pinnedAt", "unread", "category"] as const;
   const projectRowFields = (
     row: GatewaySessionRow,
     agentId?: string | null,
@@ -214,15 +214,34 @@ export function createSessionReconciliation(host: Host) {
     defaults?: SessionsListResult["defaults"],
     options?: Parameters<SessionCapability["reconcile"]>[2],
     observation?: ReturnType<Host["roster"]["captureReconciliation"]>,
-  ): boolean => {
+  ): ReturnType<SessionCapability["reconcile"]> => {
     const state = host.readState();
     const historyAgentId =
       row?.agentId ??
       (isUiGlobalSessionKey(row?.key) ? options?.selectedGlobalAgentId : undefined) ??
       options?.resultAgentId ??
       state.agentId;
-    if (observation && !observation.isCurrent(row, historyAgentId)) {
+    if (observation && !observation.isCurrent(undefined, historyAgentId)) {
       return false;
+    }
+    if (
+      row &&
+      (!host.deletions.acceptsGeneration(row.key, row.sessionId, historyAgentId) ||
+        host.deletions.deletionState(row.key, historyAgentId, row.sessionId))
+    ) {
+      return false;
+    }
+    if (observation && !observation.isCurrent(row, historyAgentId)) {
+      // A newer same-agent row does not retire this history's scoped defaults.
+      // Admit only the pane's defaults after connection and generation checks;
+      // never publish its stale row or defaults into another agent's roster.
+      return defaults &&
+        row &&
+        isUiGlobalSessionKey(row.key) &&
+        historyAgentId !== state.agentId &&
+        options?.selectedGlobalAgentId === historyAgentId
+        ? "defaults-only"
+        : false;
     }
     const rowIsCurrent =
       Boolean(observation) || !row || host.roster.isCurrentRow(row, undefined, historyAgentId);
@@ -235,13 +254,6 @@ export function createSessionReconciliation(host: Host) {
           areUiSessionKeysEquivalent(canonical.key, row?.key) &&
           host.roster.isCurrentRow(canonical),
       )
-    ) {
-      return false;
-    }
-    if (
-      row &&
-      (!host.deletions.acceptsGeneration(row.key, row.sessionId, historyAgentId) ||
-        host.deletions.deletionState(row.key, historyAgentId, row.sessionId))
     ) {
       return false;
     }
@@ -269,8 +281,11 @@ export function createSessionReconciliation(host: Host) {
               host.roster.rowRevision(existing) === 0,
             project: (accepted, donor) => {
               const select = observation?.observe(row, historyAgentId);
+              const inherited = host.roster.inheritRow(accepted, row, donor);
               const projected = projectRowFields(
-                host.roster.inheritRow(accepted, row, donor),
+                observation
+                  ? host.permissions.reconcileRow(inherited, observation.revision, historyAgentId)
+                  : inherited,
                 historyAgentId,
               );
               if (select) {
@@ -386,7 +401,11 @@ export function createSessionReconciliation(host: Host) {
               project: (accepted, donor) => {
                 const select = captured.observe(row, owned.agentId);
                 const projected = projectRowFields(
-                  roster.inheritRow(accepted, row, donor),
+                  host.permissions.reconcileRow(
+                    roster.inheritRow(accepted, row, donor),
+                    captured.revision,
+                    owned.agentId,
+                  ),
                   owned.agentId,
                 );
                 host.mutations.observePendingFields(

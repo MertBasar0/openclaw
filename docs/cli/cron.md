@@ -100,6 +100,11 @@ flags is valid with exit or stream schedules. See
 [Automation schedules](/automation/cron-jobs/schedules#schedule-types) for stream lifecycle,
 batching limits, and trigger details.
 
+On creation, omit `--command-cwd`, `--on-exit-cwd`, or `--stream-cwd` to use
+the default working directory. An explicitly empty or whitespace-only path is
+an error. When editing a stream job, `--stream-cwd ""` still clears its configured
+working directory.
+
 ## Sessions
 
 `--session` accepts `main`, `isolated`, `current`, or `session:<id>`.
@@ -202,7 +207,7 @@ Automation jobs, pending runtime state, and run history live in the shared SQLit
 
 Manually running a disabled job does not enable its schedule or create automatic retries. Use `openclaw automations enable <job-id>` to resume scheduled runs.
 
-`openclaw automations run <job-id>` force-runs by default and returns as soon as the manual run is queued. Successful responses include `{ ok: true, enqueued: true, runId }`. Use the returned `runId` to inspect the later result:
+`openclaw automations run <job-id>` force-runs by default and returns after the Gateway accepts the run into its execution lane. Successful responses include `{ ok: true, enqueued: true, runId }`; the job may still be waiting for a slot. If admission or caller checks fail before queue acceptance, the request fails without reporting a queued run. Use the returned `runId` to inspect the later result:
 
 ```bash
 openclaw automations run <job-id>

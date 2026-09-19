@@ -1,6 +1,7 @@
 import { sql } from "kysely";
 import type { TranscriptDisplayPosition } from "../../chat/transcript-display-position.js";
 import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
+import { pruneMapToMaxSize } from "../../infra/map-size.js";
 import {
   resolveHistoryAnchorPageRange,
   resolveTranscriptPageEnd,
@@ -23,7 +24,7 @@ import {
   parseStoredTranscriptEvent,
   readDisplayableActiveEventById,
   readHistoricalHistoryAnchorPage,
-  resolveHistoricalHistoryEventById,
+  resolveHistoricalHistoryEvent,
 } from "./session-accessor.sqlite-history-interval.js";
 import {
   assertHistoryReadWindow,
@@ -52,6 +53,16 @@ import {
   resolveVisibleMessagePositions,
 } from "./session-accessor.sqlite-reset-window.js";
 import { MAX_VISIBLE_MESSAGE_MAX_MESSAGES } from "./session-accessor.sqlite-visible-cursor.js";
+import { resolveSessionTranscriptReadFence } from "./session-transcript-read-fence.js";
+
+const recentHistoryWindows = new Map<
+  string,
+  {
+    database: CurrentTranscriptProjection["database"]["db"];
+    revision: string;
+    page: SessionTranscriptMessageEventPage;
+  }
+>();
 
 function readBoundaryEvents(
   projection: CurrentTranscriptProjection,
@@ -136,7 +147,7 @@ function resolveRecentHistoryStart(
   maxBytes: number,
   maxMessages: number,
   allowOversizedFirst = true,
-): number {
+): { start: number; bytes: number } {
   const { boundedEnd, boundedStart, boundaries, messageEnd, messageStart } =
     resolveVisibleHistoryRange(history, start, endExclusive);
   // No result can include more than maxMessages events, so older metadata would
@@ -180,49 +191,25 @@ function resolveRecentHistoryStart(
   } finally {
     metadata.return?.();
   }
-  return selectedStart;
+  return { start: selectedStart, bytes };
 }
 
 type SessionTranscriptMessageById = SessionTranscriptMessageEvent & {
   serializedBytes?: number;
 };
+type HistoryEventById =
+  | SessionTranscriptMessageById
+  | { historical: NonNullable<ReturnType<typeof readDisplayableActiveEventById>> };
 export type SessionTranscriptMessageByIdOptions =
   | { currentOnly?: false; maxBytes?: never }
   | { currentOnly: true; maxBytes: number };
-
-function readVisibleMessageById(
-  projection: CurrentTranscriptProjection,
-  eventId: string,
-  history: VisibleHistoryProjection,
-  maxBytes?: number,
-): SessionTranscriptMessageById | undefined {
-  const row = readDisplayableActiveEventById(projection, eventId, maxBytes);
-  if (!row || row.message_position === null) {
-    return undefined;
-  }
-  const seq = resolveHistoryMessageSequence(
-    resolveVisibleMessagePositions(projection),
-    history,
-    row.message_position,
-  );
-  return seq === undefined
-    ? undefined
-    : {
-        event: parseStoredTranscriptEvent(row.event_json),
-        eventSeq: row.event_seq,
-        seq,
-        ...(maxBytes !== undefined
-          ? { serializedBytes: Buffer.byteLength(row.event_json, "utf8") }
-          : {}),
-      };
-}
 
 function resolveHistoryEventById(
   projection: CurrentTranscriptProjection,
   eventId: string,
   history = resolveVisibleHistoryProjection(projection),
   maxBytes?: number,
-): SessionTranscriptMessageById | undefined {
+): HistoryEventById | undefined {
   const boundary = history.boundaries.find((candidate) => candidate.eventId === eventId);
   if (boundary) {
     if (maxBytes !== undefined && boundary.serializedBytes > maxBytes) {
@@ -238,7 +225,28 @@ function resolveHistoryEventById(
         }
       : undefined;
   }
-  return readVisibleMessageById(projection, eventId, history, maxBytes);
+  const row = readDisplayableActiveEventById(projection, eventId, maxBytes);
+  if (!row) {
+    return undefined;
+  }
+  const seq =
+    row.message_position === null
+      ? undefined
+      : resolveHistoryMessageSequence(
+          resolveVisibleMessagePositions(projection),
+          history,
+          row.message_position,
+        );
+  return seq === undefined
+    ? { historical: row }
+    : {
+        event: parseStoredTranscriptEvent(row.event_json),
+        eventSeq: row.event_seq,
+        seq,
+        ...(maxBytes !== undefined
+          ? { serializedBytes: Buffer.byteLength(row.event_json, "utf8") }
+          : {}),
+      };
 }
 
 type SessionTranscriptRawDeltaPage = Extract<SessionTranscriptRawDeltaResult, { kind: "page" }>;
@@ -320,6 +328,7 @@ function readRecentHistoryInSnapshot(
   projection: CurrentTranscriptProjection,
   history: VisibleHistoryProjection,
   options: TranscriptRecentReadLimits & TranscriptReadWindowOptions,
+  remember?: (page: SessionTranscriptMessageEventPage, bytes: number) => void,
 ): SessionTranscriptMessageEventPage {
   assertHistoryReadWindow(projection, history, options.expectedReadWindow);
   const generation = projection.generation;
@@ -353,7 +362,7 @@ function readRecentHistoryInSnapshot(
     1024,
     Math.floor(Number.isFinite(options.maxBytes) ? options.maxBytes : 8 * 1024 * 1024),
   );
-  const selectedStart = resolveRecentHistoryStart(
+  const { start: selectedStart, bytes } = resolveRecentHistoryStart(
     projection,
     Math.max(0, history.total - maxLines),
     history.total,
@@ -362,7 +371,7 @@ function readRecentHistoryInSnapshot(
     maxMessages,
   );
   const events = readVisibleHistoryRange(projection, selectedStart, history.total, history);
-  return {
+  const page: SessionTranscriptMessageEventPage = {
     activeLeafEntryId: projection.state.leafEventId,
     ...(deltaCursor ? { deltaCursor } : {}),
     events,
@@ -370,17 +379,63 @@ function readRecentHistoryInSnapshot(
     totalMessages: history.total,
     ...(options.captureReadWindow ? { readWindow: captureHistoryReadWindow(history, events) } : {}),
   };
+  remember?.(page, bytes);
+  return page;
 }
 
 export function readRecentSessionTranscriptHistoryEventsFromProjection(
   projection: CurrentTranscriptProjection,
   options: TranscriptRecentReadLimits & TranscriptReadWindowOptions,
 ): SessionTranscriptMessageEventPage {
-  return readRecentHistoryInSnapshot(
-    projection,
-    resolveVisibleHistoryProjection(projection),
-    options,
-  );
+  const read = (remember?: Parameters<typeof readRecentHistoryInSnapshot>[3]) =>
+    readRecentHistoryInSnapshot(
+      projection,
+      resolveVisibleHistoryProjection(projection),
+      options,
+      remember,
+    );
+  if (
+    !projection.generation ||
+    projection.database.db.location() === null ||
+    options.expectedReadWindow ||
+    resolveSessionTranscriptReadFence(projection.resolved)
+  ) {
+    return read();
+  }
+  const key = JSON.stringify([
+    projection.database.path,
+    projection.resolved.agentId,
+    projection.resolved.sessionId,
+  ]);
+  const revision = JSON.stringify([
+    projection.generation,
+    projection.state.indexedSeq,
+    options.maxMessages,
+    options.maxLines,
+    options.maxBytes,
+    Boolean(options.captureReadWindow),
+  ]);
+  const cached = recentHistoryWindows.get(key);
+  if (cached?.database === projection.database.db && cached.revision === revision) {
+    return structuredClone(cached.page);
+  }
+  recentHistoryWindows.delete(key);
+  return read((page, bytes) => {
+    // Reuse the window's byte count, including a lone oversized event, without serializing again.
+    if (bytes > 1024 * 1024) {
+      return;
+    }
+    try {
+      recentHistoryWindows.set(key, {
+        database: projection.database.db,
+        revision,
+        page: structuredClone(page),
+      });
+      pruneMapToMaxSize(recentHistoryWindows, 16);
+    } catch {
+      // Deep legacy JSON can be readable even when cloning exceeds the stack.
+    }
+  });
 }
 
 export function readSessionTranscriptHistoryEventPageFromProjection(
@@ -422,7 +477,7 @@ export function readSessionTranscriptHistoryEventPageFromProjection(
           ),
           maxMessages,
           false,
-        );
+        ).start;
   // A single oversized event must not defeat the hard limit or trap pagination.
   // Skip its source position explicitly; callers disclose the omission to readers.
   const omittedOversized = maxMessages > 0 && endExclusive > 0 && boundedStart === endExclusive;
@@ -451,9 +506,14 @@ export function readSessionTranscriptHistoryEventByIdFromProjection(
   options: SessionTranscriptMessageByIdOptions = {},
 ): SessionTranscriptMessageById | undefined {
   const history = resolveVisibleHistoryProjection(projection);
+  const resolved = resolveHistoryEventById(projection, eventId, history, options.maxBytes);
   const event: SessionTranscriptMessageById | undefined =
-    resolveHistoryEventById(projection, eventId, history, options.maxBytes) ??
-    (options.currentOnly ? undefined : resolveHistoricalHistoryEventById(projection, eventId));
+    resolved &&
+    ("historical" in resolved
+      ? options.currentOnly
+        ? undefined
+        : resolveHistoricalHistoryEvent(projection, resolved.historical)
+      : resolved);
   if (!event) {
     return undefined;
   }
@@ -497,7 +557,8 @@ export function readSessionTranscriptHistoryEventLookupFromProjection(
       break;
     }
   }
-  const event = resolveHistoryEventById(projection, eventId.trim(), history);
+  const resolved = resolveHistoryEventById(projection, eventId.trim(), history);
+  const event = resolved && !("historical" in resolved) ? resolved : undefined;
   // Nonempty history validates the current-turn admission even when the requested
   // ID is absent. Keep that fence while positioning only the selected/first row.
   const positioned = positionTranscriptDisplayEvents(
@@ -518,12 +579,18 @@ export function readSessionTranscriptHistoryAnchorPageFromProjection(
   const history = resolveVisibleHistoryProjection(projection);
   assertHistoryReadWindow(projection, history, options.expectedReadWindow);
   const anchor = resolveHistoryEventById(projection, options.messageId, history);
-  if (!anchor) {
+  if (!anchor || "historical" in anchor) {
     // Explicit anchors reopen the closed reset interval that still contains the
     // active-path row. Unanchored history and current-display lookup stay
     // latest-reset-relative; missing or off-path IDs stay not-found.
     return (
-      readHistoricalHistoryAnchorPage(projection, history.displaySource, options) ?? {
+      (anchor &&
+        readHistoricalHistoryAnchorPage(
+          projection,
+          history.displaySource,
+          anchor.historical,
+          options,
+        )) ?? {
         events: [],
         found: false,
         hasOverreadContext: false,

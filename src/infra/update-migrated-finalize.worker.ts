@@ -46,7 +46,7 @@ async function finalizeMigratedUpdate(): Promise<void> {
   if (process.argv[2] === "--check") {
     routeLogsToStderr();
     if (typeof finishUpdateRun !== "function") {
-      throw new Error("Candidate recovery writer is unavailable.");
+      throw new Error("Update recovery writer is unavailable.");
     }
     process.stdout.write(
       JSON.stringify({
@@ -152,7 +152,7 @@ async function finalizeMigratedUpdate(): Promise<void> {
   }, input.params.opts);
   const terminal = getUpdateRun(finalized.run.runId, { env: finalized.run.env });
   if (!terminal || terminal.status === "running") {
-    throw new Error("Candidate finalization left the update run nonterminal.");
+    throw new Error("Update finalization left the update run nonterminal.");
   }
   const response: MigratedUpdateFinalizationResult = {
     result: finalized.result,
@@ -220,7 +220,14 @@ async function runDelegatedDoctor(input: UpdateDoctorInput): Promise<void> {
             process.exitCode = code;
           },
         },
-        { repair: input.repair, nonInteractive: true },
+        {
+          repair: input.repair,
+          nonInteractive: true,
+          ...(input.yes !== undefined ? { yes: input.yes } : {}),
+          ...(input.workspaceSuggestions !== undefined
+            ? { workspaceSuggestions: input.workspaceSuggestions }
+            : {}),
+        },
         { inputHash: input.configInputHash, assertCurrent },
       );
     },
@@ -240,7 +247,7 @@ async function finalizeInput(
       input.params.rollbackBlockedReason !== "state-migrated-no-rollback" &&
       input.params.rollbackBlockedReason !== "rollback-state-unverified")
   ) {
-    throw new Error("Candidate finalization requires its migrated update run.");
+    throw new Error("Update finalization requires its migrated update run.");
   }
   const { requesterAuthority: descriptor, ...runIdentity } = transferredRun;
   executorFence?.assertCurrent();
@@ -292,14 +299,18 @@ async function finalizeInput(
   let exitCode = 0;
   let automaticTriage: MigratedUpdateFinalizationResult["automaticTriage"];
   try {
-    result = await finishUpdate({
-      ...input.params,
-      result: { ...input.params.result, runId: run.runId },
-      opts: { ...input.params.opts, run },
-      ...(stopped
-        ? { preManagedServiceStop: { ...stopped, windowsTaskAutoStartRecovery: windowsRecovery } }
-        : {}),
-    });
+    // This worker already loaded the candidate; the local flag conveys no authority.
+    result = await finishUpdate(
+      {
+        ...input.params,
+        result: { ...input.params.result, runId: run.runId },
+        opts: { ...input.params.opts, run },
+        ...(stopped
+          ? { preManagedServiceStop: { ...stopped, windowsTaskAutoStartRecovery: windowsRecovery } }
+          : {}),
+      },
+      { candidateRuntime: true },
+    );
   } catch (error) {
     if (!(error instanceof UpdateCommandFailure)) {
       throw error;

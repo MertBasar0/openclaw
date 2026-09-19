@@ -75,6 +75,17 @@ silently execute the larger whole config. Uneven bounded chunks use their own
 file counts with the existing cost rates; native Vitest shards retain equal
 shares of the complete config estimate.
 
+Native database-worker roots share a 20-file CI job ceiling, including every
+co-located envelope. The existing root registry owns classification; migrated
+files retain their original plugin's job and process limits. This partitions the
+185-file native envelope from [run 35176277297](https://github.com/openclaw/openclaw/actions/runs/35176277297)
+into ten non-overlapping envelopes. That run continued passing tests for more
+than 58 minutes before the job deadline; it is a lower bound, not a completed
+family timing sample. The ceiling prevents the default cost estimate from
+packing the chunks back together. Fork isolation, process lifetimes, worker
+limits, timeouts, and the 50-job fallback cap stay unchanged. Hosted CI must
+establish the resulting job durations.
+
 Precise and fallback plugin envelopes share the same packing owner and a 240-second aggregate estimated budget per job, including multiple envelopes of the same config. Members retain compatible runner/dist requirements and run one at a time; total cost bounds packing rather than a pair limit. Each envelope retains its original child process, environment, native shard arguments and include scope, including process-bounded Codex, Matrix and Telegram work. Runtime-preparing envelopes remain separate. Co-location preserves each original file/process bound and native shard partition; a physical job may contain several such envelopes. Workers, timeouts and serial stop-on-failure behavior stay unchanged. Costs retain the larger complete-family rate from [run 33676780376](https://github.com/openclaw/openclaw/actions/runs/33676780376) and [run 33747183683](https://github.com/openclaw/openclaw/actions/runs/33747183683), rounded up per counting file without lowering prior floors. Both cohorts used two CPUs and two workers; counting inputs include the config-owned exclusions, and runtime preparation is charged separately. Repacking the retained 78 envelopes with these rates projects 30 jobs instead of 32. The largest sum of matching observed child spans is 340.128 seconds. This is a forecast across different source revisions, not measured combined-job latency; native CI must verify elapsed time and cleanup within the eight-minute end-to-end objective.
 
 Eligible Blacksmith and hybrid compact bins with multiple ordinary groups retain their logical packing class and request the existing 32-vCPU runner with two child-process slots. They admit 360 predicted aggregate seconds; compatible small groups can fill that budget without the ten-group cutoff retained by serial jobs. Initial packing separates runtime consumers from groups that need no build; the measured hybrid placement pass below can use spare ordinary capacity. Blacksmith serial jobs retain their 200/276-second budgets; hybrid serial jobs retain 210 seconds. Exclusive jobs retain 150 seconds by default. Only complete ordinary hybrid bins of non-build CLI groups may use 250 seconds and share split siblings; every child must still fit 150 seconds. Groups above their existing serial cap stay alone. Exclusive groups, single groups, dist descriptors and jobs with runtime preparation remain serial. Hybrid exclusive and dist bins retain their existing prerequisite sharing. The shard executor admits at most two processes only when the actual host has at least eight available CPUs and 24 GiB of memory; smaller capacity admits one. Each overlapping child keeps two Vitest workers, inner project parallelism remains one, and commands retain their serial file policy. The primary `github` profile stays serial at 210 seconds. Preflight records the actual row count for each source revision; canonical inventory comparisons must preserve every original child plan and test input. Native elapsed-time, memory and cleanup evidence must establish the actual effect.
@@ -111,6 +122,59 @@ The previous thirteen-serial-shard layout consumed 4,258 job-seconds in successf
 
 Canonical-repo CI keeps Blacksmith as the default runner path for pushes and first-attempt same-repo pull-request runs when the backend is unset or `blacksmith`. Hybrid keeps the heavy set plus the named critical-path plateau lanes on Blacksmith for attempt 1; other light lanes and every rerun Blacksmith lane use GitHub-hosted capacity. Pull-request retries of both UI E2E jobs use GitHub-hosted Ubuntu in every mode; push retries remain on their normal backend unless hybrid fallback applies. Manual `workflow_dispatch` and non-canonical repository runs use GitHub-hosted runners for the main test/build lanes. With an unset or `blacksmith` backend, ordinary canonical manual dispatches (`release_gate: false`) can still run the seven `check-shard` rows on their Blacksmith matrix runners; release-gate check rows remain hosted. Same-repo hybrid Full Release Validation sends only frozen-candidate lint to its matrix runner, both for exact main-ancestor SHAs without a release context and for canonical release-context candidates. These manual admissions are outside the main/PR arrival estimate above. The [`github` backend](/ci/runners#runner-backend-modes) provides a manual repository-wide fallback; canonical runs do not probe Blacksmith queue health or mutate the variable automatically.
 
+## Vitest worker sizing
+
+Current serial self-hosted Node jobs sample the shared worker scheduler after
+runtime preparation. Hosts with fewer than eight available CPUs or less than
+24 GiB retain the workflow's existing CPU-based ceiling. Hosted runners, frozen
+targets, and overlapping plans also retain their existing ceilings. Interactive
+local scheduling is unchanged.
+
+| Requested Blacksmith class | Observed CPUs / RAM | Serial job ceiling with headroom | Overlapping child ceiling |
+| -------------------------- | ------------------- | -------------------------------: | ------------------------: |
+| 4 / 8                      | 2 / 7.66 GiB        |                                2 |                         2 |
+| 16                         | 4 / 15.42 GiB       |                                3 |                         2 |
+| 32                         | 8 / 30.95 GiB       |                                8 |                         2 |
+
+Group pins can lower these ceilings. Only the measured `agentic-gateway-core-2`
+family loses its two-worker compact pin on Blacksmith and hybrid profiles;
+GitHub-hosted planning and other timing-sensitive groups retain it. Gateway
+plans still run exclusively. When core-2 shares a serial bin, its unproven
+siblings retain their two-worker caps at group scope.
+
+The [September 19 probe](https://github.com/openclaw/openclaw/actions/runs/35441442486)
+ran two predefined samples per cell on eight CPUs, 30.95 GiB, and Node 24.19.0.
+All twelve samples passed. Single-plan cells ran all 293 core-2 files; two-plan
+cells also ran the complete core-1 group concurrently through a disposable
+probe-only admission exception. Production Gateway exclusivity remains intact.
+The default resolved to three workers.
+
+|     Workers | Plans | Wall seconds, both samples | Peak summed RSS | Peak process RSS |
+| ----------: | ----: | -------------------------- | --------------: | ---------------: |
+| 3 (default) |     1 | 313.0 / 288.8              |        5.92 GiB |         5.63 GiB |
+|           6 |     1 | 248.5 / 239.7              |        8.49 GiB |         8.12 GiB |
+|           8 |     1 | 252.5 / 254.5              |       10.08 GiB |         9.69 GiB |
+| 3 (default) |     2 | 364.9 / 347.2              |        9.04 GiB |         5.66 GiB |
+|           6 |     2 | 359.0 / 316.4              |       12.12 GiB |         7.46 GiB |
+|           8 |     2 | 380.0 / 339.6              |       14.71 GiB |         8.59 GiB |
+
+Eight workers reduced the single-plan midpoint by 15.8%; six reduced it by
+18.9%. Eight did not improve the combined two-plan wall, and six was slightly
+faster in both layouts. These two-sample comparisons do not establish a precise
+optimum or a full-workflow speedup. No failures were rerun, and no test assertions
+or deadlines changed.
+
+The CI memory tiers reserve 25% of total capacity for other work. Two copies of
+the worst eight-worker single-plan RSS need `2 × 10.08 = 20.16 GiB`, fitting
+within `28 × 0.75 = 21 GiB`. The six-worker bound is
+`2 × 8.49 = 16.98 GiB`, fitting within `24 × 0.75 = 18 GiB`. Actual overlapping
+RSS already includes both plans and is not multiplied again. This gives six
+workers from 24 to below 28 GiB and eight from 28 through 128 GiB on hosts with
+at least eight CPUs. Larger memory tiers, explicit overrides, the 16-worker cap,
+load backoff, cgroup constraints, and the free-memory limits remain in place.
+At most 8 GiB of free/process-available memory still caps automatic workers at
+two; at most 4 GiB caps them at one. Committed timing weights are unchanged.
+
 ## Owner-path and release coverage
 
 Docker seed and QA Smoke use the same owner-path gates on canonical PRs and
@@ -140,6 +204,20 @@ backends, caps, budgets, or timeouts. Verify emitted rows and observed timing
 before claiming realized savings.
 
 ## Measured shard weights
+
+Gateway core, database-worker, methods, methods-isolated, server, and
+server-isolated configs run with exclusive plan admission. Cold in-process
+Gateway boot measured 37 seconds alone and 50 seconds under contention against
+a 90-second test budget. Jobs containing these configs execute their packed
+plans serially. Existing bins, summed duration budgets, runner allocations,
+file partitions, and timing weights stay unchanged; formerly parallel jobs retain
+their two-worker ceiling through the job environment, except measured core-2
+bins whose other groups retain that ceiling individually. This adds no jobs and
+leaves ordinary jobs' concurrency unchanged. The shard runner enforces the same
+config policy even when a caller requests two plans. Precise changed-test
+selection retains the Gateway config owner and its admission metadata.
+Gateway admission is finalized before runtime placement, so inventory changes
+retain the admitted job ceiling instead of creating a different group policy.
 
 Complete hybrid main and pull-request plans retain their existing jobs and runner
 allocations while admitting measured runtime groups within 440 seconds, including
@@ -255,6 +333,69 @@ refresh used successful jobs in runs `35042635751` and `35044335386`: complete
 child spans of 569.841 and 620.791 seconds replace the stale 136-second weight
 with a rounded median of 595 seconds. Plugin fallback costs have a separate
 estimator and are not inputs to this compact timing reducer.
+
+The September 16 compact refresh sampled all 168 successful compact jobs in six
+green main runs: `35117379165`, `35120372547`, `35123270863`, `35124135571`,
+`35125714752`, and `35126089717`. Their 132 complete selector generations contain
+no partial parent totals. The unchanged reducer supplies every replacement and
+removal, retaining its independent-run minimum, outlier filter and 15% threshold.
+The scoped output applies only its Blacksmith compact map; UI, Gateway E2E,
+runtime-placement observations and hosted measurements retain their prior values.
+
+| Compact family                |      Previous Blacksmith seconds | Six-run parent/span median | Refitted seconds |
+| ----------------------------- | -------------------------------: | -------------------------: | ---------------: |
+| Infrastructure storage/state  | 104 (unmeasured parent fallback) |                  1,403.158 |            1,403 |
+| Doctor config/state           |  67 (unmeasured parent fallback) |                    614.943 |              615 |
+| Runtime config                | 113 (unmeasured parent fallback) |                    847.352 |              847 |
+| Infrastructure system/runtime |                               86 |                    692.647 |              693 |
+| Gateway core-3                |                              167 |                    381.772 |              382 |
+| Commands Doctor               |                               61 |                    304.648 |              305 |
+
+Storage/state parts 2 and 3 measured 735.136 and 623.723 seconds; Doctor
+config/state part 2 measured 505.405 seconds. Existing selector splitting turns
+the hybrid storage/state family from three parts into ten, Doctor config/state
+from two into five, and runtime config from three into six. Their complete file
+inventories, process isolation, worker limits, naming scheme and timing-key
+generation remain owned by the existing planner. Repartitioned children receive
+new membership keys; the measured parent survives that change. Blacksmith also
+adds Gateway core-1 and core-2 to its existing split-owner list after their
+complete measurements reached 578 and 491 seconds. Hybrid and hosted already
+split those owners. Standalone agent support retains its existing whole-group
+contract.
+
+Blacksmith-profile PRs changing the compact planner or committed timing file run
+the complete compact core plan: focused planner tests alone cannot measure the
+resulting packing. Hosted profiles retain precise changed-test targeting. This
+uses the existing matrices and caps; plugin fallback keeps its separate owner.
+
+Three families retain their previous complete timing entries to avoid hosted expansion:
+`agentic-gateway-server-isolated`, `agentic-gateway-core-runtime`, and
+`agentic-agents-core-spawn-production-boundary`. Applying their Blacksmith refit
+would expand the hosted fallback beyond its 80-row compact cap. No two independent
+recent hosted samples were available to calibrate them. This scoped refresh
+therefore defers those families rather than introducing extra hosted rows or
+inventing hosted measurements. The unscoped refit and all observed overruns belong
+in the PR evidence for a later capacity-aware refresh. The `agentic-cli-process`
+family also retains its prior timings: distributing its new parent total by the
+existing file weights prices an indivisible child at 239 seconds, beyond its
+200-second contract. That family needs a separate file-cost refit; its assertions
+and budget remain unchanged.
+
+At the inspected inventory, hybrid compact descriptors change from 29 to 51 on
+push and 53 to 75 on broad PRs; the maximum prediction remains 518 seconds for the
+standalone CLI. Ordinary two-child bins remain within 360 seconds. Excluding dist,
+the Node matrix uses 50 push rows and 113 broad-PR rows including 40 plugin rows,
+within the unchanged 64/120 caps. Blacksmith compact descriptors change from
+34/52 to 59/77; the honest 804-second maximum belongs to standalone agent support.
+Hosted plans remain byte-identical at 51/79 descriptors. Hybrid adds 22/22
+registrations per push/PR, or 550 across the retained four-main/21-PR arrival
+envelope; these rows consume existing reserved capacity, so the enforced
+4,776-registration ceiling does not increase. Budgets and timeouts are unchanged.
+
+The samples predate the 17:33 UTC runner-capacity restoration. They retain the
+older allocation's contention, so these predictions are not a measured speedup.
+Verify the restored eight-CPU/two-child admission, longest compact jobs, total
+wall time and emitted registration counts on the PR and first main run.
 
 Fewer than two independent main compact contributors fails the invocation.
 It also fails if neither a compact key nor a runtime-placement observation meets the existing independent-run sampling rules.

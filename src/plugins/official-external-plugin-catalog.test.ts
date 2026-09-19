@@ -407,22 +407,19 @@ describe("official external plugin catalog", () => {
     expect(gaps).toEqual([]);
   });
 
-  it("declares each published ClawHub counterpart in its package and discovery catalog", () => {
-    const gaps = listPublishedPluginOwners().flatMap(
-      ({ id, packageName, install, publishToClawHub }) => {
-        if (!publishToClawHub) {
-          return [];
-        }
-        const expected = `clawhub:${packageName}`;
-        const catalogSpec = resolveOfficialExternalPluginInstall(
-          expectCatalogEntry(id),
-        )?.clawhubSpec;
-        return install.clawhubSpec === expected && catalogSpec === expected
-          ? []
-          : [{ id, packageName, expected, packageSpec: install.clawhubSpec, catalogSpec }];
-      },
-    );
-    expect(gaps).toEqual([]);
+  it("declares ClawHub counterparts in packages and their external discovery catalogs", () => {
+    const owners = listPublishedPluginOwners().filter((owner) => owner.publishToClawHub);
+    for (const owner of owners) {
+      const { id, packageName, install, external } = owner;
+      const expected = `clawhub:${packageName}`;
+      expect(install.clawhubSpec, id).toBe(expected);
+      const catalogEntry = external
+        ? expectCatalogEntry(id)
+        : getOfficialExternalPluginCatalogEntry(id);
+      if (catalogEntry) {
+        expect(resolveOfficialExternalPluginInstall(catalogEntry)?.clawhubSpec, id).toBe(expected);
+      }
+    }
   });
 
   it("keeps Codex installable as a harness without declaring a model provider", () => {

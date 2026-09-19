@@ -1,4 +1,3 @@
-// Discord plugin module implements channel actions behavior.
 import { createUnionActionGate } from "openclaw/plugin-sdk/channel-actions";
 import type {
   ChannelMessageActionAdapter,
@@ -283,6 +282,7 @@ export const discordMessageActions: ChannelMessageActionAdapter = {
     "voice-status",
     "event-list",
   ],
+  writeAuthorityActions: ["channel-edit", "delete", "edit", "pin", "unpin"],
   // Credential-only Discord actions run in the gateway when one is available.
   // Send/file-style actions stay local because core owns their thread, media,
   // component, and client-local payload semantics.

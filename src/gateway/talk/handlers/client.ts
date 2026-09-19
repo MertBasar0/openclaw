@@ -4,7 +4,6 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import {
   ErrorCodes,
   errorShape,
-  type ErrorShape,
   validateTalkClientCloseParams,
   validateTalkClientSteerParams,
   validateTalkClientToolCallParams,
@@ -44,9 +43,8 @@ import {
   resolveTalkAgentConsultAuthority,
 } from "../client-gateway-control.js";
 import {
-  acquireTalkRealtimeRelayVoiceBarrier,
   ensureTalkRealtimeRelayVoiceSession,
-  releaseTalkRealtimeRelayVoiceBarrier,
+  flushTalkRealtimeRelayVoiceWrites,
 } from "../relay/index.js";
 import { resolveOwnedActiveTalkRunTarget } from "../run-ownership.js";
 import { prepareTalkSessionTarget, requirePreparedTalkSessionTarget } from "../session-target.js";
@@ -126,11 +124,7 @@ export const talkClientHandlers: GatewayRequestHandlers = {
           connId,
           sessionKey: params.sessionKey,
         });
-        await acquireTalkRealtimeRelayVoiceBarrier({
-          relaySessionId,
-          connId,
-          callId: params.callId,
-        });
+        await flushTalkRealtimeRelayVoiceWrites({ relaySessionId, connId });
       }
       const parsedArgs = parseRealtimeVoiceAgentConsultArgs(params.args ?? {});
       const origin = assertClientVoiceSessionOpen({
@@ -155,47 +149,30 @@ export const talkClientHandlers: GatewayRequestHandlers = {
         rememberLegacyVoiceBinding({ connId, sessionKey: params.sessionKey, voiceSessionId });
       }
     } catch (err) {
-      if (relaySessionId && connId) {
-        releaseTalkRealtimeRelayVoiceBarrier({ relaySessionId, connId, callId: params.callId });
-      }
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, formatForLog(err)));
       return;
     }
 
-    let result:
-      | { ok: true; runId: string; idempotencyKey: string }
-      | { ok: false; error: ErrorShape };
-    try {
-      result = await startTalkRealtimeAgentConsult(request, {
-        sessionTarget: target,
-        callId: params.callId,
-        args: params.args ?? {},
-        relaySessionId: normalizeOptionalString(params.relaySessionId),
-        connId,
-        onRunStarted: (runId) => {
-          registerClientVoiceConsultRun({
-            agentId,
-            sessionKey: params.sessionKey,
-            voiceSessionId,
-            runId,
-            config: request.context.getRuntimeConfig(),
-          });
-          if (confirmationGrant) {
-            bindAuthorizedClientVoiceConfirmation({ grant: confirmationGrant, runId });
-          }
-        },
-      });
-    } catch (consultErr) {
-      if (relaySessionId && connId) {
-        releaseTalkRealtimeRelayVoiceBarrier({ relaySessionId, connId, callId: params.callId });
-      }
-      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(consultErr)));
-      return;
-    }
+    const result = await startTalkRealtimeAgentConsult(request, {
+      sessionTarget: target,
+      callId: params.callId,
+      args: params.args ?? {},
+      relaySessionId: normalizeOptionalString(params.relaySessionId),
+      connId,
+      onRunStarted: (runId) => {
+        registerClientVoiceConsultRun({
+          agentId,
+          sessionKey: params.sessionKey,
+          voiceSessionId,
+          runId,
+          config: request.context.getRuntimeConfig(),
+        });
+        if (confirmationGrant) {
+          bindAuthorizedClientVoiceConfirmation({ grant: confirmationGrant, runId });
+        }
+      },
+    });
     if (!result.ok) {
-      if (relaySessionId && connId) {
-        releaseTalkRealtimeRelayVoiceBarrier({ relaySessionId, connId, callId: params.callId });
-      }
       respond(false, undefined, result.error);
       return;
     }

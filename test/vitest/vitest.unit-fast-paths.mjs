@@ -176,12 +176,17 @@ const ownerRoutedUnitTestPatterns = [
   "test/scripts/ci-platform-checkout.test.ts",
   // Command compaction tests need the scoped runtime registry even when their
   // mocks live in a shared helper.
+  // Completion custody tests use real session/task SQLite and process-scoped state cleanup.
+  "src/agents/agent-harness-completion-delivery.test.ts",
+  "src/agents/agent-harness-completion-ownership.test.ts",
   "src/agents/agent-command.compaction-rotation.test.ts",
   "src/agents/agent-command.embedded-maintenance.test.ts",
   "src/agents/embedded-agent-runner/run.incomplete-turn.*.test.ts",
   "src/agents/embedded-agent-runner/run/attempt.abort-race.test.ts",
   "src/agents/embedded-agent-runner/run/attempt.settled-turn-finalization-context.test.ts",
   "src/agents/openai-transport-stream.*.test.ts",
+  // Split transport suites install module mocks through their shared harness.
+  "src/agents/provider-transport-fetch.*.test.ts",
   "src/agents/embedded-agent-runner/run.inherited-auth-owner.test.ts",
   "src/agents/embedded-agent-runner/run.session-permissions.test.ts",
   "src/agents/embedded-agent-runner/run.shared-integration.test.ts",
@@ -372,9 +377,9 @@ function collectRepoTestFilesFromGit(cwd) {
       "packages",
       "test",
     ],
-    { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    { cwd, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
   );
-  if (result.status !== 0) {
+  if (result.error || result.status !== 0) {
     return null;
   }
   return result.stdout

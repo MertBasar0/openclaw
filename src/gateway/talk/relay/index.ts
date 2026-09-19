@@ -5,13 +5,10 @@ export {
   acknowledgeTalkRealtimeRelayMark,
   cancelTalkRealtimeRelayTurn,
   ensureTalkRealtimeRelayVoiceSession,
+  flushTalkRealtimeRelayVoiceWrites,
   registerTalkRealtimeRelayAgentRun,
   sendTalkRealtimeRelayAudio,
   steerTalkRealtimeRelayAgentRun,
   stopTalkRealtimeRelaySession,
   submitTalkRealtimeRelayToolResult,
 } from "./operations.js";
-export {
-  acquireTalkRealtimeRelayVoiceBarrier,
-  releaseTalkRealtimeRelayVoiceBarrier,
-} from "./voice.js";

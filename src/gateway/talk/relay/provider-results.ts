@@ -187,7 +187,6 @@ export function trackPendingWorkingToolResult(
 }
 
 export function clearRelayAgentToolCall(session: RelaySession, callId: string): void {
-  session.voiceTranscriptBarrier?.release(callId);
   const runId = session.activeAgentToolCalls.get(callId);
   session.activeAgentToolCalls.delete(callId);
   if (!runId) {

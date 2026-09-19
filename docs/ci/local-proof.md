@@ -17,7 +17,12 @@ wrappers can predate this policy.
 On serial hosts with less than 24 GiB of memory, full lint runs core targets in
 five disjoint batches and plugins in smaller chunks. These runs retain the same
 type-aware rules and TypeScript configuration while bounding checker caches.
-Explicit split-core and parallel execution selections remain unchanged.
+Automatic Linux CI on at least four CPUs and 15 GiB of verified memory capacity
+uses sixteen-directory plugin chunks to amortize type-graph startup. Capacity
+includes physical RAM and ancestor cgroup limits. Smaller or unknown capacity,
+local runs, Windows, explicit plugin stripes, and explicit serial selections keep
+eight-directory chunks. Explicit split-core and parallel execution selections
+remain unchanged.
 
 Oxlint keeps `eslint/no-redeclare` enabled for JavaScript. For `.ts`, `.tsx`,
 `.mts`, and `.cts`, `tsgo` owns declaration validity, including intentional
@@ -83,6 +88,18 @@ roots. Linux-runnable source extraction requires explicit typed localized format
 for an `Int`) instead of arbitrary Swift interpolation. Constrained inflected
 count resources are supported on both platforms. Use explicit verbatim text for
 user, system, or already-localized data.
+
+For staged checks, `pnpm check:changed --staged` compares the index with `HEAD`.
+Use `pnpm check:changed --staged --base <commit>` to compare the index with an
+explicit commit, including during a pending merge. Path selection, package
+classification, and the staged ratchets use that same base. Without `--staged`,
+the default comparison base remains `origin/main`.
+
+Delegated staged checks carry the selected paths and comparison base to the
+remote checker. Crabbox synchronizes working-tree files, not the local Git
+index, so remote results describe those materialized files rather than an exact
+copy of the staged snapshot. Keep the intended proof files consistent before
+using that route.
 
 ## Surface ratchets
 
@@ -218,8 +235,10 @@ and its digest anchors when advancing the toolchain.
 
 Trusted Linux hydration uses the shared Node compatibility selector and can
 seed a job-private Corepack home from the same authenticated pnpm archives.
-These runtime archives do not replace the frozen-lockfile dependency install
-or change the dependency-store cache keys.
+The shared setup action also carries authenticated pnpm archives in its warmed
+store, so hosted and Blacksmith jobs can bootstrap before dependency installation
+without downloading pnpm again. These archives do not replace the frozen-lockfile
+dependency install.
 
 With `install-bun: "true"`, `setup-node-env` can also reuse the original pinned
 Bun 1.4.0 ZIPs from `/opt/crabbox/toolchain-archives` on Linux glibc x64.

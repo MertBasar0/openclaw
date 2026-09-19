@@ -32,11 +32,19 @@ import type {
   GatewayRequestHandlerOptions,
   RespondFn,
 } from "../../server-methods/types.js";
+import { bindSessionRowProjection } from "../../session-row-projection-access.js";
+import type { SessionRowProjection } from "../../session-row-projection.js";
 import { resolveSessionMutationAuthorization } from "../../session-sharing.js";
 import { prepareTalkAgentConsultTranscript } from "../agent-consult-transcript.js";
 import { buildTalkRealtimeConfig } from "../session-config.js";
 import { forgetLegacyVoiceBinding } from "./client-legacy-voice-bindings.js";
 import { talkHandlers } from "./index.js";
+import {
+  expectRecordFields,
+  expectRespondError,
+  expectRespondOk,
+  mockCallArg,
+} from "./responses.test-support.js";
 
 const mocks = vi.hoisted(() => ({
   getRuntimeConfig: vi.fn<() => OpenClawConfig>(),
@@ -84,6 +92,7 @@ const mocks = vi.hoisted(() => ({
   cancelTalkRealtimeRelayTurn: vi.fn(),
   stopTalkRealtimeRelaySession: vi.fn(),
   registerTalkRealtimeRelayAgentRun: vi.fn(),
+  flushTalkRealtimeRelayVoiceWrites: vi.fn(async () => undefined),
   ensureTalkRealtimeRelayVoiceSession: vi.fn(),
   submitTalkRealtimeRelayToolResult: vi.fn(),
   createTalkTranscriptionRelaySession: vi.fn(),
@@ -236,6 +245,7 @@ vi.mock("../relay/index.js", async (importOriginal) => {
     cancelTalkRealtimeRelayTurn: mocks.cancelTalkRealtimeRelayTurn,
     createTalkRealtimeRelaySession: mocks.createTalkRealtimeRelaySession,
     ensureTalkRealtimeRelayVoiceSession: mocks.ensureTalkRealtimeRelayVoiceSession,
+    flushTalkRealtimeRelayVoiceWrites: mocks.flushTalkRealtimeRelayVoiceWrites,
     registerTalkRealtimeRelayAgentRun: mocks.registerTalkRealtimeRelayAgentRun,
     sendTalkRealtimeRelayAudio: mocks.sendTalkRealtimeRelayAudio,
     steerTalkRealtimeRelayAgentRun: mocks.steerTalkRealtimeRelayAgentRun,
@@ -324,41 +334,6 @@ async function callTalkHandler(
         }
       : {}),
   });
-}
-
-function expectRecordFields(record: unknown, expected: Record<string, unknown>) {
-  if (!record || typeof record !== "object") {
-    throw new Error("Expected record");
-  }
-  const actual = record as Record<string, unknown>;
-  for (const [key, value] of Object.entries(expected)) {
-    expect(actual[key]).toEqual(value);
-  }
-  return actual;
-}
-
-function mockCallArg(mock: ReturnType<typeof vi.fn>, callIndex = 0, argIndex = 0) {
-  const call = mock.mock.calls.at(callIndex);
-  if (!call) {
-    throw new Error(`Expected mock call ${callIndex}`);
-  }
-  return call.at(argIndex);
-}
-
-function expectRespondOk(mock: ReturnType<typeof vi.fn>, expected?: Record<string, unknown>) {
-  expect(mockCallArg(mock)).toBe(true);
-  const result = mockCallArg(mock, 0, 1);
-  if (expected) {
-    expectRecordFields(result, expected);
-  }
-  expect(mockCallArg(mock, 0, 2)).toBeUndefined();
-  return result;
-}
-
-function expectRespondError(mock: ReturnType<typeof vi.fn>, expected: Record<string, unknown>) {
-  expect(mockCallArg(mock)).toBe(false);
-  expect(mockCallArg(mock, 0, 1)).toBeUndefined();
-  return expectRecordFields(mockCallArg(mock, 0, 2), expected);
 }
 
 beforeEach(() => {
@@ -2094,7 +2069,7 @@ describe("talk.session unified handlers", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.resolveSessionKeyFromResolveParams.mockImplementation(async ({ p }) => {
+    mocks.resolveSessionKeyFromResolveParams.mockImplementation(({ p }) => {
       const key = (p as { key?: unknown }).key;
       return {
         ok: true,
@@ -2894,6 +2869,7 @@ describe("talk.session unified handlers", () => {
       respond: createRespond,
       context: {
         getRuntimeConfig: () => config,
+        ...bindSessionRowProjection({}, () => ({}) as SessionRowProjection),
       },
     });
 
@@ -2902,7 +2878,7 @@ describe("talk.session unified handlers", () => {
       brain: "agent-consult",
     });
     expect(mocks.resolveSessionKeyFromResolveParams).toHaveBeenCalledWith({
-      cfg: config,
+      projection: {},
       client: { connId: "conn-1", connect: { scopes: ["operator.write"] } },
       p: {
         key: "agent:worker:subagent:child",
@@ -2932,7 +2908,10 @@ describe("talk.session unified handlers", () => {
       },
       client: { connId: "conn-1", connect: { scopes: ["operator.admin"] } },
       respond: createRespond,
-      context: { getRuntimeConfig: () => config },
+      context: {
+        getRuntimeConfig: () => config,
+        ...bindSessionRowProjection({}, () => ({}) as SessionRowProjection),
+      },
     });
 
     expectRespondOk(createRespond, { transport: "managed-room" });
@@ -2999,6 +2978,7 @@ describe("talk.session unified handlers", () => {
       respond: createRespond,
       context: {
         getRuntimeConfig: () => ({}) as OpenClawConfig,
+        ...bindSessionRowProjection({}, () => ({}) as SessionRowProjection),
       },
     });
 

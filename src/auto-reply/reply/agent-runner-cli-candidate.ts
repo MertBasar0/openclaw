@@ -287,6 +287,7 @@ export async function runCliFallbackCandidate(
               ),
             ]);
           },
+          onItemEvent: turn.opts?.onItemEvent,
           onCommentaryText:
             bridgeCliPreambleProgress || bridgeCliDurableCommentary
               ? async (payload) => {
@@ -499,6 +500,7 @@ export async function runCliFallbackCandidate(
       {
         preparedRunAdmission: params.preparedRunAdmission,
         lifecycleGeneration: params.lifecycleGeneration,
+        isFinalFallbackAttempt: params.isFinalFallbackAttempt,
         abortSignal: params.runAbortSignal,
         trigger: turn.isHeartbeat ? "heartbeat" : "user",
         inputProvenance: turn.followupRun.run.inputProvenance,

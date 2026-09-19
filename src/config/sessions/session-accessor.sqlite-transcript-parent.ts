@@ -66,7 +66,9 @@ export function canRebasePreparedAssistantInTransaction(
     return false;
   }
   const admitted = admittedUserId
-    ? readTranscriptIdentityInTransaction(database, sessionId, admittedUserId)
+    ? admittedUserId === preparedParentId
+      ? preparedParent
+      : readTranscriptIdentityInTransaction(database, sessionId, admittedUserId)
     : undefined;
   if (admittedUserId && !admitted) {
     return false;
@@ -134,6 +136,11 @@ export function canRebasePreparedAssistantInTransaction(
           "rewrite.generation",
           /* kysely-allow-raw: validate the canonical message role without hydrating content. */
           sql<string>`json_extract(event.event_json, '$.message.role')`.as("message_role"),
+          /* kysely-allow-raw: only exact canonical booleans exempt a command from model context. */
+          sql<number | null>`json_type(event.event_json, '$.message.excludeFromContext') = 'true'
+            AND json_type(event.event_json, '$.message.__openclaw.contextFreeCommand') = 'true'`.as(
+            "context_free_command",
+          ),
         ])
         .where("identity.session_id", "=", sessionId)
         .where("identity.seq", ">=", newerMessageMetadata[0]!.seq)
@@ -144,7 +151,11 @@ export function canRebasePreparedAssistantInTransaction(
     ),
   );
   return newerRoles.every((row) => {
-    if (row.message_role !== "user" || row.event_id === admittedUserId) {
+    if (
+      row.message_role !== "user" ||
+      row.event_id === admittedUserId ||
+      row.context_free_command === 1
+    ) {
       return true;
     }
     const answer = resolveSessionTranscriptQuestionAnswer(

@@ -4,6 +4,7 @@ import type { PrepareAssistantTranscriptMessage } from "../../config/sessions/tr
 import type { SessionEntry, SessionToolOverrides } from "../../config/sessions/types.js";
 // Shared get-reply type contracts for command, directive, and runtime layers.
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import type { DashboardMessageReadAdmission } from "../../gateway/message-action-turn-capability.js";
 import type { PluginCommandReplyOptions } from "../../plugins/plugin-command-dispatch-contract.js";
 import type { SkillWorkshopProposalRevisionConstraint } from "../../skills/workshop/types.js";
 import type { GetReplyOptions } from "../get-reply-options.types.js";
@@ -40,10 +41,14 @@ type InternalReplySessionOptions = {
   /** Invocation-owned conversation facts; never execution or sender authority. */
   replyConversation?: PreparedReplyConversation;
   prepareAssistantTranscriptMessage?: PrepareAssistantTranscriptMessage;
+  /** Internal delivery owner that stages reply media using current Gateway session policy. */
+  mediaNormalizationOwner?: "gateway";
   /** Exact authority-bearing settings captured by Gateway chat admission. */
   admittedSessionSettings?: Readonly<Pick<SessionEntry, "permissionMode" | "toolOverrides">>;
   /** Host-stamped exact-run capability for late Codex creator-authority capture. */
   cronCreatorAuthorityCapability?: CronCreatorAuthorityCapability;
+  /** Current external dashboard turn only; never persisted or inherited by another run. */
+  dashboardReadAdmission?: DashboardMessageReadAdmission;
   expectedExistingSessionId?: string;
   /** First dispatch only: admission created this exact pinned session before reply initialization. */
   newlyCreatedSessionId?: string;
