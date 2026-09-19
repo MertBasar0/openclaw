@@ -2,6 +2,7 @@ import type { SessionEntry } from "../../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import type { FastMode } from "../../../shared/fast-mode.js";
 import { resolveFastModeState } from "../../fast-mode.js";
+import type { ModelRef } from "../../model-ref-shared.js";
 import {
   normalizeStoredOverrideModel,
   resolveDefaultModelForAgent,
@@ -55,6 +56,12 @@ function resolveRequesterModel(params: RequesterPreferencesContext, entry?: Sess
     overrideRouteResolution: entry.modelOverrideRouteResolution,
   });
   return { defaultModel, selectedModel };
+}
+
+export function readRequesterActiveModel(params: RequesterPreferencesContext): ModelRef {
+  const entry = readRequesterSession(params);
+  const { defaultModel, selectedModel } = resolveRequesterModel(params, entry);
+  return selectedModel ?? defaultModel;
 }
 
 export function readRequesterModel(params: RequesterPreferencesContext) {

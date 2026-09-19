@@ -4,6 +4,7 @@ import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { isIncognitoSessionKey } from "../../../routing/session-key.js";
 import { resolveUserPath } from "../../../utils.js";
 import { resolveAgentDir } from "../../agent-scope-config.js";
+import { modelKey } from "../../model-ref-shared.js";
 import { resolveSpawnSandboxError, mintSpawnSessionKey } from "../../spawn-plan.js";
 import { resolveRequesterOriginForChild } from "../../spawn-requester-origin.js";
 import {
@@ -18,6 +19,7 @@ import type {
 } from "./subagent-spawn-contract.js";
 import { resolveSubagentModelAndThinkingPlan, splitModelRef } from "./subagent-spawn-plan.js";
 import {
+  readRequesterActiveModel,
   readRequesterFastMode,
   readRequesterModel,
   readRequesterThinkingLevel,
@@ -154,14 +156,6 @@ export async function resolveSubagentChildPlan(params: {
       requesterInternalKey: params.requesterInternalKey,
       requesterAgentId: params.requesterAgentId,
     });
-  const inheritedFastMode =
-    params.swarmEnabled && params.request.fastMode === undefined
-      ? readRequesterFastMode({
-          cfg: params.cfg,
-          requesterInternalKey: params.requesterInternalKey,
-          requesterAgentId: params.requesterAgentId,
-        })
-      : params.request.fastMode;
   const modelPlan = await resolveSubagentModelAndThinkingPlan({
     cfg: params.cfg,
     targetAgentId: params.targetAgentId,
@@ -179,7 +173,7 @@ export async function resolveSubagentChildPlan(params: {
             requesterAgentId: params.requesterAgentId,
           }))
         : undefined,
-    fastMode: inheritedFastMode,
+    fastMode: params.request.fastMode,
     workspaceDir: spawnedWorkspaceDir,
     requiresTools: params.request.outputSchema !== undefined,
   });
@@ -195,6 +189,31 @@ export async function resolveSubagentChildPlan(params: {
   }
   const { resolvedModel } = modelPlan;
   const resolvedLaunchModel = splitModelRef(resolvedModel);
+
+  // Fast mode is a per-model parameter. Inherit the requester's fastMode only when
+  // the child resolves to the same model identity (or when explicitly specified in the request).
+  if (params.request.fastMode === undefined && params.swarmEnabled) {
+    const requesterModel =
+      params.ctx.requesterModel ??
+      readRequesterActiveModel({
+        cfg: params.cfg,
+        requesterInternalKey: params.requesterInternalKey,
+        requesterAgentId: params.requesterAgentId,
+      });
+    const requesterModelKey = modelKey(requesterModel.provider, requesterModel.model);
+    const childModelKey = modelKey(resolvedLaunchModel.provider ?? "", resolvedLaunchModel.model);
+    if (requesterModelKey.toLowerCase() === childModelKey.toLowerCase()) {
+      const inheritedFastMode = readRequesterFastMode({
+        cfg: params.cfg,
+        requesterInternalKey: params.requesterInternalKey,
+        requesterAgentId: params.requesterAgentId,
+      });
+      if (inheritedFastMode !== undefined) {
+        modelPlan.initialSessionPatch.fastMode = inheritedFastMode;
+      }
+    }
+  }
+
   const launchAuthorization: SubagentLaunchAuthorization | undefined =
     params.request.model?.trim() && resolvedLaunchModel.model
       ? {

@@ -283,4 +283,141 @@ describe("spawnSubagentDirect runtime model persistence", () => {
     expect(persistedEntry?.authProfileOverride).toBe("openai:test-profile");
     expect(persistedEntry?.authProfileOverrideSource).toBe("user");
   });
+
+  it("does not inherit requester fastMode when child spawns with a different model", async () => {
+    loadSessionStoreMock.mockReturnValue({
+      "agent:main:main": {
+        sessionId: "fast-mode-parent",
+        providerOverride: "openai",
+        modelOverride: "gpt-5.6-luna",
+        fastMode: true,
+      },
+    });
+    let persistedStore: Record<string, Record<string, unknown>> | undefined;
+    installSessionStoreCaptureMock(updateSessionStoreMock, {
+      onStore: (store) => {
+        persistedStore = store;
+      },
+    });
+
+    const result = await spawnSubagentDirect(
+      {
+        task: "test",
+        model: "anthropic/claude-opus-5",
+      },
+      {
+        agentSessionKey: "agent:main:main",
+        agentChannel: "guildchat",
+        requesterModel: { provider: "openai", model: "gpt-5.6-luna" },
+      },
+    );
+
+    expect(result.status).toBe("accepted");
+    expect(result.resolvedModel).toBe("anthropic/claude-opus-5");
+    const [, persistedEntry] = Object.entries(persistedStore ?? {})[0] ?? [];
+    expect(persistedEntry?.fastMode).toBeUndefined();
+  });
+
+  it("inherits requester fastMode when child spawns with the same model", async () => {
+    loadSessionStoreMock.mockReturnValue({
+      "agent:main:main": {
+        sessionId: "fast-mode-parent",
+        providerOverride: "openai",
+        modelOverride: "gpt-5.6-luna",
+        fastMode: true,
+      },
+    });
+    let persistedStore: Record<string, Record<string, unknown>> | undefined;
+    installSessionStoreCaptureMock(updateSessionStoreMock, {
+      onStore: (store) => {
+        persistedStore = store;
+      },
+    });
+
+    const result = await spawnSubagentDirect(
+      {
+        task: "test",
+        model: "openai/gpt-5.6-luna",
+      },
+      {
+        agentSessionKey: "agent:main:main",
+        agentChannel: "guildchat",
+        requesterModel: { provider: "openai", model: "gpt-5.6-luna" },
+      },
+    );
+
+    expect(result.status).toBe("accepted");
+    expect(result.resolvedModel).toBe("openai/gpt-5.6-luna");
+    const [, persistedEntry] = Object.entries(persistedStore ?? {})[0] ?? [];
+    expect(persistedEntry?.fastMode).toBe(true);
+  });
+
+  it("inherits requester fastMode when child spawns with a canonical alias of the same model", async () => {
+    loadSessionStoreMock.mockReturnValue({
+      "agent:main:main": {
+        sessionId: "fast-mode-parent",
+        providerOverride: "openai",
+        modelOverride: "gpt-5.6-luna",
+        fastMode: true,
+      },
+    });
+    let persistedStore: Record<string, Record<string, unknown>> | undefined;
+    installSessionStoreCaptureMock(updateSessionStoreMock, {
+      onStore: (store) => {
+        persistedStore = store;
+      },
+    });
+
+    const result = await spawnSubagentDirect(
+      {
+        task: "test",
+        model: "gpt-5.6-luna",
+      },
+      {
+        agentSessionKey: "agent:main:main",
+        agentChannel: "guildchat",
+        requesterModel: { provider: "openai", model: "gpt-5.6-luna" },
+      },
+    );
+
+    expect(result.status).toBe("accepted");
+    expect(result.resolvedModel).toBe("openai/gpt-5.6-luna");
+    const [, persistedEntry] = Object.entries(persistedStore ?? {})[0] ?? [];
+    expect(persistedEntry?.fastMode).toBe(true);
+  });
+
+  it("respects explicit fastMode override when child spawns with a different model", async () => {
+    loadSessionStoreMock.mockReturnValue({
+      "agent:main:main": {
+        sessionId: "fast-mode-parent",
+        providerOverride: "openai",
+        modelOverride: "gpt-5.6-luna",
+        fastMode: true,
+      },
+    });
+    let persistedStore: Record<string, Record<string, unknown>> | undefined;
+    installSessionStoreCaptureMock(updateSessionStoreMock, {
+      onStore: (store) => {
+        persistedStore = store;
+      },
+    });
+
+    const result = await spawnSubagentDirect(
+      {
+        task: "test",
+        model: "anthropic/claude-opus-5",
+        fastMode: false,
+      },
+      {
+        agentSessionKey: "agent:main:main",
+        agentChannel: "guildchat",
+        requesterModel: { provider: "openai", model: "gpt-5.6-luna" },
+      },
+    );
+
+    expect(result.status).toBe("accepted");
+    expect(result.resolvedModel).toBe("anthropic/claude-opus-5");
+    const [, persistedEntry] = Object.entries(persistedStore ?? {})[0] ?? [];
+    expect(persistedEntry?.fastMode).toBe(false);
+  });
 });
