@@ -200,16 +200,18 @@ export async function resolveSubagentChildPlan(params: {
         requesterInternalKey: params.requesterInternalKey,
         requesterAgentId: params.requesterAgentId,
       });
-    const requesterModelKey = modelKey(requesterModel.provider, requesterModel.model);
-    const childModelKey = modelKey(resolvedLaunchModel.provider ?? "", resolvedLaunchModel.model);
-    if (requesterModelKey.toLowerCase() === childModelKey.toLowerCase()) {
-      const inheritedFastMode = readRequesterFastMode({
-        cfg: params.cfg,
-        requesterInternalKey: params.requesterInternalKey,
-        requesterAgentId: params.requesterAgentId,
-      });
-      if (inheritedFastMode !== undefined) {
-        modelPlan.initialSessionPatch.fastMode = inheritedFastMode;
+    if (resolvedLaunchModel.model) {
+      const requesterModelKey = modelKey(requesterModel.provider, requesterModel.model);
+      const childModelKey = modelKey(resolvedLaunchModel.provider ?? "", resolvedLaunchModel.model);
+      if (requesterModelKey.toLowerCase() === childModelKey.toLowerCase()) {
+        const inheritedFastMode = readRequesterFastMode({
+          cfg: params.cfg,
+          requesterInternalKey: params.requesterInternalKey,
+          requesterAgentId: params.requesterAgentId,
+        });
+        if (inheritedFastMode !== undefined) {
+          modelPlan.initialSessionPatch.fastMode = inheritedFastMode;
+        }
       }
     }
   }
