@@ -1,5 +1,6 @@
 // Codex tests cover rate limits plugin behavior.
 import { describe, expect, it } from "vitest";
+import { formatCodexStatus } from "../command-formatters.js";
 import {
   buildCodexAppServerUsageSnapshot,
   formatCodexUsageLimitErrorMessage,
@@ -194,6 +195,69 @@ describe("formatCodexUsageLimitErrorMessage", () => {
 });
 
 describe("buildCodexAppServerUsageSnapshot", () => {
+  it.each(["gpt-reserve", "other-quota"])(
+    "discloses only the distinct reserve route (%s)",
+    (limitName) => {
+      const value = {
+        rateLimitsByLimitId: {
+          codex: { limitId: "codex", primary: { usedPercent: 100 } },
+          alias: {
+            limitId: "base_model_inference",
+            limitName,
+            normalModelSlug: "gpt-5.6-luna",
+            secondary: { usedPercent: 0 },
+          },
+        },
+      };
+      const snapshot = buildCodexAppServerUsageSnapshot(value);
+      const status = summarizeCodexRateLimits(value);
+      expect(snapshot.windows).toHaveLength(1);
+      if (limitName === "gpt-reserve") {
+        expect(snapshot.summary).toContain("Ordinary Luna does not use this reserve");
+        expect(status).toContain("Luna Reserve (separate route)");
+        expect(status).toContain("does not establish eligibility or per-request billing");
+        const command = formatCodexStatus({
+          models: { ok: true, value: { models: [] } },
+          account: { ok: true, value: {} },
+          limits: { ok: true, value },
+          mcps: { ok: true, value: [] },
+          skills: { ok: true, value: [] },
+        });
+        expect(command).toContain(". Luna Reserve is a separate");
+      } else {
+        expect(snapshot.summary).toBeUndefined();
+        expect(status).not.toContain("Luna Reserve");
+      }
+    },
+  );
+
+  it("includes additional quota groups and precise balances for account rows", () => {
+    const payload = {
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: "codex",
+          planType: "pro",
+          primary: { usedPercent: 10, windowDurationMins: 300, resetsAt: 1_900_000_000 },
+          credits: { hasCredits: true, balance: "12.75" },
+        },
+        extra: {
+          limitId: "extra",
+          limitName: "Extra quota",
+          primary: { usedPercent: 75, windowDurationMins: 300, resetsAt: 1_900_000_000 },
+        },
+      },
+    };
+    const result = buildCodexAppServerUsageSnapshot(payload, { accountDetails: true });
+    expect(result).toMatchObject({
+      plan: "pro",
+      billing: [{ type: "balance", amount: 12.75, unit: "credits" }],
+      windows: [
+        { label: "5h", usedPercent: 10, resetAt: 1_900_000_000_000 },
+        { label: "5h", groupLabel: "Extra quota", usedPercent: 75 },
+      ],
+    });
+    expect(buildCodexAppServerUsageSnapshot(payload).windows).toHaveLength(1);
+  });
   it("parses Codex app-server rate-limit windows as OpenAI usage", () => {
     const result = buildCodexAppServerUsageSnapshot({
       rateLimitsByLimitId: {

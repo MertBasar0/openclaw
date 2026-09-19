@@ -10,10 +10,14 @@ const SESSIONS_PATCH_WRITE_SCOPE_MUTATIONS: ReadonlySet<string> = new Set([
   "color",
   "category",
   "boardFace",
+  "boardPresentation",
   "pinned",
   "archived",
   "unread",
   "model",
+  "agentRuntime",
+  "thinkingLevel",
+  "fastMode",
   "permissionMode",
 ]);
 

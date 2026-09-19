@@ -9,6 +9,7 @@ OpenClaw Android is the officially released Google Play app. It connects to an O
 - Select agents, pin sessions, and browse available native session catalogs from the sidebar. Connecting creates or adopts a dedicated Android session without resetting its history. Native sessions keep their runtime-owned model: Android shows that ownership instead of offering a model change. New session starts independently of the current native thread. Generic child-session forks and new worktrees are unavailable for those sessions; supported message-level forks remain available.
 - Search from Overview or Settings to find settings by their displayed name or category, alongside quick actions and recent threads. Local destinations such as Appearance, Profile, and Licenses work without connecting a Gateway. Back from a settings detail returns to the screen that opened search; Desktop appears only when the connected Gateway supports it.
 - Choose a theme family, color mode, accent, and app language in **Settings → Appearance**. Theme and accent edits sync with a connected writable profile. Read-only or unknown-profile edits, including new edits after restarting offline, stay on the device; choose them again after connecting to sync. Already profile-bound edits wait for that profile to reconnect, without discarding or replacing newer device-local choices.
+- Choose **Text size** in **Settings → Appearance**: 90%, 100% (default), 110%, 125%, or 140%. This device-local choice survives restarting the app and does not sync to your profile. It combines with Android system font scaling, including nonlinear scaling, without changing spacing or typefaces.
 - Configure foreground on-device Voice Wake and Gateway-synced wake words in **Settings → Voice**.
 - Use **Settings → OpenClaw** for guided Gateway setup and repair. New replies stay visible at the end of the conversation; scrolling back preserves your reading position until you return or tap **Jump to latest**.
 - Enable camera, location, and other phone capabilities through onboarding or Settings. Biometric locking, Gateway/chat notifications, and authenticated background presence are supported.
@@ -23,6 +24,66 @@ OpenClaw Android is the officially released Google Play app. It connects to an O
 ## Session colors
 
 Long-press a row on the **Threads** page and choose **Color**, then select a swatch or **Default** to clear it. The eight colors are red, blue, green, yellow, purple, orange, pink, and cyan. Colored sessions show a narrow leading stripe in the sidebar and Threads page, plus a colored ring around the agent avatar in the open chat header. Unset colors add no indicator. Colors sync through the Gateway and remain visible in the local session cache while offline.
+
+## Image previews in Chat
+
+Tap an image to open the full image. Pinch to zoom up to 4× and drag to pan;
+double-tap the image for 2.5× zoom or to reset. The bottom controls zoom out,
+show the current percentage (tap to reset), and zoom in. Close with **X**,
+Android Back, or a stationary tap on empty background. Image taps, drags,
+and two-finger gestures do not dismiss the preview. Rotation or recreation
+refits the image rather than restoring offsets from the old viewport.
+
+## Completed work in Chat
+
+In the app's own conversation, agent main sessions, and dashboard conversations,
+completed commentary and tool activity fold into a **Worked** or **Worked for…**
+row. Tap the row to expand or collapse the details. Prompts, final answers,
+and attachments remain visible. Failures without a later answer stay visible;
+earlier tool failures remain available in expanded work. Active work stays expanded,
+including a run continued by a steering message. Channel conversations retain
+their full transcript.
+
+## Message information
+
+Tap the subdued timestamp under an assistant message to see its recorded model,
+token counts, cache reads/writes, and estimated cost when the Gateway supplies them.
+These are facts for that message's model call, not totals for the whole run.
+Missing and zero-valued details are omitted; messages without details keep a plain
+timestamp. The existing offline transcript cache retains these facts. Android does
+not infer a historical context percentage from the current session's model limit.
+
+## Review changes
+
+When the connected Gateway advertises `sessions.diff`, open a conversation's
+three-dot **Chat actions** menu and choose **Review changes**. If the action is
+missing, update the Gateway before reviewing changes on Android.
+The full-screen native viewer loads the same `sessions.diff` snapshot as the web Review panel.
+Close it with Android Back or **Close review**; pulling down does not dismiss it.
+Review shows **Uncommitted** changes only. The scope label is static; branch-base
+and historical commit comparisons are outside this Android viewer's scope.
+Tap a file header to collapse it. Line numbers are hidden by default. Start a new
+rightward swipe of at least 64dp with the code already at its left edge to reveal them;
+swipe left at least 64dp to hide them, then start a fresh swipe to pan the code. A swipe that starts away
+from the left edge only pans, even after reaching that edge: lift your finger before swiping again to
+reveal numbers. Addition/deletion markers remain visible.
+Long-press a code line, then drag to select more lines. Release to choose **To
+chat** (append `path:start-end (Before | Uncommitted)` or the corresponding
+After context, followed by all selected text in a fenced
+code block, to your draft without sending it) or
+**Copy** (copy the selected text). A pulse marks the start of selection; a toast
+confirms either action. Drag any of the four selection handles to refine the range before
+choosing an action. Selection stays in one hunk and uses the starting line's
+side: **Before** for deleted lines, **After** otherwise. It skips the opposite
+side and never includes omitted context. Tap outside the actions to cancel.
+Use **Copy patch** to copy that file's returned patch.
+**Refresh changes** requests a new snapshot; the viewer does not stream updates.
+
+The Gateway owns repository selection and session-start filtering. This is a
+checkout snapshot, not an exact audit of the assistant's edits. Binary files,
+truncated patches, stopped workspaces, and unavailable repositories are identified
+in the viewer. Switching conversation or Gateway closes the review; safe fold
+layout changes preserve the opening.
 
 ## Foldable layout
 
@@ -184,6 +245,14 @@ scene has 12 local branch alternatives and no active run. Switching updates the
 selected branch and transcript only in fixture memory, never on a live Gateway.
 Start a fresh app process before choosing a scene; restarting only the Activity
 reuses the process runtime. Same-scene re-entry retains the selected branch.
+
+For sidebar attention proof, use `openclaw.screenshotScene=attention`. The native drawer contains inactive sessions with multiple questions and execution, plugin, and Gateway-settings approvals. Tap or keyboard-focus an attention icon to inspect the oldest request. The `attention-expiry` scene uses successive short deadlines to exercise live removal without another Gateway event. These fixtures use the normal request parsers and lifecycle owners with synthetic in-memory responses; start a fresh app process between scenes.
+
+For completed-work proof, use `openclaw.screenshotScene=completed-work`,
+`active-work`, or `work-boundaries`. These scenes use the same Chat screen with
+synthetic history in a node-owned app conversation. They cover disclosure
+expansion, active work, attachments, and failed tools without a live Gateway.
+Start a fresh app process between scenes.
 
 `pnpm android:release:archive` builds signed release artifacts into `apps/android/build/release-artifacts/` and writes `.sha256` checksum files:
 

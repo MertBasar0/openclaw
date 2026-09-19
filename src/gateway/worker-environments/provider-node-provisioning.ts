@@ -1,4 +1,5 @@
 import type { WorkerAdmissionHandshake } from "../../../packages/gateway-protocol/src/schema/worker-admission.js";
+import { racePromiseWithAbortSignal } from "../../infra/abort-signal.js";
 import type {
   WorkerLease,
   WorkerNodeEnrollment,
@@ -20,6 +21,7 @@ type NodeLease = Extract<WorkerLease, { node: { deviceId: string } }>;
 type WorkerNodeProvisioningOptions = Pick<
   WorkerProviderLifecycleOptions,
   | "store"
+  | "now"
   | "isStopping"
   | "prepareNodeBootstrap"
   | "prepareInstallation"
@@ -44,6 +46,7 @@ type WorkerNodeProvisioningOptions = Pick<
 };
 
 export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOptions) {
+  const now = options.now ?? Date.now;
   const prepareBundle = async (
     preparedInstallation?: WorkerInstallationArtifact,
     signal?: AbortSignal,
@@ -65,6 +68,7 @@ export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOpti
     record: WorkerEnvironmentRecord,
     provider: WorkerProvider,
     signal?: AbortSignal,
+    beforeProvision?: () => void,
   ) => {
     if (!provider.requiresNodeEnrollment || !options.prepareNodeBootstrap) {
       return undefined;
@@ -113,6 +117,7 @@ export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOpti
         `Worker node bootstrap preparation failed: ${boundedError(error)}`,
       );
     }
+    beforeProvision?.();
     const current = options.store.get(record.environmentId);
     if (
       options.isStopping() ||
@@ -136,6 +141,7 @@ export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOpti
     signal?: AbortSignal,
     preparedInstallation?: WorkerInstallationArtifact,
     identity?: WorkerNodeRuntimeIdentity,
+    beforeProvision?: () => void,
   ) => {
     if (provider.requiresNodeEnrollment !== true) {
       return undefined;
@@ -149,6 +155,9 @@ export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOpti
     const controller = new AbortController();
     let runtime: WorkerNodeRuntimePreparation | undefined;
     let pendingRuntime: Promise<WorkerNodeRuntimePreparation> | undefined;
+    let pendingInstallation: ReturnType<typeof prepareBundle> | undefined;
+    const prepareInstallation = () =>
+      (pendingInstallation ??= prepareBundle(preparedInstallation, signal));
     let enrollment: WorkerNodeEnrollment | undefined;
     let pending: Promise<WorkerNodeEnrollment> | undefined;
     const close = () => {
@@ -172,6 +181,7 @@ export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOpti
       close();
     }
     const assertCurrent = () => {
+      beforeProvision?.();
       const current = options.store.get(record.environmentId);
       if (
         !open ||
@@ -179,7 +189,8 @@ export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOpti
         current?.state !== "provisioning" ||
         current.destroyRequestedAtMs !== null ||
         current.provisionOperationId !== record.provisionOperationId ||
-        current.ownerEpoch !== record.ownerEpoch
+        current.ownerEpoch !== record.ownerEpoch ||
+        (current.preparation?.consumedAtMs === null && current.preparation.expiresAtMs <= now())
       ) {
         controller.abort();
         throw new DOMException("Worker provisioning operation is closed", "AbortError");
@@ -205,11 +216,17 @@ export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOpti
       }
     };
     return {
+      get installation() {
+        return pendingInstallation ?? preparedInstallation;
+      },
       prepareRuntime: prepareNodeRuntime
         ? async () => {
             assertRuntimeCurrent();
             pendingRuntime ??= (async () => {
-              const artifact = await prepareBundle(preparedInstallation, controller.signal);
+              const artifact = await racePromiseWithAbortSignal(
+                prepareInstallation(),
+                controller.signal,
+              );
               assertRuntimeCurrent();
               const prepared = await prepareNodeRuntime(record, artifact, controller.signal);
               try {
@@ -243,7 +260,11 @@ export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOpti
           enrollment = prepared;
           return prepared;
         });
-        return await pending;
+        const prepared = await pending;
+        assertCurrent();
+        // Enrollment overlaps process-owned packaging; failure stays with lease bootstrap.
+        void prepareInstallation().catch(() => undefined);
+        return prepared;
       },
       close,
     };
@@ -254,47 +275,67 @@ export function createWorkerNodeProvisioning(options: WorkerNodeProvisioningOpti
     lease: NodeLease,
     provider: WorkerProvider,
     patch: { leaseId: string; sharedHost: boolean; desktop: WorkerLease["desktop"] | null },
-    preparedInstallation?: WorkerInstallationArtifact,
+    preparedInstallation?: WorkerInstallationArtifact | Promise<WorkerInstallationArtifact>,
     cancellation?: ReturnType<typeof createWorkerProvisionCancellation>,
     preparedWorkspace?: ReturnType<
       ReturnType<typeof createWorkerProjectPreparation>["getPreparedWorkspace"]
     >,
+    beforeProvision?: () => void,
   ): Promise<WorkerEnvironmentRecord> => {
     const nodePatch = {
       ...patch,
       nodeDeviceId: lease.node.deviceId,
       sshEndpoint: null,
     };
+    const preparation = readWorkerProjectPreparation(record.profileSnapshot.project);
+    const enrollmentOwner = options.store.get(record.environmentId);
     const assertCurrent = () => {
       cancellation?.assertActive();
+      beforeProvision?.();
       const current = options.store.get(record.environmentId);
+      if (current?.preparation?.consumedAtMs === null && current.preparation.expiresAtMs <= now()) {
+        options.store.requestDestroy({
+          environmentId: current.environmentId,
+          state: current.state,
+          lastError: "Unused prepared worker expired before readiness",
+        });
+      }
       if (
         options.isStopping() ||
         !current ||
         current.state !== record.state ||
         current.provisionOperationId !== record.provisionOperationId ||
         current.ownerEpoch !== record.ownerEpoch ||
-        current.destroyRequestedAtMs !== null
+        (current.preparation !== null && current.preparation.consumedAtMs !== null) ||
+        (preparation !== undefined &&
+          (!enrollmentOwner?.nodeSetupId ||
+            current.nodeSetupId !== enrollmentOwner.nodeSetupId ||
+            current.nodeDeviceId !== lease.node.deviceId)) ||
+        options.store.get(record.environmentId)?.destroyRequestedAtMs !== null
       ) {
         throw new Error("Prepared worker provisioning owner is no longer current");
       }
     };
     let nodeBuild: WorkerAdmissionHandshake;
     try {
+      assertCurrent();
       if (!options.ensureNodeWorkerBundle) {
         throw new Error("Device worker bundle installer is unavailable");
       }
-      const artifact = await prepareBundle(preparedInstallation, cancellation?.signal);
-      cancellation?.assertActive();
+      const artifact = await prepareBundle(await preparedInstallation, cancellation?.signal);
+      assertCurrent();
+      if (preparation && artifact.tarballSha256 !== preparation.artifacts.workerArchiveSha256) {
+        throw new Error("Worker bundle differs from its admitted preparation");
+      }
       nodeBuild = await options.ensureNodeWorkerBundle({
         deviceId: lease.node.deviceId,
         artifact,
         // Remote execution uses its harness runtime; unspecified mode retains worker prewarming.
         prewarm: record.profileSnapshot.executionMode !== "remote-exec",
         signal: cancellation?.signal,
+        assertCurrent,
       });
       assertCurrent();
-      const preparation = readWorkerProjectPreparation(record.profileSnapshot.project);
       if (preparation) {
         if (
           lease.sharedHost !== false ||

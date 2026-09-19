@@ -72,7 +72,7 @@ Other aliases and all `file`/`exec` refs require a registered `secrets.providers
 
     - `provider` must match `^[a-z][a-z0-9_-]{0,63}$`
     - `id` uses the environment-name grammar `^[A-Z][A-Z0-9_]{0,127}$`
-    - This release resolves only the Gateway-wide team scope
+    - Only the Gateway-wide team scope is resolved
 
   </Tab>
 </Tabs>
@@ -131,8 +131,33 @@ Read-only inspection recognizes valid `store` bindings without opening the datab
 - Reads the local file at `path`.
 - `mode: "json"` (default) expects a JSON object payload and resolves `id` as a JSON pointer.
 - `mode: "singleValue"` expects ref id `"value"` and returns the raw file contents (trailing newline stripped).
-- Path must pass ownership/permission checks; `timeoutMs` (default 5000) and `maxBytes` (default 1 MiB) bound the read.
+- Path must be a private regular file with one hard link and pass ownership/permission checks. Symlinks and hardlinked files are rejected; `timeoutMs` (default 5000) and `maxBytes` (default 1 MiB) bound the read.
 - Windows fail-closed: if ACL verification is unavailable for the path, resolution fails. Move the secret to a path whose ACLs OpenClaw can verify; there is no provider-level bypass.
+
+If an upgrade reports `must not be hardlinked`, copy the contents into a new private
+file and replace the configured path. Changing permissions alone does not break
+hardlinks. On Linux or macOS, run this as the Gateway user, using the actual
+credential path in an existing private directory:
+
+```bash
+(
+  set -eu
+  umask 077
+  credential_path="$HOME/.openclaw/secrets.json"
+  replacement="$(mktemp "${credential_path}.XXXXXX")"
+  trap 'rm -f "$replacement"' EXIT
+  cat "$credential_path" > "$replacement"
+  chmod 600 "$replacement"
+  mv -f "$replacement" "$credential_path"
+)
+```
+
+This preserves the configured path and contents while creating a single-link,
+`0600` file. Other names for the old inode remain unchanged. Run
+`openclaw secrets reload` for a running Gateway; if startup failed, repair the file
+before starting the Gateway again. See [activation behavior](/gateway/secrets/operations#activation-triggers).
+The [1Password integration](/gateway/secrets/integration-examples#1password) retains
+its separate, explicit allowance for broker-token hardlinks.
 
 </Accordion>
 
@@ -154,7 +179,7 @@ Request payload (stdin):
 Response payload (stdout):
 
 ```jsonc
-{ "protocolVersion": 1, "values": { "providers/openai/apiKey": "<openai-api-key>" } } // pragma: allowlist secret
+{ "protocolVersion": 1, "values": { "providers/openai/apiKey": "<openai-api-key>" } }
 ```
 
 Optional per-id errors:
@@ -177,6 +202,6 @@ but are not displayed because resolver output can contain credential material.
 <Accordion title="Store provider">
 - Reads values from OpenClaw's shared state SQLite database.
 - The provider has no connection settings. `secrets.defaults.store` selects its default alias.
-- Only team scope is resolved in this release. Identity scope is reserved for a later release.
+- Only team scope is resolved. Identity scope is not supported yet.
 
 </Accordion>

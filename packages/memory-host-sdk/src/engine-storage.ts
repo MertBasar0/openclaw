@@ -1,4 +1,5 @@
 // Real workspace contract for memory engine storage/index helpers.
+export type { MemoryWorkspaceWatchRequest } from "./host/workspace-files.js";
 
 export {
   buildFileEntry,
@@ -43,9 +44,17 @@ export {
   isMemoryOriginEligibleForAutomaticInjection,
   resolveMemoryIndexIdentityDiagnostic,
   resolveMemoryIndexIdentityReason,
+  resolveMemoryIndexSearchDiagnostic,
   resolveMemorySearchStaleness,
 } from "./host/types.js";
 export type { ResolvedMemoryBackendConfig } from "./host/backend-config.js";
+export {
+  createMemorySearchDeadlineControl,
+  MEMORY_SEARCH_DEADLINE_CONTROL,
+  type MemorySearchDeadlineControl,
+  type MemorySearchDeadlineControlAction,
+  type MemorySearchDeadlineControlOptions,
+} from "./host/search-deadline-control.js";
 export type {
   MemoryEmbeddingProbeResult,
   MemoryEntryProvenance,

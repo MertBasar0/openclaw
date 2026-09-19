@@ -29,9 +29,13 @@ const input = {
   analysis: { parsed: true, allowlistMatched: false, inlineEval: false },
 };
 
-it.each(["overlap", "late-preparation", "callback-tail", "cancel-tail"] as const)(
+it.for(["overlap", "late-preparation", "callback-tail", "cancel-tail"] as const)(
   "retains the exec reviewer model through %s",
-  async (mode) => {
+  async (mode, testContext) => {
+    if (mode === "cancel-tail" && process.versions.bun) {
+      // Restore this probe when transformed Fetch bodies forward cancellation under Bun.
+      testContext.skip();
+    }
     const roots = createSyncSuiteTempRootTracker("exec-reviewer-resources");
     const root = fs.realpathSync(roots.makeTempDir());
     fs.mkdirSync(path.join(root, "provider"));
@@ -229,7 +233,7 @@ it.each(["overlap", "late-preparation", "callback-tail", "cancel-tail"] as const
                 expect.soft(drained).toBe(false);
               }
             } finally {
-              second.release();
+              await second[Symbol.asyncDispose]();
             }
             finishWork.resolve();
             if (mode === "overlap") {
@@ -248,7 +252,7 @@ it.each(["overlap", "late-preparation", "callback-tail", "cancel-tail"] as const
             try {
               expect(create.mock.calls.length).toBe(builds + 1);
             } finally {
-              after.release();
+              await after[Symbol.asyncDispose]();
             }
           } finally {
             finishWork.resolve();

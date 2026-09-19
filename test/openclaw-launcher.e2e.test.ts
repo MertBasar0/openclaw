@@ -1,5 +1,5 @@
 // OpenClaw launcher E2E tests validate launcher process behavior.
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -7,8 +7,12 @@ import { pathToFileURL } from "node:url";
 import { build as esbuild } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseNodeReleaseVersion } from "../node-version.mjs";
+import { resolveTestNodeExecPath } from "../src/test-utils/node-process.js";
 import { NODE_RELEASE_VERSION_CASES } from "./helpers/node-version-cases.js";
 import { cleanupTempDirs, makeTempDir } from "./helpers/temp-dir.js";
+
+// Node version fixtures must enter Node admission even when Vitest runs under Bun.
+const testNodeExecPath = resolveTestNodeExecPath();
 
 async function makeLauncherFixture(fixtureRoots: string[]): Promise<string> {
   const fixtureRoot = makeTempDir(fixtureRoots, "openclaw-launcher-");
@@ -17,12 +21,20 @@ async function makeLauncherFixture(fixtureRoots: string[]): Promise<string> {
     path.join(fixtureRoot, "openclaw.mjs"),
   );
   await fs.copyFile(
+    path.resolve(process.cwd(), "node-host-launcher.mjs"),
+    path.join(fixtureRoot, "node-host-launcher.mjs"),
+  );
+  await fs.copyFile(
     path.resolve(process.cwd(), "node-version.mjs"),
     path.join(fixtureRoot, "node-version.mjs"),
   );
   await fs.copyFile(
     path.resolve(process.cwd(), "node-runtime-update.mjs"),
     path.join(fixtureRoot, "node-runtime-update.mjs"),
+  );
+  await fs.copyFile(
+    path.resolve(process.cwd(), "node-runtime-recovery.mjs"),
+    path.join(fixtureRoot, "node-runtime-recovery.mjs"),
   );
   await fs.copyFile(
     path.resolve(process.cwd(), "node-sqlite.mjs"),
@@ -172,7 +184,7 @@ describe("openclaw launcher", () => {
       } = {},
     ) {
       const root = await makeLauncherFixture(fixtureRoots);
-      const home = path.join(root, "home with spaces");
+      const home = makeTempDir(fixtureRoots, "openclaw-launcher-home with spaces-");
       const nodePath = path.join(
         home,
         ".openclaw",
@@ -183,10 +195,9 @@ describe("openclaw launcher", () => {
         "bin",
         "node",
       );
-      await fs.mkdir(home);
       if (params.cached) {
         await fs.mkdir(path.dirname(nodePath), { recursive: true });
-        await fs.symlink(process.execPath, nodePath);
+        await fs.symlink(testNodeExecPath, nodePath);
       }
       const installLog = path.join(root, "installer.json");
       const preload = path.join(root, "legacy-node.mjs");
@@ -205,6 +216,14 @@ describe("openclaw launcher", () => {
           }
           Object.defineProperty(process.stdin, "isTTY", { value: ${params.tty ?? true} });
           Object.defineProperty(process.stderr, "isTTY", { value: ${params.tty ?? true} });
+          const realpath = fs.realpathSync;
+          fs.realpathSync = (filename, ...options) => {
+            const file = String(filename);
+            if (path.basename(file) === "node" && file !== process.execPath && file !== ${JSON.stringify(nodePath)} && !fs.statSync(file).isDirectory()) {
+              throw Object.assign(new Error("runtime absent from fixture"), { code: "ENOENT" });
+            }
+            return realpath(filename, ...options);
+          };
           const original = childProcess.spawnSync;
           childProcess.spawnSync = (command, args, options) => {
             if (command !== ${JSON.stringify(process.platform === "darwin" ? "/bin/bash" : "bash")}) return original(command, args, options);
@@ -224,7 +243,7 @@ describe("openclaw launcher", () => {
         path.join(root, "dist", "entry.js"),
         `
         if (!process.getBuiltinModule?.("node:sqlite")) throw new Error("native diagnostic reader loaded without node:sqlite");
-        process.stdout.write(JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), path: process.env.PATH }));
+        process.stdout.write(JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), path: process.env.PATH, recovered: process.env.OPENCLAW_NODE_UPDATE_RESPAWNED === "1" }));
         process.exitCode = 17;
       `,
       );
@@ -236,12 +255,12 @@ describe("openclaw launcher", () => {
           'if (process.env.OPENCLAW_NODE_UPDATE_RESPAWNED !== "1") throw new Error("legacy lifecycle loaded"); export function completePendingPackageLifecycle() {}',
         );
       }
-      const run = (input: string, args = ["status"], env: NodeJS.ProcessEnv = {}) =>
+      const run = (input: string, args = ["status"], env: NodeJS.ProcessEnv = {}, cwd = root) =>
         spawnSync(
-          process.execPath,
+          testNodeExecPath,
           ["--import", pathToFileURL(preload).href, path.join(root, "openclaw.mjs"), ...args],
           {
-            cwd: root,
+            cwd,
             env: {
               ...launcherEnv(),
               HOME: home,
@@ -258,6 +277,49 @@ describe("openclaw launcher", () => {
       return { root, home, nodePath, installLog, run };
     }
 
+    it.each(
+      ["HOME", "OPENCLAW_HOME"].flatMap((homeVariable) =>
+        ["cached", "install", "decline", "non-interactive"].map((mode) => ({
+          homeVariable,
+          mode,
+        })),
+      ),
+    )(
+      "preserves $mode private recovery when cwd equals $homeVariable",
+      async ({ homeVariable, mode }) => {
+        const fixture = await prepareRecovery({
+          cached: mode === "cached",
+          tty: mode !== "non-interactive",
+        });
+        const result = fixture.run(
+          mode === "install" ? "y\n" : "n\n",
+          ["status"],
+          {
+            HOME: homeVariable === "HOME" ? fixture.home : fixture.root,
+            OPENCLAW_HOME: homeVariable === "OPENCLAW_HOME" ? fixture.home : undefined,
+            PATH: "",
+          },
+          fixture.home,
+        );
+        const recovered = mode === "cached" || mode === "install";
+        expect(result.status, result.stderr).toBe(recovered ? 17 : 1);
+        expect(result.stderr.includes("Update NodeJS: Y/N")).toBe(
+          mode === "install" || mode === "decline",
+        );
+        if (recovered) {
+          expect(JSON.parse(result.stdout)).toMatchObject({
+            recovered: true,
+            cwd: await fs.realpath(fixture.home),
+          });
+        } else {
+          expect(result.stderr).toContain("nvm install");
+        }
+        if (mode !== "install") {
+          await expect(fs.stat(fixture.installLog)).rejects.toMatchObject({ code: "ENOENT" });
+        }
+      },
+    );
+
     it("accepts Yes before pending lifecycle imports, installs only Node, and retries exact arguments", async () => {
       const fixture = await prepareRecovery({ pendingLifecycle: true });
       const args = ["status", "--profile", "two words", "literal;argument"];
@@ -271,8 +333,9 @@ describe("openclaw launcher", () => {
         args,
         cwd: fixture.root,
         path: expect.any(String),
+        recovered: true,
       });
-      expect(output.path.split(path.delimiter)[0]).toBe(path.dirname(fixture.nodePath));
+      expect(output.path).toBe(process.env.PATH);
       expect(JSON.parse(await fs.readFile(fixture.installLog, "utf8"))).toEqual({
         command: process.platform === "darwin" ? "/bin/bash" : "bash",
         args: [
@@ -347,9 +410,7 @@ describe("openclaw launcher", () => {
       const result = fixture.run("", args);
       expect(result.status, result.stderr).toBe(17);
       expect(result.stderr).not.toContain("Update NodeJS:");
-      expect(JSON.parse(result.stdout).path.split(path.delimiter)[0]).toBe(
-        path.dirname(fixture.nodePath),
-      );
+      expect(JSON.parse(result.stdout)).toMatchObject({ path: process.env.PATH, recovered: true });
       await expect(fs.stat(fixture.installLog)).rejects.toMatchObject({ code: "ENOENT" });
     });
 
@@ -433,7 +494,10 @@ describe("openclaw launcher", () => {
     });
 
     it("keeps a supported active Node even when a private runtime exists", async () => {
-      const fixture = await prepareRecovery({ cached: true, version: process.versions.node });
+      const version = execFileSync(testNodeExecPath, ["--print", "process.versions.node"], {
+        encoding: "utf8",
+      }).trim();
+      const fixture = await prepareRecovery({ cached: true, version });
       const result = fixture.run("");
       expect(result.status, result.stderr).toBe(17);
       expect(result.stderr).not.toContain("Node.js");
@@ -502,7 +566,7 @@ describe("openclaw launcher", () => {
       'Object.defineProperty(process.versions, "node", { value: "22.23.2" });',
     );
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       ["--import", pathToFileURL(preload).href, path.join(root, "openclaw.mjs"), ...args],
       {
         cwd: root,
@@ -535,7 +599,7 @@ describe("openclaw launcher", () => {
       );
 
       const result = spawnSync(
-        process.execPath,
+        testNodeExecPath,
         [
           "--import",
           pathToFileURL(mockNodeVersionPath).href,
@@ -575,7 +639,7 @@ describe("openclaw launcher", () => {
     );
 
     const result = spawnSync(
-      process.execPath,
+      testNodeExecPath,
       ["--import", pathToFileURL(legacyRuntimePath).href, path.join(fixtureRoot, "openclaw.mjs")],
       {
         cwd: fixtureRoot,
@@ -1275,9 +1339,10 @@ describe("openclaw launcher", () => {
   );
 
   it.runIf(process.platform !== "win32").each([
-    { signal: "SIGINT" as const, exitCode: 130 },
-    { signal: "SIGTERM" as const, exitCode: 143 },
-  ])("exits $exitCode when the respawn child terminates from $signal", async (testCase) => {
+    { signal: "SIGINT" as const, target: "launcher" },
+    { signal: "SIGTERM" as const, target: "launcher" },
+    { signal: "SIGKILL" as const, target: "child" },
+  ])("preserves $signal when the respawn $target is signaled", async (testCase) => {
     const fixtureRoot = await makeLauncherFixture(fixtureRoots);
     await addGitMarker(fixtureRoot);
     const childInfoPath = path.join(fixtureRoot, "child-info.json");
@@ -1306,11 +1371,15 @@ describe("openclaw launcher", () => {
       const childInfo = await waitForJsonFile<{ pid: number }>(childInfoPath, 5000);
       respawnChildPid = childInfo.pid;
 
-      launcher.kill(testCase.signal);
+      if (testCase.target === "launcher") {
+        launcher.kill(testCase.signal);
+      } else {
+        process.kill(respawnChildPid, testCase.signal);
+      }
 
       await expect(waitForProcessExit(launcher, "launcher", 5000)).resolves.toEqual({
-        code: testCase.exitCode,
-        signal: null,
+        code: null,
+        signal: testCase.signal,
       });
       expect(isProcessAlive(respawnChildPid)).toBe(false);
     } finally {
@@ -1321,6 +1390,25 @@ describe("openclaw launcher", () => {
         process.kill(launcher.pid!, "SIGKILL");
       }
     }
+  });
+
+  it("preserves an explicit exit 143 from a compile-cache respawn child", async () => {
+    const fixtureRoot = await makeLauncherFixture(fixtureRoots);
+    await addGitMarker(fixtureRoot);
+    await fs.writeFile(
+      path.join(fixtureRoot, "dist", "entry.js"),
+      'process.stdout.write(process.env.OPENCLAW_COMPILE_CACHE_DISABLED_RESPAWNED ?? "0", () => process.exit(143));\n',
+    );
+
+    const result = spawnSync(process.execPath, [path.join(fixtureRoot, "openclaw.mjs")], {
+      cwd: fixtureRoot,
+      env: launcherEnv({ NODE_COMPILE_CACHE: path.join(fixtureRoot, ".node-compile-cache") }),
+      encoding: "utf8",
+    });
+
+    expect(result.stdout).toBe("1");
+    expect(result.status).toBe(143);
+    expect(result.signal).toBeNull();
   });
 
   it.runIf(process.platform !== "win32")(
@@ -1358,8 +1446,8 @@ describe("openclaw launcher", () => {
         launcher.kill("SIGTERM");
 
         await expect(waitForProcessExit(launcher, "launcher", 5000)).resolves.toEqual({
-          code: 1,
-          signal: null,
+          code: null,
+          signal: "SIGKILL",
         });
         expect(isProcessAlive(launcher.pid)).toBe(false);
         expect(isProcessAlive(respawnChildPid)).toBe(false);

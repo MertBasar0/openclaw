@@ -4,15 +4,39 @@ import { createServer, request, type IncomingHttpHeaders, type Server } from "no
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveRuntimeWorkerUrl } from "openclaw/plugin-sdk/process-runtime";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTeamReportsHttpHandler } from "./http.js";
 import { describePeriod } from "./periods.js";
 import { renderMarkdown } from "./render/markdown.js";
 import { githubCounts } from "./reports.fixtures.js";
+import { teamReportsSqliteBackendEntrypoint } from "./sqlite-backend-entrypoint.test-support.js";
 import { createTeamReportsStore, type TeamReportsStore } from "./store.js";
 import type { Period, Person, ReportDocument, SummaryDocument } from "./types.js";
 
 const runtimeScopeMock = vi.hoisted(() => vi.fn());
+const workerReads = vi.hoisted(() => ({ enabled: false, calls: 0, bytes: 0 }));
+vi.mock("openclaw/plugin-sdk/sqlite-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/sqlite-runtime")>();
+  return {
+    ...actual,
+    openSqliteWorkerStore: async (...args: Parameters<typeof actual.openSqliteWorkerStore>) => {
+      const worker = await actual.openSqliteWorkerStore(...args);
+      if (worker) {
+        const execute = worker.execute.bind(worker);
+        vi.spyOn(worker, "execute").mockImplementation(async (command, options) => {
+          const result = await execute(command, options);
+          if (workerReads.enabled) {
+            workerReads.calls += 1;
+            workerReads.bytes += Buffer.byteLength(JSON.stringify(result) ?? "");
+          }
+          return result;
+        });
+      }
+      return worker;
+    },
+  };
+});
 vi.mock("openclaw/plugin-sdk/plugin-runtime", () => ({
   getPluginRuntimeGatewayRequestScope: runtimeScopeMock,
 }));
@@ -21,6 +45,7 @@ const maliciousTitle = '<script>alert("report")</script>';
 const hostileLogin = 'bad"><img src=x onerror=alert(1)>';
 const hostileDisplay = '"Quoted <Name>';
 const counts = githubCounts(1);
+const markdownSuffix = "\nStored Markdown only 雪 🦞\n".repeat(4096);
 const avatarPeople: Person[] = [
   { github: ["invalid.login", "invalid-alias"], display: "Fallback Name" },
   { github: [hostileLogin, "hostile-alias"], display: hostileDisplay },
@@ -117,7 +142,10 @@ function fetchPath(
 
 beforeAll(async () => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), "team-reports-http-"));
-  store = createTeamReportsStore({ stateDir: directory });
+  store = await createTeamReportsStore({
+    stateDir: directory,
+    workerModuleUrl: resolveRuntimeWorkerUrl(teamReportsSqliteBackendEntrypoint),
+  });
   const avatarReport = report("day", "2026-08-19");
   avatarReport.members = avatarPeople.map((person) => ({
     login: person.github[0] ?? "",
@@ -139,15 +167,34 @@ beforeAll(async () => {
     report("week", "2026-W34"),
     report("month", "2026-08"),
   ]) {
-    store.upsertPeriod({ report: document, summary, markdown: renderMarkdown(document, summary) });
+    if (document.period.key === "2026-08-21") {
+      document.members[0]!.github.items[0]!.body = "unrendered activity ".repeat(4096);
+      document.members.push({
+        login: "report-only",
+        display: "Report Only Person",
+        aliases: ["report-only-alias"],
+        access: [],
+        areas: [],
+        github: { ...counts, items: [] },
+        discord: { total: 0, channels: {}, excerpts: [] },
+      });
+      document.memberCount = 2;
+      document.activeMembers = 2;
+      document.totals.github = githubCounts(2);
+    }
+    await store.upsertPeriod({
+      report: document,
+      summary,
+      markdown: renderMarkdown(document, summary) + markdownSuffix,
+    });
   }
   const handler = createTeamReportsHttpHandler({
     basePath: "/reports",
     displayTimezone: "UTC",
     assetsDir: fileURLToPath(new URL("../assets", import.meta.url)),
     getStore,
-    status: () => ({ running: false, lastRun: "fixture-run" }),
-    health: () => ({ running: false, warnings: 1 }),
+    status: async () => ({ running: false, lastRun: "fixture-run" }),
+    health: async () => ({ running: false, warnings: 1 }),
     orgs: () => currentOrgs,
     people: () => [
       {
@@ -160,7 +207,11 @@ beforeAll(async () => {
       ...avatarPeople,
     ],
   });
-  server = createServer(handler);
+  server = createServer((req, res) => {
+    void handler(req, res).catch((error: unknown) => {
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+    });
+  });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
@@ -174,7 +225,7 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
-  store.close();
+  await store.close();
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
@@ -422,31 +473,66 @@ describe("Team Reports HTTP responses", () => {
     ["day", "2026-08-20"],
     ["week", "2026-W34"],
     ["month", "2026-08"],
-  ])("serves %s Markdown and canonical JSON", async (period, key) => {
+  ] as const)("serves %s Markdown and canonical JSON", async (period, key) => {
     const markdown = await fetchPath(`/reports/${period}/${key}/report.md`);
     expect(markdown.status).toBe(200);
     expect(markdown.headers["content-type"]).toBe("text/markdown; charset=utf-8");
     expect(markdown.body).toContain(key);
     expect(markdown.body).not.toContain(maliciousTitle);
     expect(markdown.body).toContain("> Model summary unavailable: completion failed\n");
+    expect(markdown.body).toBe(renderMarkdown(report(period, key), summary) + markdownSuffix);
     const json = await fetchPath(`/reports/${period}/${key}/data.json`);
     expect(json.status).toBe(200);
     expect(json.headers["content-type"]).toBe("application/json; charset=utf-8");
     expect(JSON.parse(json.body)).toMatchObject({ version: 1, period: { period, key } });
   });
 
+  it.each(["/reports/", "/reports/day/2026-08-20/", "/reports/day/2026-08-20/data.json"])(
+    "serves %s without transferring unused Markdown from storage",
+    async (url) => {
+      workerReads.calls = 0;
+      workerReads.bytes = 0;
+      workerReads.enabled = true;
+      try {
+        const response = await fetchPath(url);
+        expect(response.status).toBe(200);
+        expect(response.body).toContain("example");
+        expect(response.body).not.toContain("Stored Markdown only");
+      } finally {
+        workerReads.enabled = false;
+      }
+      expect(workerReads.calls).toBeGreaterThan(0);
+      expect(workerReads.bytes).toBeGreaterThan(0);
+      expect(workerReads.bytes).toBeLessThan(Buffer.byteLength(markdownSuffix));
+    },
+  );
+
   it("renders stored trends, history, archived people, index, and status", async () => {
     const index = await fetchPath("/reports/");
     expect(index.status).toBe(200);
     expect(index.body).toContain('aria-label="Activity dateline"');
     expect(index.body).toContain('href="/reports/week/2026-W34/"');
-    const people = await fetchPath("/reports/people/");
-    expect(people.body).toContain("Member Activity Timelines");
-    expect(people.body).toMatch(/class="oc-badge oc-badge-neutral">Archived<\/span>/);
-    const person = await fetchPath("/reports/people/alice-alias/");
-    expect(person.status).toBe(200);
-    expect(person.body).toContain("Archived on 2026-08-22");
-    expect(person.body).toContain('href="/reports/day/2026-08-20/?person=alice"');
+    workerReads.calls = 0;
+    workerReads.bytes = 0;
+    workerReads.enabled = true;
+    try {
+      const people = await fetchPath("/reports/people/");
+      expect(people.status).toBe(200);
+      expect(people.body).toContain("Member Activity Timelines");
+      expect(people.body).toMatch(/class="oc-badge oc-badge-neutral">Archived<\/span>/);
+      expect(people.body).toContain("Report Only Person");
+      expect(people.body).toContain('href="/reports/people/report-only/"');
+      const person = await fetchPath("/reports/people/alice-alias/");
+      expect(person.status).toBe(200);
+      expect(person.body).toContain("Archived on 2026-08-22");
+      expect(person.body).toContain('href="/reports/day/2026-08-20/?person=alice"');
+    } finally {
+      workerReads.enabled = false;
+    }
+    expect(workerReads.calls).toBeGreaterThan(0);
+    expect(workerReads.bytes).toBeGreaterThan(0);
+    expect.soft(workerReads.calls).toBeLessThanOrEqual(4);
+    expect.soft(workerReads.bytes).toBeLessThan(16 * 1024);
     const machineIndex = await fetchPath("/reports/index.json");
     expect(JSON.parse(machineIndex.body)).toMatchObject({
       latest: { day: "2026-08-21", week: "2026-W34", month: "2026-08" },
@@ -456,7 +542,10 @@ describe("Team Reports HTTP responses", () => {
   });
 
   it("reads current overview organizations and prefers the displayed report's organizations", async () => {
-    const emptyStore = createTeamReportsStore({ stateDir: path.join(directory, "empty") });
+    const emptyStore = await createTeamReportsStore({
+      stateDir: path.join(directory, "empty"),
+      workerModuleUrl: resolveRuntimeWorkerUrl(teamReportsSqliteBackendEntrypoint),
+    });
     try {
       for (const name of ["first-organization", "new <organization>"]) {
         currentOrgs = [name];
@@ -471,7 +560,7 @@ describe("Team Reports HTTP responses", () => {
       expect(stored.body).toContain("example · team");
       expect(stored.body).not.toContain("new &lt;organization&gt; · team");
     } finally {
-      emptyStore.close();
+      await emptyStore.close();
     }
   });
 
@@ -480,7 +569,7 @@ describe("Team Reports HTTP responses", () => {
     try {
       const response = await fetchPath("/reports/");
       expect(response.status).toBe(503);
-      expect(response.body).toContain("Start or restart the Gateway service");
+      expect(response.body).toContain("Check plugin configuration and reload the plugin");
     } finally {
       available = true;
     }

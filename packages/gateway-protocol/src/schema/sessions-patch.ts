@@ -25,6 +25,10 @@ const SessionsPatchMutationProperties = {
   /** User-defined organization bucket ("category", not chat-group); null clears it. */
   category: Type.Optional(Type.Union([SessionLabelString, Type.Null()])),
   boardFace: Type.Optional(Type.Union([Type.Literal("chat"), Type.Literal("dashboard")])),
+  /** Shared dashboard default; null restores the built-in split view. */
+  boardPresentation: Type.Optional(
+    Type.Union([Type.Literal("split"), Type.Literal("expanded"), Type.Null()]),
+  ),
   statusNote: Type.Optional(
     Type.Union([Type.String({ maxLength: 120 }), Type.Null()], {
       description: "Short expiring sidebar status note; null clears it and any declared attention.",
@@ -65,6 +69,8 @@ const SessionsPatchMutationProperties = {
   execNode: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
   permissionMode: Type.Optional(Type.Union([SessionPermissionModeSchema, Type.Null()])),
   model: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
+  /** Explicit runtime for the selected model; null follows configured routing. */
+  agentRuntime: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
   completionOwnerSessionKey: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
   inheritedToolPolicyVersion: Type.Optional(Type.Union([Type.Literal(1), Type.Null()])),
   inheritedToolAllow: Type.Optional(Type.Union([Type.Array(NonEmptyString), Type.Null()])),

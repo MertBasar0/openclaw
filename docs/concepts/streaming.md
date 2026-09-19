@@ -87,7 +87,9 @@ answer supersedes deferred text from earlier tool turns, including when the
 final answer is `NO_REPLY`. This applies to both reply blocks and preview
 updates; it does not retract replies that were already sent. Commentary remains
 live, and media, reasoning, and completed answers to earlier user inputs are
-preserved. Media from a superseded answer is delivered without its old caption.
+preserved. Each steered user input gets its own delivered answer, even when its
+pending tools were skipped. Media from a superseded answer is delivered without
+its old caption.
 
 With block streaming off, media-bearing assistant messages can still be sent at
 message boundaries, with their captions attached. Preview updates do not count
@@ -275,17 +277,33 @@ Slack-only:
 - Preview streaming is skipped when Discord block streaming is explicitly
   enabled.
 - `progress` is quiet by default: headline, authored commentary and reasoning,
-  plan milestones, and approval or failure lines. The same default applies on
-  every progress-draft channel; `streaming.progress.toolProgress: true` adds
+  plan milestones, and approval requests. Intermediate tool failures and nonzero
+  command exits are hidden. The same default applies on
+  other shared progress-card renderers; `streaming.progress.toolProgress: true` adds
   the rolling tool log with its icons.
-- `progress` mode deletes the status draft once the final answer is delivered,
-  so busy channels keep no orphaned tool log above the reply. Error finals keep
-  the draft as the record of the failed turn.
+- When a parent yields to accepted subagents, `progress` mode can transfer its
+  confirmed card to core. The same message keeps its checklist and receives
+  child activity and terminal updates; the final answer is separate. See
+  [Subagent yield handoff](/concepts/subagent-yield-handoff#progress-after-yield).
+- Without that handoff, `progress` mode deletes the status draft once the final
+  answer is delivered, so busy channels keep no orphaned tool log above the
+  reply. Error finals keep the draft as the record of the failed turn.
 - Final media, error, and explicit-reply payloads cancel pending previews
   without flushing a new draft, then use normal delivery.
 
 ### Slack
 
+- Compact progress with `streaming.progress.toolProgress: false` preserves
+  the latest completed model preamble as the headline. With `commentary: true`,
+  the same text also appears in the bounded italicized history below it;
+  `maxLines` limits that history without removing the headline. The temporary
+  message has no reasoning,
+  tool icons, command failures, plans, or file-edit counters. The first post
+  waits for a complete preamble so its Slack notification is readable; later
+  completed preambles edit that message. Actionable approval requests remain visible.
+  The final answer is a new reply, and only after Slack confirms delivery is
+  the preview deleted. Successful silent turns also remove their preview;
+  explicit message-tool posts remain durable.
 - `partial` can use Slack native streaming (`chat.startStream`/`append`/`stop`)
   when available.
 - `block` uses append-style draft previews.
@@ -396,8 +414,9 @@ Progress-mode drafts (`streaming.progress.*`) have these per-channel settings:
 | `streaming.progress.label`        | `"auto"`      | Draft title; a custom string, or `false` to hide it            |
 | `streaming.progress.labels`       | built-in pool | Candidate labels used when `label: "auto"`                     |
 
-Slack always renders progress mode as its fixed session-card layout; these
-limits still bound the activity rows and plan text inside that card.
+Slack uses a card layout by default; these limits bound its activity rows and
+plan text. With `progress.style: "compact"`, they bound the plain-text draft's
+history instead.
 
 ### Commentary progress lane
 
@@ -406,10 +425,11 @@ in the draft:
 
 - **`streaming.progress.commentary`** - render the model's pre-tool
   **commentary** (a short "I'll check... then..." narration) interleaved with
-  tool lines in the progress draft. On Discord, Telegram, and Slack in progress
-  mode, the same preamble supplies the status headline whether this optional
-  lane is on or off. When it is on, the preamble also remains in the bounded
-  interleaved history; other channels keep their existing progress behavior. See
+  tool lines in the progress draft. Channels using the shared progress compositor
+  — Discord, Matrix, Mattermost, Microsoft Teams, Slack, and Telegram — use the
+  same completed preamble as the status headline. On channels that expose the
+  optional commentary setting, enabling it also retains the preamble in bounded
+  interleaved history; Matrix and Mattermost do not expose this setting. See
   [Progress drafts](/concepts/progress-drafts#status-headline).
 
 ```json
@@ -463,6 +483,7 @@ the same policy under `streaming.progress`:
 
 ## Related
 
+- [Agent loop](/concepts/agent-loop) - the turn lifecycle that emits these stream events
 - [Channel outbound API](/plugins/sdk-channel-outbound) - shared preview, durable send, and finalization APIs
 - [Progress drafts](/concepts/progress-drafts) - visible work-in-progress messages that update during long turns
 - [Messages](/concepts/messages) - message lifecycle and delivery

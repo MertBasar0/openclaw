@@ -47,8 +47,10 @@ function loadEmbeddedRunAuthProfileStore(params: {
 }
 
 export async function prepareEmbeddedRunAuthPlan(params: {
+  assertCurrent: () => void;
   runParams: RunEmbeddedAgentParams;
   provider: string;
+  /** Selected logical ID returned by the model resolver. */
   modelId: string;
   model: RuntimeModel;
   agentDir: string;
@@ -177,12 +179,14 @@ export async function prepareEmbeddedRunAuthPlan(params: {
       requestTransportOverrides: params.requestStreamTransportOverrides,
       config: runParams.config,
       env: process.env,
+      agentId: runParams.agentId,
       agentDir: params.agentDir,
       workspaceDir: params.workspaceDir,
       metadataSnapshot: params.preparedModelRuntime?.metadataSnapshot,
       authProfileStore: attemptAuthProfileStore,
       sessionAuthProfileId: preferredProfileId,
       sessionAuthProfileSource: runParams.authProfileIdSource,
+      allowAuthProfileFallback: runParams.allowAuthProfileFallback,
       harnessId: harness.id,
       harnessRuntime: harness.id,
       harnessAuthBootstrap: harness.authBootstrap,
@@ -225,11 +229,13 @@ export async function prepareEmbeddedRunAuthPlan(params: {
       generationRouteModelMemo: params.preparedModelRuntime?.routeModelResolutionMemo,
       resolveModel: ({ config, authProfileId, authProfileMode }) =>
         resolveModelAsync(params.provider, params.modelId, params.agentDir, config, {
+          abortSignal: runParams.abortSignal,
+          assertCurrent: params.assertCurrent,
+          modelIdSource: "selected",
           authStorage: params.authStorage,
           modelRegistry: params.modelRegistry,
           skipAgentDiscovery: true,
           allowBundledStaticCatalogFallback: true,
-          preferBundledStaticCatalogTransport: true,
           preparedModelRuntime: params.preparedModelRuntime,
           workspaceDir: params.workspaceDir,
           authProfileId,

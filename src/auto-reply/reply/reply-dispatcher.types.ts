@@ -1,4 +1,5 @@
 // Shared reply dispatcher type contracts for visible and message-tool delivery.
+import type { ProgressContinuationCapability } from "../../channels/progress-continuation.js";
 import type { ReplyPayload } from "../types.js";
 import type { NormalizeReplyOutcome } from "./normalize-reply-skip-reason.js";
 
@@ -36,12 +37,16 @@ export type ReplyFollowupAdmissionBarrierTimeoutPolicy = {
 export type ReplyDispatchRuntimeInfo = {
   kind: ReplyDispatchKind;
   assistantMessageIndex?: number;
+  /** Display identity for replies in a configured multi-agent group. */
+  participant?: { agentId: string; name: string };
   /** @internal Claim direct-send custody immediately before recipient-visible platform I/O. */
   onPlatformSendDispatch?: () => Promise<void>;
   /** @internal Synchronously fence custody after claiming it and before provider I/O. */
   assertPlatformSendAuthorized?: () => void;
   /** @internal Bind this delivery's host-owned completion to a transformed payload. */
   bindPendingFinalDelivery?: <T extends ReplyPayload>(payload: T) => T;
+  /** @internal Transfer this waiting reply's existing progress card to its current task owner. */
+  adoptProgressContinuation?: ProgressContinuationCapability["adopt"];
 };
 
 export type ReplyDispatchBeforeDeliver = (

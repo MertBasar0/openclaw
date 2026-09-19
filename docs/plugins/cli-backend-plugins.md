@@ -219,8 +219,8 @@ backend intentionally needs its own watchdog policy.
   clear-and-reseed behavior. OpenClaw clears the persisted binding and retries
   with a fresh session when the failure is eligible for recovery.
 - Set it to `"invalidated-only"` to suppress fresh replacement unless the
-  canonical invalidation predicate proves the old session is dead. Currently,
-  only `session_expired` does so.
+  canonical invalidation predicate proves the old session is dead. Only
+  `session_expired` does so.
 
 Choose the value from the CLI or SDK session contract, not from a provider id
 or broad error class. The bundled Anthropic backend uses `"invalidated-only"`;
@@ -308,6 +308,10 @@ launchers outside the declared package, required external dependency
 declarations, oversized trees, and unknown scripts. Declare this only when that
 tree contains the complete inference implementation; optional tool integrations
 do not make an external implementation graph safe.
+
+On Windows, supported JavaScript entrypoints run through the verified Node
+executable selected from `PATH`. Explicit script paths do not require their
+suffix in `PATHEXT`; bare command lookup still follows `PATH` and `PATHEXT`.
 
 If the same backend also ships a self-contained native executable, list its
 canonical basenames in `nativeExecutableNames`. Other native commands remain
@@ -507,7 +511,7 @@ provider model's `agentRuntime.id`. Adapter mechanics remain in the plugin:
   agents: {
     defaults: {
       model: {
-        primary: "openai/gpt-5.6-sol",
+        primary: "openai/gpt-6-astra",
         fallbacks: ["acme-cli/large"],
       },
     },

@@ -77,10 +77,12 @@ Make the referenced environment variable available to the Gateway process.
 See [Secret management](/gateway/secrets) for other secret providers. If you
 use `plugins.allow`, include `team-reports` in that list.
 
-Restart the Gateway after changing plugin configuration, then check startup:
+Plugin configuration changes apply automatically with the default hybrid reload
+mode. If the Gateway is offline, start it with its configured secrets available.
+If you changed its process environment, restart it with the updated environment.
+Then check the plugin:
 
 ```bash
-openclaw gateway restart
 openclaw team-reports status --json
 openclaw dashboard
 ```
@@ -97,7 +99,7 @@ To request a report immediately, use:
 openclaw team-reports generate --intraday
 ```
 
-Generation returns a run ID before collection and summarization finish. Check
+Generation returns a run ID after recording the run, before collection and summarization finish. Check
 `status` for the result, then open **Reports** in the Control UI.
 
 ## Read reports in the Control UI
@@ -154,8 +156,11 @@ fonts, so no external stylesheets, web fonts, or scripts are needed.
 ## Configuration
 
 All keys below live under `plugins.entries.team-reports.config`. Unknown keys
-are rejected. Configuration and secret changes require a Gateway restart;
-secrets resolve once when the report service starts.
+are rejected. Configuration changes reload the running plugin with the default
+hybrid reload mode; see [Hot reload](/gateway/configuration/hot-reload). Secrets
+resolve when the report service starts. After rotating a file, exec, or store
+secret, run `openclaw plugins reload team-reports`. Environment changes require
+restarting the Gateway with the updated environment.
 
 | Key               | Default                   | Behavior                                                                                                                                                                                                                                                               |
 | ----------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -267,7 +272,7 @@ is a sibling of `config`, not a field inside it:
     // Keep your github and identity configuration here.
     summaries: {
       enabled: true,
-      model: "openai/gpt-5.6-sol",
+      model: "openai/gpt-6-astra",
       reasoning: "high",
     },
   },
@@ -303,7 +308,9 @@ call. Collection is stored before summarization, which may take several minutes.
 Only one run executes at a time. Scheduled work waits for an active run;
 manual generation is rejected while another run is active. Runs have a
 45-minute deadline. Stopping the service cancels its timers and waits up to
-30 seconds for active work before closing storage.
+30 seconds for active work, then cancels remote collection and summarization.
+Any database operation already in progress and the final run outcome finish
+before storage closes.
 
 ## Understand report windows and counts
 
@@ -390,8 +397,9 @@ set `retention.days: 0` to preserve all report history.
 
 **The Reports tab is missing or unavailable.** Confirm the plugin is enabled,
 allowed by `plugins.allow` if present, and the Control UI session has
-`operator.read`. Restart the Gateway after config changes. For an unavailable
-frame, check HTTPS or trusted loopback access and third-party-cookie policy.
+`operator.read`. Config changes automatically reload the plugin. If it remains
+unavailable after fixing its configuration, run `openclaw plugins reload team-reports`.
+For an unavailable frame, check HTTPS or trusted loopback access and third-party-cookie policy.
 
 **There are no reports yet.** Run `openclaw team-reports status --json`. Startup
 catch-up waits 60 seconds, and collection or model calls may still be running.
@@ -402,8 +410,9 @@ least one closed daily report.
 status and the report. Check GitHub token access, organization/team names,
 excluded repositories, and Discord bot access to each configured channel and
 its history. Rate limits can delay a run. Regenerate affected days once access
-or rate limits recover, then refresh aggregates. Changing a secret requires
-a Gateway restart.
+or rate limits recover, then refresh aggregates. After rotating a file, exec, or
+store secret, run `openclaw plugins reload team-reports`; environment changes
+require a Gateway restart with the updated environment.
 
 Repository advisories are optional. An advisory request returning HTTP 403 or
 404 counts toward `advisoriesSkipped` in the GitHub source stats without adding

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { channel } from "node:diagnostics_channel";
 import fs from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { isMainThread, threadId, Worker } from "node:worker_threads";
@@ -8,18 +9,27 @@ import { afterEach, expect, test, vi } from "vitest";
 import * as logging from "../../logging/logger.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
-import type { SqliteSessionReclamationDiagnostics } from "./session-accessor.sqlite-contract.js";
+import type {
+  SqliteSessionArtifactPreparationDiagnostics,
+  SqliteSessionReclamationDiagnostics,
+  SqliteSessionWriteDiagnostics,
+} from "./session-accessor.sqlite-contract.js";
 import { runExclusiveSqliteSessionWrite } from "./session-accessor.sqlite-scope.js";
 import { drainSessionStoreWriterQueuesForTest } from "./store-writer-state.js";
 
 afterEach(() => vi.restoreAllMocks());
 
-async function readFailedWriterLog(failure: unknown) {
+async function readFailedWriterLog(failure: unknown, diagnostics?: SqliteSessionWriteDiagnostics) {
   return await withOpenClawTestState(
     { scenario: "minimal", env: { OPENCLAW_TEST_FILE_LOG: "1" } },
     async (state) => {
       const logPath = state.path("sqlite-write.log");
       logging.setLoggerOverride({ level: "warn", file: logPath });
+      const operation = diagnostics?.artifactPreparation
+        ? "session.lifecycle.artifacts-prepare"
+        : diagnostics?.archivePruning
+          ? "session.history.archive-prune"
+          : "session.transcript.batch";
       try {
         await expect(
           runExclusiveSqliteSessionWrite(
@@ -27,7 +37,8 @@ async function readFailedWriterLog(failure: unknown) {
             async () => {
               throw failure;
             },
-            "session.transcript.batch",
+            operation,
+            diagnostics,
           ),
         ).rejects.toBe(failure);
         await logging.flushLogger();
@@ -37,8 +48,8 @@ async function readFailedWriterLog(failure: unknown) {
         const details = record["2"];
         assert.ok(isRecord(details));
         expect(record["1"]).toBe("SQLite session write failed");
-        expect(details.operation).toBe("session.transcript.batch");
-        return { content, error: details.error };
+        expect(details.operation).toBe(operation);
+        return { content, error: details.error, details };
       } finally {
         await logging.flushLogger();
         logging.resetLogger();
@@ -98,6 +109,139 @@ test("failed writer error summaries are bounded without splitting a surrogate pa
   const record = await readFailedWriterLog(new Error(`${prefix}🦞 trailing details`));
   expect(record.error).toBe(prefix);
 });
+
+test("artifact preparation file logs retain numeric phases without payload fields", async () => {
+  const artifactPreparation: SqliteSessionArtifactPreparationDiagnostics = {
+    admissionMode: "async",
+    admissionMs: 1200.4,
+    nodeInventoryMs: 20.6,
+    referencePlanningMs: 4.2,
+    orphanPlanningMs: 5.1,
+    markerScanMs: 19.6,
+    nodeRows: 8,
+    windowRows: 12,
+    referenceIds: 8,
+    selectedEntries: 0,
+    markerWindows: 2,
+    markerRows: 5,
+    completed: false,
+  };
+  Object.assign(artifactPreparation, {
+    sessionId: "synthetic-private-session",
+    marker: "synthetic-private-marker",
+  });
+  const record = await readFailedWriterLog(new Error("synthetic planning failure"), {
+    artifactPreparation,
+  });
+  expect(record.details.artifactPreparation).toEqual({
+    admissionMode: "async",
+    admissionMs: 1200,
+    nodeInventoryMs: 21,
+    referencePlanningMs: 4,
+    orphanPlanningMs: 5,
+    markerScanMs: 20,
+    nodeRows: 8,
+    windowRows: 12,
+    referenceIds: 8,
+    selectedEntries: 0,
+    markerWindows: 2,
+    markerRows: 5,
+    completed: false,
+  });
+  expect(record.content).not.toContain("synthetic-private-session");
+  expect(record.content).not.toContain("synthetic-private-marker");
+});
+
+test("archive pruning file logs whitelist partial stage observations", async () => {
+  const archivePruning = {
+    trigger: "initial" as const,
+    admissionMs: 1200.4,
+    asyncAdmissions: 1,
+    checkpointCalls: 2,
+    checkpointIncomplete: 1,
+    checkpointMs: 20.6,
+    checkpointMaxMs: 19.6,
+    completed: false,
+    archiveName: "synthetic-private-archive",
+    content: "synthetic-private-transcript",
+  };
+  const record = await readFailedWriterLog(new Error("synthetic pruning failure"), {
+    archivePruning,
+  });
+  expect(record.details.archivePruning).toEqual({
+    trigger: "initial",
+    admissionMs: 1200,
+    asyncAdmissions: 1,
+    checkpointCalls: 2,
+    checkpointIncomplete: 1,
+    checkpointMs: 21,
+    checkpointMaxMs: 20,
+    completed: false,
+  });
+  expect(record.content).not.toContain("synthetic-private-archive");
+  expect(record.content).not.toContain("synthetic-private-transcript");
+});
+
+test.each([false, true])(
+  "captures fast writer completion without identities or changing failure=%s",
+  async (fail) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      let clock = 0;
+      vi.spyOn(performance, "now").mockImplementation(() => clock);
+      const events: unknown[] = [];
+      const diagnostics = channel("openclaw.session.write");
+      const collect = (event: unknown) => events.push(event);
+      const failure = new Error("synthetic-private-writer-error");
+      const result = { payload: "synthetic-private-writer-result" };
+      diagnostics.subscribe(collect);
+      try {
+        const write = runExclusiveSqliteSessionWrite(
+          { agentId: "synthetic-private-agent", env: state.env },
+          async () => {
+            clock += 25;
+            if (fail) {
+              throw failure;
+            }
+            return result;
+          },
+          "session.transcript.batch",
+          { reclamationAdmission: { admissionId: 98123, releaseCause: "worker-release" } },
+        );
+        if (fail) {
+          await expect(write).rejects.toBe(failure);
+        } else {
+          await expect(write).resolves.toBe(result);
+        }
+        expect(events).toEqual([
+          {
+            operation: "session.transcript.batch",
+            writer: "foreground",
+            outcome: fail ? "error" : "ok",
+            pid: process.pid,
+            threadId,
+            isMainThread,
+            elapsedMs: 25,
+            queueWaitMs: 0,
+            writerExecutionMs: 25,
+            completionDelayMs: 0,
+          },
+        ]);
+        expect(JSON.stringify(events)).not.toContain("synthetic-private");
+        expect(JSON.stringify(events)).not.toContain(state.env.OPENCLAW_STATE_DIR);
+      } finally {
+        diagnostics.unsubscribe(collect);
+      }
+      await expect(
+        runExclusiveSqliteSessionWrite(
+          { agentId: "synthetic-private-agent", env: state.env },
+          async () => result,
+          "session.transcript.batch",
+        ),
+      ).resolves.toBe(result);
+      expect(events).toHaveLength(1);
+    });
+  },
+);
 
 test.each([false, true])(
   "slow writer diagnostics separate waiting and execution without changing failure=%s",
@@ -176,6 +320,7 @@ test.each([false, true])(
         clock = 1_600;
         release.resolve();
         expect(await first).toBe("first");
+        expect(order).toEqual(["first:start", "first:end"]);
         expect(await settled).toEqual(fail ? { error: failure } : { value: "second" });
         expect(await queuedSuccessor).toBe("queued-successor");
         expect(order).toEqual(["first:start", "first:end", "second:start", "queued-successor"]);
@@ -198,10 +343,10 @@ test.each([false, true])(
             isMainThread,
             reclamationKind: "history-eviction",
             workerThreadId: 7,
-            elapsedMs: 2_000,
+            elapsedMs: 1_600,
             queueWaitMs: 0,
             writerExecutionMs: 1_600,
-            completionDelayMs: 400,
+            completionDelayMs: 0,
           }),
         );
         expect(records.find((entry) => entry.owner === "first")?.args[1]).not.toHaveProperty(

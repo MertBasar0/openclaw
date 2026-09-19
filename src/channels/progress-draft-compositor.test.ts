@@ -1,5 +1,6 @@
 // Progress draft compositor tests cover streamed draft composition for channel progress updates.
 import { describe, expect, it, vi } from "vitest";
+import { projectAgentToolActivity } from "../infra/agent-activity-events.js";
 import {
   createChannelProgressDraftCompositor,
   createChannelProgressWorkCounter,
@@ -231,6 +232,40 @@ describe("createChannelProgressDraftCompositor", () => {
     expect(rejected).toBe(false);
     expect(accepted).toBe(true);
     expect(rendered).toContain("Shelling\n\n💬 _Checking the workspace_");
+  });
+
+  it("publishes completion metadata even when the last preamble delta has identical text", async () => {
+    const update = vi.fn(() => true);
+    const progress = createChannelProgressDraftCompositor({
+      entry: {
+        streaming: {
+          mode: "progress",
+          progress: { toolProgress: false, label: false, commentary: true, maxLines: 1 },
+        },
+      },
+      mode: "progress",
+      active: true,
+      seed: "test",
+      updateOnLineChange: true,
+      update,
+    });
+    await progress.pushCommentaryProgress("I’ll check the key releases.", {
+      itemId: "p1",
+      complete: false,
+    });
+    expect(progress.getSnapshot().lines).toEqual([expect.objectContaining({ complete: false })]);
+    update.mockClear();
+    await progress.pushCommentaryProgress("I’ll check the key releases.", {
+      itemId: "p1",
+      complete: true,
+    });
+    expect(update).toHaveBeenCalledOnce();
+    expect(update).toHaveBeenLastCalledWith(
+      "_I’ll check the key releases._",
+      expect.objectContaining({
+        lines: [expect.objectContaining({ complete: true })],
+      }),
+    );
   });
 
   it("collapses cumulative id-less commentary snapshots onto one line", async () => {
@@ -567,42 +602,6 @@ describe("createChannelProgressDraftCompositor", () => {
     expect(update).toHaveBeenLastCalledWith("Shelling\n\n🛠️ Exec\n🛠️ Wc", expect.anything());
   });
 
-  it("keeps the preamble headline alongside the commentary lane when it is enabled", async () => {
-    const update = vi.fn();
-    const progress = createTestProgressDraftCompositor({
-      entry: {
-        streaming: {
-          mode: "progress",
-          progress: { label: false, commentary: true, toolProgress: true, maxLines: 1 },
-        },
-      },
-      update,
-    });
-
-    await progress.pushToolProgress("🛠️ Setup", { startImmediately: true });
-    update.mockClear();
-    expect(
-      await progress.pushPreambleHeadline("Reading the workspace.", {
-        itemId: "preamble-1",
-        deferRender: true,
-      }),
-    ).toBe(false);
-    expect(progress.hasStatusHeadline).toBe(true);
-    expect(update).not.toHaveBeenCalled();
-    expect(
-      await progress.pushCommentaryProgress("Reading the workspace.", {
-        itemId: "preamble-1",
-      }),
-    ).toBe(true);
-    expect(update).toHaveBeenCalledTimes(1);
-    expect(update.mock.lastCall?.[0]).toBe("Reading the workspace.\n\n_Reading the workspace._");
-
-    update.mockClear();
-    await progress.pushToolProgress("🛠️ Exec", { startImmediately: true });
-    expect(update).toHaveBeenCalledTimes(1);
-    expect(update.mock.lastCall?.[0]).toBe("Reading the workspace.\n\n🛠️ Exec");
-  });
-
   it("holds a preamble headline until the gate starts and hides the implicit label", async () => {
     const update = vi.fn();
     const progress = createTestProgressDraftCompositor({
@@ -927,9 +926,10 @@ describe("createChannelProgressDraftCompositor", () => {
     }
   });
 
-  it("normalizes transport-neutral agent events through the compositor", async () => {
+  it("renders prepared items without duplicating raw diagnostic events", async () => {
     const update = vi.fn();
     const progress = createChannelProgressDraftCompositor({
+      preparedItems: true,
       entry: { streaming: { mode: "progress", progress: { toolProgress: true } } },
       mode: "progress",
       active: true,
@@ -945,6 +945,15 @@ describe("createChannelProgressDraftCompositor", () => {
       args: { command: "pnpm test" },
       detailMode: "raw",
     });
+    expect(progress.getSnapshot().lines).toEqual([]);
+    await progress.pushItemEvent(
+      projectAgentToolActivity({
+        toolCallId: "tool-1",
+        name: "exec",
+        phase: "start",
+        args: { command: "pnpm test" },
+      }),
+    );
     await progress.pushItemEvent({
       itemId: "item-1",
       kind: "search",
@@ -962,6 +971,21 @@ describe("createChannelProgressDraftCompositor", () => {
       phase: "end",
       modified: ["src/example.ts"],
     });
+    await progress.pushItemEvent({
+      itemId: "command-1",
+      kind: "command",
+      title: "Run tests",
+      phase: "end",
+      status: "completed",
+    });
+    await progress.pushItemEvent({
+      itemId: "patch-1",
+      kind: "patch",
+      name: "apply_patch",
+      title: "Edit example",
+      phase: "end",
+      status: "completed",
+    });
     await progress.pushApprovalEvent({ phase: "resolved", command: "ignored" });
     await progress.pushApprovalEvent({ command: "ignored without phase" });
     await progress.pushCommandOutputEvent({ phase: "start", title: "ignored" });
@@ -970,11 +994,11 @@ describe("createChannelProgressDraftCompositor", () => {
     await progress.pushPatchEvent({ modified: ["ignored-without-phase.ts"] });
 
     expect(progress.getSnapshot().lines).toEqual([
-      expect.objectContaining({ id: "tool-1", kind: "tool", toolName: "exec" }),
+      expect.objectContaining({ id: "tool:tool-1", toolName: "exec" }),
       expect.objectContaining({ id: "item-1", kind: "item", toolName: "web_search" }),
       expect.objectContaining({ kind: "approval", status: "requested" }),
-      expect.objectContaining({ id: "command-1", kind: "command-output", status: "completed" }),
-      expect.objectContaining({ id: "patch-1", kind: "patch", toolName: "apply_patch" }),
+      expect.objectContaining({ id: "command-1", status: "completed" }),
+      expect.objectContaining({ id: "patch-1", toolName: "apply_patch" }),
     ]);
     expect(progress.getSnapshot().diffStat).toBeUndefined();
   });

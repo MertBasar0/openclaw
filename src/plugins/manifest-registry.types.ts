@@ -1,3 +1,4 @@
+import type { ThemeDefinition } from "../../packages/gateway-protocol/src/theme.js";
 import type {
   PluginBundleFormat,
   PluginConfigUiHint,
@@ -51,9 +52,13 @@ type PluginManifestRecordStatic = Omit<
 >;
 
 export type PluginManifestRecord = PluginManifestRecordStatic & {
+  /** Validated palette bytes captured by the immutable metadata generation. */
+  themeDefinitions?: Array<{ id: string; definition: ThemeDefinition }>;
   /** Process-local source selection, never persisted in the installed index. */
   sourcePreferred?: true;
   iconPath?: string;
+  activityIconPath?: string;
+  toolActivityIconPaths?: Record<string, string>;
   packageName?: string;
   packageVersion?: string;
   packageDescription?: string;

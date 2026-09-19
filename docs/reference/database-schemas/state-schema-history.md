@@ -8,6 +8,8 @@ title: "State schema history"
 
 ## State schema history
 
+Doctor completes recognized schema-1 databases that predate the audit ledger before later workspace and agent checks run. Missing ownership metadata or a missing audit ledger at schema 2 or newer still prevents repair.
+
 | Version | Change                                                                                                                                                                                                                                                                                                                          | First release       |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
 | 1       | Initial shared state database                                                                                                                                                                                                                                                                                                   | `v2026.5.30-beta.1` |
@@ -34,11 +36,13 @@ Schema 17 adds the complete prepared-worker storage contract. The nullable
 `worker_environments` columns `preparation_key`, `preparation_demand_at_ms`,
 `preparation_expires_at_ms`, and `preparation_consumed_at_ms` form one constrained
 tuple for one-use capacity. The separate nullable `last_activated_at_ms` column
-stores successful activation time. These Gateway fields reserve storage for the
-ready-pool lifecycle and remain `NULL` in this release; completed-checkout
-adoption does not allocate reserves. Existing workers keep all five values
-`NULL`. Migration does
-not infer demand, activation, or unused capacity from historical rows.
+stores successful activation time. Ready-pool admission writes the preparation
+tuple; consuming that capacity and assigning a session placement share one
+transaction. Successful placement activation records its demand time in the
+same transaction. Consumption survives failed attachment, placement retirement,
+and reopen, while terminal rows retain unexpired demand and uncertain cleanup.
+Migration leaves all five values `NULL` on existing workers and does not infer
+demand, activation, or unused capacity from historical rows.
 
 Dedicated nodes register fixed build paths in the first-use
 `node_worker_prepared_workspaces` table. It records the exact environment and
@@ -126,6 +130,8 @@ Stop older writers and create a verified, WAL-aware backup before upgrading. Bui
 ### State schema 13
 
 Schema 13 makes `cron_jobs.job_json`, `cron_jobs.state_json`, and `subagent_runs.payload_json` the canonical records. Physical columns remain only where production queries, ordering, or runtime-only updates require them. Cron jobs shrink from 75 columns to 15, and subagent runs shrink from 59 columns to six. Migration preserves failure-destination fields explicitly configured as undefined by encoding them as JSON `null`; it also normalizes legacy run-status aliases into `state_json` before removing the redundant projections.
+
+Workspace attestations merge into `workspace_setup_state`. Migration preserves attestation timestamps and generated bootstrap hashes when older databases have no `workspace_path_aliases` table. Attestation-only workspaces retain a null path until the workspace is encountered again.
 
 The shared-state `auth_profile_stores` and `auth_profile_state` singletons move into `config_machine_state` under `authProfiles.store` and `authProfiles.state`; per-agent auth tables remain unchanged. Because these rows contain credentials, secret-redacted Git backups omit the `authProfiles.` machine-state prefix.
 

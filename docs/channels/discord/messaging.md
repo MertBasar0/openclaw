@@ -14,6 +14,7 @@ How inbound and outbound Discord messages are routed, formatted, acknowledged, a
 - Gateway owns the Discord connection.
 - Reply routing is deterministic: Discord inbound replies back to Discord.
 - Bot replies and thread-bound persona replies share Markdown formatting, including CommonMark bold and configured table conversion.
+- Both delivery paths reapply caller-supplied character limits after formatting and mention expansion.
 - Forwarded message snapshots reach the agent together with any accompanying caption. Forwarded text is not treated as a typed command; command classification uses only the sender’s own message text.
 - Discord guild/channel metadata is added to the model prompt as untrusted context, not as a user-visible reply prefix. If a model copies that envelope back, OpenClaw strips the copied metadata from outbound replies and from future replay context.
 - By default (`session.dmScope=main`), direct chats share the agent main session (`agent:main:main`).
@@ -48,7 +49,8 @@ How inbound and outbound Discord messages are routed, formatted, acknowledged, a
     - `all`: attaches it to every outbound message
     - `batched`: attaches it only when the inbound event was a debounced batch of multiple messages — useful when you want native replies mainly for ambiguous bursty chats, not every single-message turn
 
-    Message IDs are surfaced in context/history so agents can target specific messages.
+    Message IDs are surfaced in context/history so agents can target specific messages. Replies to bot messages, including automation alerts, retain the referenced text as untrusted context when context visibility allows it. The bot's own inbound events are still ignored, and referenced self-authored media is not downloaded again.
+    Chunked persona delivery receipts retain the reply target selected for each chunk.
 
   </Accordion>
 
@@ -93,10 +95,10 @@ How inbound and outbound Discord messages are routed, formatted, acknowledged, a
     - `off` disables Discord preview edits.
     - `partial` edits a single preview message as tokens arrive.
     - `block` emits draft-sized chunks; tune size and breakpoints with `streaming.preview.chunk` (`minChars`, `maxChars`, `breakPreference`), clamped to `textChunkLimit`. An explicit non-`off` preview mode overrides inherited `agents.defaults.blockStreamingDefault: "on"`; explicit `streaming.block.enabled: true` overrides the preview. If a turn cannot use previews, inherited block delivery still applies.
-    - `progress` keeps one editable status draft until final delivery. By default it is quiet: the agent's latest preamble or narration as a status headline, 💬 commentary and 🧠 reasoning when they stream, ✅ / ▸ / ▢ plan steps, and any approval request or failed command. Ordinary tool calls do not add rows.
+    - `progress` keeps one editable status draft until final delivery. By default it is quiet: the agent's latest completed preamble or narration as a status headline, enabled 💬 commentary and 🧠 reasoning, ✅ / ▸ / ▢ plan steps, and approval requests. Ordinary tool calls, intermediate tool failures, and nonzero command exits do not add rows; terminal task errors still use normal error delivery.
     - Media, error, and explicit-reply finals cancel pending preview edits.
     - `streaming.progress.toolProgress: true` adds the rolling tool log underneath the headline: rows such as `🛠️ Bash: run tests` or `🔎 Web Search: for "query"` (default `false`). `streaming.preview.toolProgress` controls tool rows in `partial` and `block` modes, where they default to `true`.
-    - `streaming.progress.commentary` (default `false`) opts into raw assistant commentary in the temporary progress draft. The default preamble/narration status line is independent of this option; when commentary is enabled, the latest preamble can supply the headline and also appears in the bounded commentary history. Commentary is cleaned before display, stays transient, and does not change final answer delivery.
+    - `streaming.progress.commentary` (default `false`) opts into raw assistant commentary in the temporary progress draft. The default preamble/narration status line is independent of this option; when commentary is enabled, the latest completed preamble can supply the headline and also appears in the bounded commentary history. The previous readable status remains until the next preamble completes. Commentary is cleaned before display, stays transient, and does not change final answer delivery.
     - `streaming.progress.maxLineChars` controls the per-line progress preview budget. Prose is shortened on word boundaries; command and path details keep useful suffixes.
     - `streaming.preview.commandText` / `streaming.progress.commandText` controls command/exec detail in compact progress lines: `status` (default, tool label only) or `raw` (explicit command text).
 

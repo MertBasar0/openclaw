@@ -110,7 +110,7 @@ shared durable delivery; run inspection merges those sources. Chunking and
 adapter fan-out are aggregated in terminal `resultCount`. Ambiguous sends reach
 a terminal only after acknowledgement, dead
 letter, or reconciliation. Plugin-local and direct-send paths that bypass those
-shared boundaries are not yet covered. The bounded process-owned async queue is
+shared boundaries are not covered. The bounded process-owned async queue is
 best-effort and may drop records on saturation, terminal persistence failure,
 or shutdown timeout, so this surface is not a lossless compliance archive.
 
@@ -165,6 +165,11 @@ return sanitized task summaries, not raw runtime state.
     use their recorded terminal activity time, then creation time, as the
     canonical completion timestamp before pagination.
   - Result: `{ "tasks": TaskSummary[], "nextCursor"?: string }`.
+  - Failed session-metadata reads return `UNAVAILABLE` with the recorded cause
+    instead of an empty or partial page when an existing store cannot be read,
+    its schema is not ready, or a required table is missing. An absent database
+    is an empty metadata store; normal task visibility rules still apply.
+    Genuinely empty authorized results remain successful empty pages.
 - `tasks.get` requires `operator.read`.
   - Params: `{ "taskId": string }`.
   - Result: `{ "task": TaskSummary }`.

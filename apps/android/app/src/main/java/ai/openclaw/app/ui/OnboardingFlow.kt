@@ -101,7 +101,6 @@ import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.WifiTethering
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -870,9 +869,9 @@ fun OnboardingFlow(
         prompt = prompt,
         confirmLabel = nativeString("Trust"),
         cancelLabel = nativeString("Cancel"),
-        onAccept = viewModel::acceptGatewayTrustPrompt,
-        onUseSystemTrust = viewModel::useSystemGatewayTrustPrompt,
-        onDecline = viewModel::declineGatewayTrustPrompt,
+        onAccept = { viewModel.acceptGatewayTrustPrompt(prompt, it) },
+        onUseSystemTrust = { viewModel.useSystemGatewayTrustPrompt(prompt) },
+        onDecline = { viewModel.declineGatewayTrustPrompt(prompt) },
       )
     }
 
@@ -1369,7 +1368,7 @@ private fun SetupCodeInstructionsScreen(
         }
         item {
           Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            ScanQrTile(
+            SetupQrScanner(
               scannerActive = scannerActive,
               cameraPermissionGranted = cameraPermissionGranted,
               scanner = scanner,
@@ -1477,7 +1476,7 @@ private fun SetupScanErrorDialog(
 }
 
 @Composable
-private fun ScanQrTile(
+internal fun SetupQrScanner(
   scannerActive: Boolean,
   cameraPermissionGranted: Boolean,
   scanner: BarcodeScanner,
@@ -2151,7 +2150,7 @@ private fun GatewayRecoveryDiagnosticDialog(
   onDismiss: () -> Unit,
   onCopy: () -> Unit,
 ) {
-  AlertDialog(
+  AppAlertDialog(
     onDismissRequest = onDismiss,
     containerColor = ClawTheme.colors.surfaceRaised,
     title = { Text(nativeString("Connection details"), style = ClawTheme.type.section, color = ClawTheme.colors.text) },
@@ -2199,11 +2198,6 @@ private fun NodeApprovalScreen(
 ) {
   val approveCommand = recoveryNodeApprovalCommand(approvalRequestId(approval))
   var waitingDialogDismissed by rememberSaveable { mutableStateOf(false) }
-  LaunchedEffect(checkingApproval) {
-    if (checkingApproval) {
-      waitingDialogDismissed = false
-    }
-  }
   val showWaitingDialog =
     checkRequested &&
       !checkingApproval &&
@@ -2267,14 +2261,18 @@ private fun NodeApprovalScreen(
           loadingText = nativeText("Checking approval…"),
           loading = checkingApproval,
           modifier = Modifier.onboardingActionButton(),
-          onClick = onCheckApproval,
+          onClick = {
+            // Only an explicit check may reopen feedback dismissed during background polling.
+            waitingDialogDismissed = false
+            onCheckApproval()
+          },
         )
       }
     }
   }
 
   if (showWaitingDialog) {
-    AlertDialog(
+    AppAlertDialog(
       onDismissRequest = { waitingDialogDismissed = true },
       title = { Text(text = nativeString("Still waiting for approval")) },
       text = {

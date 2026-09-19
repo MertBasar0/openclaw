@@ -10,11 +10,11 @@ The mode, scope, and backend settings, how a creator-role requirement overrides 
 
 Three independent settings control sandbox behavior:
 
-| Setting | Key                               | Values                                 | Default  |
-| ------- | --------------------------------- | -------------------------------------- | -------- |
-| Mode    | `agents.defaults.sandbox.mode`    | `off`, `non-main`, `all`               | `off`    |
-| Scope   | `agents.defaults.sandbox.scope`   | `agent`, `session`, `shared`           | `agent`  |
-| Backend | `agents.defaults.sandbox.backend` | `docker`, `podman`, `ssh`, `openshell` | `docker` |
+| Setting | Key                               | Values                                            | Default  |
+| ------- | --------------------------------- | ------------------------------------------------- | -------- |
+| Mode    | `agents.defaults.sandbox.mode`    | `off`, `non-main`, `all`                          | `off`    |
+| Scope   | `agents.defaults.sandbox.scope`   | `agent`, `session`, `shared`                      | `agent`  |
+| Backend | `agents.defaults.sandbox.backend` | `docker`, `podman`, `ssh`, `openshell`, `crabbox` | `docker` |
 
 **Mode** controls when sandboxing applies:
 
@@ -39,7 +39,7 @@ Required sandboxes with proven Gateway-profile creators use that profile as
 their isolation boundary. Different guests on the same agent receive separate
 environments and workspaces, regardless of configured scope. Sessions created
 by the same profile reuse its existing environment and workspace, including
-when the configured scope is `session`; this upgrade does not rekey those paths.
+when the configured scope is `session`; this reuse does not rekey those paths.
 Channel, unknown, and other non-profile creators instead receive a separate
 required sandbox per canonical session. A matching raw ID cannot reuse a
 profile's resources. Required sandboxing and the read-only workspace cap remain
@@ -57,7 +57,7 @@ Non-shared runtime identity also includes the resolved agent workspace path. Thi
 
 The first use after upgrading from an older release creates non-shared runtimes and sandbox workspaces under the workspace-qualified identity. Existing non-shared runtimes are not adopted; this is an intentional one-time reset. They can age out through configured prune settings or be removed with `openclaw sandbox recreate`; the next use provisions the current identity.
 
-**Backend** controls which runtime executes sandboxed tools. Docker and Podman share `agents.defaults.sandbox.docker`; SSH-specific config lives under `agents.defaults.sandbox.ssh`; OpenShell-specific config lives under `plugins.entries.openshell.config`.
+**Backend** controls which runtime executes sandboxed tools. Docker and Podman share `agents.defaults.sandbox.docker`; SSH-specific config lives under `agents.defaults.sandbox.ssh`; OpenShell-specific config lives under `plugins.entries.openshell.config`; Crabbox lease settings live under `plugins.entries.crabbox.config.sandbox` (see [Crabbox backend](/gateway/sandboxing/crabbox-backend)).
 
 |                     | Docker or Podman backend                  | SSH                            | OpenShell                                           |
 | ------------------- | ----------------------------------------- | ------------------------------ | --------------------------------------------------- |

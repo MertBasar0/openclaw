@@ -45,12 +45,14 @@ import type { AgentPatchedSessionModelFallback } from "./session-model-fallback.
 import type { SessionSkillSnapshot } from "./session-prompt-types.js";
 import type { SessionSystemPromptReport } from "./session-system-prompt-report.js";
 import type { SessionToolOverrides } from "./session-tool-overrides.js";
+import type { PendingSessionWorktree } from "./session-worktree-intent.js";
 
 export type { SessionToolOverrides } from "./session-tool-overrides.js";
 export type { SessionSystemPromptReport } from "./session-system-prompt-report.js";
 
 export type SessionScope = "per-sender" | "global";
 export type SessionChatType = ChatType;
+export type PersistedSessionRunStatus = SessionRunStatus | "interrupted";
 export const SESSION_TOTAL_TOKENS_VERSION = 1 as const;
 type SessionVisibility = "shared" | "read-only" | "suggest" | "draft";
 
@@ -248,6 +250,8 @@ type SubagentRecoveryState = {
   lastAttemptAt?: number;
   /** Registry run id that triggered the latest automatic orphan-recovery resume. */
   lastRunId?: string;
+  /** Visible execution retained while the recovered run uses an internal transcript. */
+  sessionLifecycleRunId?: string;
   /** Timestamp (ms) when automatic recovery was tombstoned for this session. */
   wedgedAt?: number;
   /** Human-readable reason automatic recovery was tombstoned. */
@@ -344,6 +348,8 @@ type SessionEntryCore = SessionRestartRecoveryState &
     agentStatus?: SessionAgentStatus;
     /** Latest utility-model status judgment for idle session status surfaces. */
     observerDigest?: SessionObserverDigest;
+    /** Versioned, reconstructible Activity recap; never authoritative task status. */
+    activitySummary?: import("./activity-summary.js").SessionActivitySummary;
     /** Timestamp (ms) when an operator explicitly marked the session unread; cleared on read. */
     markedUnreadAt?: number;
     /** Timestamp (ms) of the latest completed agent run; metadata patches do not update it. */
@@ -436,7 +442,7 @@ type SessionEntryCore = SessionRestartRecoveryState &
     /** Accumulated runtime across subagent follow-up runs, persisted after completion. */
     runtimeMs?: number;
     /** Final persisted subagent run status, used after in-memory run archival. */
-    status?: SessionRunStatus;
+    status?: PersistedSessionRunStatus;
     /** Compact user-facing reason for the latest failed or timed-out run. */
     lastRunError?: string;
     /**
@@ -589,7 +595,7 @@ type SessionEntryCore = SessionRestartRecoveryState &
     label?: string;
     /** Automatic device name; never claims a custom label or overrides a generated title. */
     autoLabel?: string;
-    /** Persistent operator/agent-set sidebar emoji icon (single grapheme). */
+    /** Persistent sidebar emoji, named glyph, or canonical SVG image data URL. */
     icon?: string;
     /** Named sidebar tint (SESSION_COLOR_IDS); palette mirrors Claude Code /color for import. */
     color?: string;
@@ -597,11 +603,15 @@ type SessionEntryCore = SessionRestartRecoveryState &
     category?: string;
     /** Preferred Control UI face when a caller opens this session without explicit face intent. */
     boardFace?: SessionBoardFace;
+    /** Shared dashboard presentation default; absence uses the built-in split view. */
+    boardPresentation?: NonNullable<SessionRow["boardPresentation"]>;
     displayName?: string;
     /** Canonical delivery state. Legacy delivery fields are migrated by `openclaw doctor --fix`. */
     delivery?: SessionDeliveryState;
     groupId?: string;
     subject?: string;
+    /** Display-only topic name; subject remains the group name used for routing. */
+    topicName?: string;
     groupChannel?: string;
     space?: string;
     /** Last ambient room message durably appended to this transcript, keyed by channel scope. */
@@ -621,7 +631,16 @@ type SessionEntryCore = SessionRestartRecoveryState &
 export interface SessionEntry extends SessionEntryCore {}
 
 /** Internal durable fields excluded from public/plugin session projections. */
+export type SessionProfileInvolvement = {
+  hidden: boolean;
+  updatedAt: number;
+  /** Original committed source ordering, retained when the person hides the session. */
+  lastMention?: { generation: string; sequence: number; timestamp: number };
+};
+
 export type InternalSessionEntryCore = SessionEntryCore & {
+  /** Personal discovery state, never participation, attribution, or sharing authority. */
+  profileInvolvement?: { key: string; profiles: Record<string, SessionProfileInvolvement> };
   /** Transcript-wide account provenance; native binding replacement must not replace it. */
   cliHistoryBoundary?: import("./cli-history-boundary.js").CliHistoryBoundary;
   /** Explicit world-readable publication, bound to one transcript generation. */
@@ -635,14 +654,7 @@ export type InternalSessionEntryCore = SessionEntryCore & {
   /** Canonical remote repository awaiting preparation by this exact session generation. */
   pendingProjectGitUrl?: string;
   /** Authorized worktree intent awaiting preparation by an admitted turn. */
-  pendingWorktree?: {
-    workspace?: string;
-    name?: string;
-    baseRef?: string;
-    /** Verified commit used for checkout while baseRef remains user-facing metadata. */
-    baseCommit?: string;
-    titleSource: string;
-  };
+  pendingWorktree?: PendingSessionWorktree;
   /** Suppresses repeated byte-triggered compaction after an oversized successor was observed. */
   transcriptByteCompactionLatch?: {
     activeBytes: number;
@@ -659,7 +671,13 @@ export interface InternalSessionEntry extends InternalSessionEntryCore {}
 export function isTerminalSessionStatus(
   status: unknown,
 ): status is Exclude<NonNullable<SessionEntry["status"]>, "running"> {
-  return status === "done" || status === "failed" || status === "killed" || status === "timeout";
+  return (
+    status === "done" ||
+    status === "failed" ||
+    status === "interrupted" ||
+    status === "killed" ||
+    status === "timeout"
+  );
 }
 
 function isSessionPluginTraceLine(line: string): boolean {

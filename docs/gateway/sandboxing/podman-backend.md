@@ -6,6 +6,8 @@ read_when: "You are using Podman instead of Docker for sandboxed tool execution.
 
 Selecting the native Podman CLI as a built-in backend, the Docker settings it reuses, and its rootless user-mapping rules.
 
+This page covers Podman as the sandbox backend for agent tool execution. Running the Gateway itself in a rootless Podman container is a separate setup: see [Podman](/install/podman).
+
 ## Podman backend
 
 Use `sandbox.backend: "podman"` to select the native `podman` CLI directly. This is a built-in backend, not a plugin. It does not probe or select Docker, even when the `docker` executable is installed.
@@ -40,6 +42,18 @@ Build or pull the sandbox image into the selected Podman store before enabling t
 ```bash
 podman build -t openclaw-sandbox:bookworm-slim -f scripts/docker/sandbox/Dockerfile .
 ```
+
+## Host init prerequisite
+
+OpenClaw creates Podman sandboxes with `--init` so orphaned tool processes are reaped. The Podman engine host needs its init executable, normally `catatonit`. Installing it only inside the sandbox image does not satisfy this requirement. For Podman Machine, the executable belongs inside the machine, not on the client host.
+
+On Debian or Ubuntu, minimal installs using `--no-install-recommends` can omit the helper. Include it explicitly when provisioning the engine host:
+
+```bash
+sudo apt-get install podman catatonit
+```
+
+If sandbox creation reports `lookup init binary` or `container-init binary not found on the host`, install the helper or repair Podman's configured `init_path`/`helper_binaries_dir` in `containers.conf`, then retry. Podman can resolve helpers outside `PATH`; a successful `podman info` does not prove that `--init` works. Keep sandboxing and `--init` enabled rather than bypassing this prerequisite.
 
 Podman notes:
 

@@ -6,6 +6,7 @@ import {
   describeTelegramDispatch,
   dispatchReplyWithBufferedBlockDispatcher,
   dispatchWithContext,
+  emitToolStart,
 } from "./bot-message-dispatch.test-harness.js";
 import type { TelegramDraftPreview } from "./draft-stream.js";
 
@@ -26,7 +27,7 @@ describeTelegramDispatch("Telegram reasoning beside progress headlines", () => {
       dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
         await replyOptions?.onReplyStart?.();
         await replyOptions?.onAssistantMessageStart?.();
-        await replyOptions?.onToolStart?.({ name: "exec", phase: "start" });
+        await emitToolStart(replyOptions, { name: "exec", phase: "start", toolCallId: "exec-1" });
         await replyOptions?.onReasoningStream?.({ text: "Checking files" });
         previews.push(draftStream.updatePreview.mock.lastCall?.[0]);
         await replyOptions?.onItemEvent?.({

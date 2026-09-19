@@ -117,6 +117,19 @@ const PACKED_PLUGIN_SDK_TYPESCRIPT_SMOKE_FIXTURE = new URL(
   "./fixtures/packed-plugin-sdk-type-smoke.ts",
   import.meta.url,
 );
+const PACKED_PLUGIN_SDK_SETUP_CONSUMER_FIXTURE = new URL(
+  "./fixtures/packed-plugin-sdk-setup-consumer.ts",
+  import.meta.url,
+);
+const PACKED_PLUGIN_SDK_PROGRESS_CONSUMER_FIXTURE = new URL(
+  "./fixtures/packed-plugin-sdk-progress-consumer.ts",
+  import.meta.url,
+);
+const PACKED_PLUGIN_SDK_SETUP_SURFACE_OMISSION_VERSIONS = new Set(["2026.7.33", "2026.7.34"]);
+
+export function packedPluginSdkMayOmitSetupSurface(packageVersion: string): boolean {
+  return PACKED_PLUGIN_SDK_SETUP_SURFACE_OMISSION_VERSIONS.has(packageVersion);
+}
 const PACKED_BUNDLED_CHANNEL_ENTRY_SMOKE_ENTRYPOINTS = [
   "scripts/test-built-bundled-channel-entry-smoke.mts",
   "scripts/test-built-bundled-channel-entry-smoke.mjs",
@@ -591,7 +604,8 @@ export function createPackedCliSmokeEnv(
     process.platform === "win32"
       ? `${nodeBinDir};${windowsRoot}\\System32;${windowsRoot}`
       : `${nodeBinDir}:${SAFE_UNIX_SMOKE_PATH}`;
-  const homeDir = overrides.HOME ?? env.HOME ?? overrides.USERPROFILE ?? env.USERPROFILE ?? "";
+  const homeDir = overrides.HOME ?? env.HOME ?? env.USERPROFILE ?? "";
+  const stateDir = overrides.OPENCLAW_STATE_DIR;
 
   return {
     ...Object.fromEntries(
@@ -613,7 +627,7 @@ export function createPackedCliSmokeEnv(
     OPENCLAW_NO_ONBOARD: "1",
     OPENCLAW_SERVICE_REPAIR_POLICY: "external",
     OPENCLAW_SUPPRESS_NOTES: "1",
-    ...overrides,
+    ...(typeof stateDir === "string" ? { OPENCLAW_STATE_DIR: stateDir } : {}),
   };
 }
 
@@ -694,6 +708,7 @@ export function createPackedPluginSdkTypescriptSmokeProject(params: {
   consumerDir: string;
   packageSpec: string;
   aiPackageSpec?: string;
+  progressConsumerOnly?: boolean;
 }): void {
   const dependencies: Record<string, string> = {
     openclaw: params.packageSpec,
@@ -730,9 +745,12 @@ export function createPackedPluginSdkTypescriptSmokeProject(params: {
           noEmit: true,
           strict: true,
           skipLibCheck: false,
+          types: ["node"],
           target: "ES2022",
         },
-        include: ["src/index.ts"],
+        include: params.progressConsumerOnly
+          ? ["src/packed-plugin-sdk-progress-consumer.ts"]
+          : ["src/index.ts"],
       },
       null,
       2,
@@ -743,6 +761,16 @@ export function createPackedPluginSdkTypescriptSmokeProject(params: {
     PACKED_PLUGIN_SDK_TYPESCRIPT_SMOKE_FIXTURE,
     join(params.consumerDir, "src", "index.ts"),
   );
+  copyFileSync(
+    PACKED_PLUGIN_SDK_SETUP_CONSUMER_FIXTURE,
+    join(params.consumerDir, "src", "packed-plugin-sdk-setup-consumer.ts"),
+  );
+  if (params.progressConsumerOnly) {
+    copyFileSync(
+      PACKED_PLUGIN_SDK_PROGRESS_CONSUMER_FIXTURE,
+      join(params.consumerDir, "src", "packed-plugin-sdk-progress-consumer.ts"),
+    );
+  }
 }
 
 function runPackedPluginSdkTypescriptSmoke(
@@ -750,36 +778,72 @@ function runPackedPluginSdkTypescriptSmoke(
   tmpRoot: string,
   localPackageTarballs: string[],
 ): void {
-  const consumerDir = join(tmpRoot, "plugin-sdk-type-consumer");
   const aiTarball = localPackageTarballs.find(
     (localPackageTarball) => localPackageNameForTarball(localPackageTarball) === "@openclaw/ai",
   );
-  createPackedPluginSdkTypescriptSmokeProject({
-    consumerDir,
-    packageSpec: `file:${tarballPath}`,
-    aiPackageSpec: aiTarball ? `file:${aiTarball}` : undefined,
-  });
-  execNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund"], {
-    cwd: consumerDir,
-    encoding: "utf8",
-    stdio: "inherit",
-  });
-
-  const installedOpenClawRoot = join(consumerDir, "node_modules", "openclaw");
-  const tscPath = [
-    join(consumerDir, "node_modules", "typescript", "bin", "tsc"),
-    join(installedOpenClawRoot, "node_modules", "typescript", "bin", "tsc"),
-  ].find((candidate) => existsSync(candidate));
-  if (!tscPath) {
-    throw new Error("release-check: packed plugin SDK TypeScript smoke could not find tsc.");
-  }
-  runReleaseCheckCommand(
-    { command: process.execPath, args: [tscPath, "-p", "tsconfig.json", "--pretty", "false"] },
+  for (const target of [
     {
-      cwd: consumerDir,
-      stdio: "inherit",
+      name: "plugin-sdk-released-setup-consumer",
+      packageSpec: "2026.9.4",
+      aiPackageSpec: undefined,
+      setupConsumerOnly: true,
     },
-  );
+    {
+      name: "plugin-sdk-type-consumer",
+      packageSpec: `file:${tarballPath}`,
+      aiPackageSpec: aiTarball ? `file:${aiTarball}` : undefined,
+      setupConsumerOnly: false,
+    },
+  ]) {
+    const consumerDir = join(tmpRoot, target.name);
+    createPackedPluginSdkTypescriptSmokeProject({ consumerDir, ...target });
+    if (target.setupConsumerOnly) {
+      copyFileSync(PACKED_PLUGIN_SDK_SETUP_CONSUMER_FIXTURE, join(consumerDir, "src", "index.ts"));
+    }
+    console.log(`release-check: compiling ${target.name} against ${target.packageSpec}`);
+    execNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund"], {
+      cwd: consumerDir,
+      encoding: "utf8",
+      stdio: "inherit",
+    });
+
+    const installedOpenClawRoot = join(consumerDir, "node_modules", "openclaw");
+    if (!target.setupConsumerOnly) {
+      const installedPackageVersion = (
+        JSON.parse(readFileSync(join(installedOpenClawRoot, "package.json"), "utf8")) as {
+          version?: unknown;
+        }
+      ).version;
+      if (
+        typeof installedPackageVersion === "string" &&
+        packedPluginSdkMayOmitSetupSurface(installedPackageVersion)
+      ) {
+        const indexPath = join(consumerDir, "src", "index.ts");
+        writeFileSync(
+          indexPath,
+          readFileSync(indexPath, "utf8").replace(
+            'import "./packed-plugin-sdk-setup-consumer.js";\n',
+            "",
+          ),
+        );
+      }
+    }
+    const tscPath = [
+      join(consumerDir, "node_modules", "typescript", "bin", "tsc"),
+      join(installedOpenClawRoot, "node_modules", "typescript", "bin", "tsc"),
+    ].find((candidate) => existsSync(candidate));
+    if (!tscPath) {
+      throw new Error("release-check: packed plugin SDK TypeScript smoke could not find tsc.");
+    }
+    runReleaseCheckCommand(
+      { command: process.execPath, args: [tscPath, "-p", "tsconfig.json", "--pretty", "false"] },
+      {
+        cwd: consumerDir,
+        stdio: "inherit",
+      },
+    );
+    console.log(`release-check: ${target.name} compiled successfully`);
+  }
 }
 
 export function writePackedBundledPluginActivationConfig(homeDir: string): void {
@@ -829,7 +893,6 @@ function runPackedBundledPluginActivationSmoke(packageRoot: string, tmpRoot: str
   mkdirSync(homeDir, { recursive: true });
   const env = createPackedCliSmokeEnv(process.env, {
     HOME: homeDir,
-    OPENAI_API_KEY: "sk-openclaw-release-check",
   });
 
   writePackedBundledPluginActivationConfig(homeDir);
@@ -892,7 +955,6 @@ function runPackedCliSmoke(params: {
   const env = createPackedCliSmokeEnv(process.env, {
     HOME: params.homeDir,
     OPENCLAW_STATE_DIR: params.stateDir,
-    OPENAI_API_KEY: "sk-openclaw-release-check",
   });
   const windowsRoot = env.SystemRoot ?? env.WINDIR ?? "C:\\Windows";
   const trustedCmdPath = join(windowsRoot, "System32", "cmd.exe");
@@ -1293,40 +1355,58 @@ async function verifyPackedContents(
   packedRoot: string,
   tarballPath: string,
 ): Promise<void> {
-  // WORKER_BUNDLE_*_PATH exports declare the target's sealed deploy artifacts.
-  // Trusted tooling may be newer than the frozen target in the working directory.
-  // The producer owns this contract; shared worker helpers can predate deploy output.
   const workerProducerPath = resolve("src/worker/worker-deploy-entry.ts");
   const workerBundlePath = resolve("src/shared/worker-bundle-hash.ts");
-  const workerDeployEntrypoints = existsSync(workerProducerPath)
-    ? Object.entries(
-        await importToolingTypeScript(pathToFileURL(workerBundlePath).href, import.meta.url),
-      )
-        .filter(([name]) => /^WORKER_BUNDLE_.*_PATH$/u.test(name))
-        .map(([name, value]) => {
-          if (typeof value !== "string" || !value.trim()) {
-            throw new Error(
-              `release-check: target worker artifact ${name} must be a non-empty path string.`,
-            );
-          }
-          const normalizedPath = posix.normalize(value);
-          const workerPath = posix.join("dist/worker", normalizedPath);
-          if (
-            value !== value.trim() ||
-            value !== normalizedPath ||
-            value.includes("\\") ||
-            normalizedPath.split("/").includes("..") ||
-            win32.isAbsolute(value) ||
-            !workerPath.startsWith("dist/worker/")
-          ) {
-            throw new Error(
-              `release-check: target worker artifact ${name} must be a normalized relative path within dist/worker.`,
-            );
-          }
-          return workerPath;
-        })
-    : [];
-  if (existsSync(workerProducerPath) && workerDeployEntrypoints.length === 0) {
+  // Frozen targets can have shared hash helpers without a deploy entrypoint.
+  const hasWorkerProducer = existsSync(workerProducerPath);
+  let workerArtifactDeclarations: Array<[string, unknown]> = [];
+  if (hasWorkerProducer) {
+    const target = await importToolingTypeScript(
+      pathToFileURL(workerBundlePath).href,
+      import.meta.url,
+    );
+    if (Object.hasOwn(target, "WORKER_BUNDLE_ARTIFACT_PATHS")) {
+      const paths = target.WORKER_BUNDLE_ARTIFACT_PATHS;
+      if (!Array.isArray(paths) || paths.length === 0) {
+        throw new Error(
+          "release-check: target WORKER_BUNDLE_ARTIFACT_PATHS must be a non-empty array.",
+        );
+      }
+      workerArtifactDeclarations = paths.map((value, index): [string, unknown] => [
+        `WORKER_BUNDLE_ARTIFACT_PATHS[${index}]`,
+        value,
+      ]);
+    } else {
+      // v2026.9.4 deploy targets expose individual paths. Remove this fallback once
+      // every supported frozen release target declares the canonical array.
+      workerArtifactDeclarations = Object.entries(target).filter(([name]) =>
+        /^WORKER_BUNDLE_.*_PATH$/u.test(name),
+      );
+    }
+  }
+  const workerDeployEntrypoints = workerArtifactDeclarations.map(([name, value]) => {
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error(
+        `release-check: target worker artifact ${name} must be a non-empty path string.`,
+      );
+    }
+    const normalizedPath = posix.normalize(value);
+    const workerPath = posix.join("dist/worker", normalizedPath);
+    if (
+      value !== value.trim() ||
+      value !== normalizedPath ||
+      value.includes("\\") ||
+      normalizedPath.split("/").includes("..") ||
+      win32.isAbsolute(value) ||
+      !workerPath.startsWith("dist/worker/")
+    ) {
+      throw new Error(
+        `release-check: target worker artifact ${name} must be a normalized relative path within dist/worker.`,
+      );
+    }
+    return workerPath;
+  });
+  if (hasWorkerProducer && workerDeployEntrypoints.length === 0) {
     throw new Error(
       "release-check: target worker producer is missing WORKER_BUNDLE_*_PATH declarations.",
     );

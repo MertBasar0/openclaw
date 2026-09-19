@@ -3,12 +3,16 @@ import { asDateTimestampMs } from "@openclaw/normalization-core/number-coercion"
 import { html, nothing } from "lit";
 import { AsyncDirective } from "lit/async-directive.js";
 import { directive } from "lit/directive.js";
-import { ref } from "lit/directives/ref.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { t } from "../i18n/index.ts";
 import { formatRelativeTimestamp } from "../lib/format.ts";
 import { icons } from "./icons.ts";
 import { toSanitizedMarkdownHtml } from "./markdown.ts";
+import { scrollState } from "./scroll-state.ts";
+import {
+  composerDisclosure,
+  type ComposerProgressRunLifecycle,
+} from "./session-progress-disclosure-controller.ts";
 
 type SessionProgressCardPlacement = "board" | "composer";
 type PresentedProgressStepStatus = ProgressCardStep["status"] | "paused";
@@ -92,62 +96,6 @@ class ProgressActivityTimeDirective extends AsyncDirective {
 }
 
 const progressActivityTime = directive(ProgressActivityTimeDirective);
-
-type ComposerProgressRunLifecycle = {
-  activeRunId?: string | null;
-  completedRunId?: string | null;
-};
-
-type ComposerDisclosureOwner = {
-  activeRunId: string | null;
-  handledCompletedRunId: string | null;
-  sessionKey: string;
-};
-
-const composerDisclosureOwners = new WeakMap<HTMLDetailsElement, ComposerDisclosureOwner>();
-
-function reconcileComposerDisclosure(
-  element: Element | undefined,
-  sessionKey: string,
-  initialOpen: boolean,
-  collapseByDefault: boolean,
-  lifecycle?: ComposerProgressRunLifecycle,
-): void {
-  if (!(element instanceof HTMLDetailsElement)) {
-    return;
-  }
-  const activeRunId = lifecycle?.activeRunId ?? null;
-  const completedRunId = lifecycle?.completedRunId ?? null;
-  const owner = composerDisclosureOwners.get(element);
-  if (!owner || owner.sessionKey !== sessionKey) {
-    element.open = initialOpen;
-    composerDisclosureOwners.set(element, {
-      activeRunId,
-      handledCompletedRunId: completedRunId,
-      sessionKey,
-    });
-    return;
-  }
-  // Run boundaries intentionally override the native disclosure. Same-run
-  // rerenders leave the operator's manual open/closed choice untouched.
-  if (activeRunId && activeRunId !== owner.activeRunId) {
-    owner.activeRunId = activeRunId;
-    owner.handledCompletedRunId = null;
-    if (collapseByDefault) {
-      element.open = false;
-    }
-  }
-  if (
-    completedRunId &&
-    completedRunId === owner.activeRunId &&
-    completedRunId !== owner.handledCompletedRunId
-  ) {
-    owner.handledCompletedRunId = completedRunId;
-    if (collapseByDefault) {
-      element.open = true;
-    }
-  }
-}
 
 function progressCounts(card: ProgressCard): { completed: number; total: number } | null {
   const steps = card.steps;
@@ -439,14 +387,11 @@ export function renderSessionProgressCard(
       class="session-progress-card session-progress-card--composer"
       data-progress-card-placement="composer"
       data-complete=${String(complete)}
-      ${ref((element) =>
-        reconcileComposerDisclosure(
-          element,
-          card.sessionKey,
-          !complete && !collapseComposerByDefault,
-          collapseComposerByDefault,
-          composerRunLifecycle,
-        ),
+      ${composerDisclosure(
+        composerRunLifecycle?.sessionIdentity ?? card.sessionKey,
+        !complete && !collapseComposerByDefault,
+        collapseComposerByDefault,
+        composerRunLifecycle,
       )}
     >
       <summary class="session-progress-card__summary" aria-label=${summaryLabel}>
@@ -491,7 +436,12 @@ export function renderSessionProgressCard(
           >${icons.chevronDown}</span
         >
       </summary>
-      <div class="session-progress-card__body" role="region" aria-label=${composerCountLabel}>
+      <div
+        class="session-progress-card__body"
+        role="region"
+        aria-label=${composerCountLabel}
+        ${scrollState()}
+      >
         ${renderProgressCardMarkdown(card.markdown)}
         ${renderSteps(card, hasCurrentRunActivity, effectiveSessionStatus)}
       </div>

@@ -18,7 +18,7 @@ import {
   MAX_WORKSPACE_MANIFEST_BYTES,
   MAX_WORKSPACE_INVENTORY_TOTAL_BYTES,
 } from "../gateway/worker-environments/workspace-inventory-limits.js";
-import { parseWorkerWorkspaceManifest } from "../gateway/worker-environments/workspace-manifest.js";
+import { parseWorkspaceManifest } from "../gateway/worker-environments/workspace-manifest-worker.js";
 import { absoluteEntryMatches } from "../gateway/worker-environments/workspace-reconcile-fs.js";
 import { workerWorkspaceTransferPaths } from "../gateway/worker-environments/workspace-result-staging.js";
 import { REMOTE_WORKSPACE_MANIFEST_JS } from "../gateway/worker-environments/workspace-sync-scripts.js";
@@ -31,6 +31,7 @@ import {
   isStagedInputPath,
   stagedInputDirectoriesFromEntries,
 } from "../media/staged-inputs.js";
+import { KeyedAsyncQueue } from "../plugin-sdk/keyed-async-queue.js";
 import {
   boundedWorkspaceTransferChunks,
   readWorkspaceTransferBody as readResponseBody,
@@ -43,6 +44,7 @@ import {
   nodeWorkspaceTransferPackPath,
   nodeWorkspaceTransferReconcilePath,
   type NodeWorkerWorkspaceTransferInput,
+  type NodeWorkerWorkspaceTransferStage,
 } from "../worker/node-workspace-transfer-protocol.js";
 import {
   prepareNodeWorkerWorkspaceOverlay,
@@ -190,29 +192,13 @@ function workspacePath(root: string, relative: string): string {
   return candidate;
 }
 
-const workspaceTransferQueues = new Map<string, Promise<void>>();
+const workspaceTransferQueue = new KeyedAsyncQueue();
 
-export async function serializeNodeWorkerWorkspace<T>(
+export function serializeNodeWorkerWorkspace<T>(
   workspaceDir: string,
   operation: () => Promise<T>,
 ): Promise<T> {
-  const key = path.resolve(workspaceDir);
-  const previous = workspaceTransferQueues.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = previous.then(() => current);
-  workspaceTransferQueues.set(key, queued);
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (workspaceTransferQueues.get(key) === queued) {
-      workspaceTransferQueues.delete(key);
-    }
-  }
+  return workspaceTransferQueue.enqueue(path.resolve(workspaceDir), operation);
 }
 
 async function downloadWorkspace(params: {
@@ -227,11 +213,13 @@ async function downloadWorkspace(params: {
   transfer: Extract<NodeWorkerWorkspaceTransferInput, { direction: "download" }>;
   prepared?: NodeWorkerPreparedWorkspaceTransfer;
   hashMemo?: WorkspaceHashMemo;
+  setStage: (stage: NodeWorkerWorkspaceTransferStage) => void;
   signal?: AbortSignal;
 }): Promise<string> {
   const startedAt = performance.now();
   let packDownloadMs: number | undefined;
   let baseSource: "prepared-project-seed" | "gateway-pack" | undefined;
+  params.setStage("manifest");
   const raw = await downloadBuffer(
     {
       gatewayUrl: params.gatewayUrl,
@@ -247,7 +235,11 @@ async function downloadWorkspace(params: {
     },
     MAX_WORKSPACE_MANIFEST_BYTES,
   );
-  const manifest = parseWorkerWorkspaceManifest(raw.toString("utf8"), params.transfer.manifestRef);
+  const manifest = await parseWorkspaceManifest(
+    raw.toString("utf8"),
+    params.transfer.manifestRef,
+    params.signal,
+  );
   const checkpointBaseRef = params.transfer.checkpointBaseManifestRef;
   const checkpointBase = checkpointBaseRef
     ? await readNodeRepositoryCheckpointBase({
@@ -257,7 +249,7 @@ async function downloadWorkspace(params: {
       })
     : undefined;
   const checkpointPaths = checkpointBase
-    ? new Set(workerWorkspaceTransferPaths(manifest, checkpointBase))
+    ? new Set(workerWorkspaceTransferPaths(manifest, checkpointBase, params.signal))
     : undefined;
 
   if (params.transfer.seedKey && (!manifest.baseCommit || params.transfer.attachments)) {
@@ -277,15 +269,18 @@ async function downloadWorkspace(params: {
         })
       : undefined;
   const stagedInputs = stagedInputDirectoriesFromEntries(manifest.entries);
+  const attachmentEntries = params.transfer.attachments
+    ? manifest.entries.filter((entry) => entry.type === "file")
+    : undefined;
   if (
-    params.transfer.attachments &&
+    attachmentEntries &&
     (manifest.baseCommit !== null ||
-      manifest.entries.some(
-        (entry) => entry.type !== "file" || !isStagedInputPath(entry.path, stagedInputs),
-      ))
+      attachmentEntries.length !== manifest.entries.length ||
+      attachmentEntries.some((entry) => !isStagedInputPath(entry.path, stagedInputs)))
   ) {
     throw new Error("Invalid worker attachment manifest");
   }
+  params.setStage("materialize");
   const stagingWorkspace = await tempWorkspace({
     rootDir: path.dirname(params.workspaceDir),
     prefix: `.${path.basename(params.workspaceDir)}.workspace-transfer-`,
@@ -313,6 +308,7 @@ async function downloadWorkspace(params: {
     }
     if (manifest.baseCommit && !checkpointBase && !overlay) {
       try {
+        params.setStage("base");
         let seeded = false;
         if (params.transfer.seedKey) {
           baseSource = "prepared-project-seed";
@@ -368,6 +364,7 @@ async function downloadWorkspace(params: {
         throw error;
       }
     }
+    params.setStage("materialize");
     const blobApplyStartedAt = performance.now();
     const stagingHashMemo: WorkspaceHashMemo = new Map();
     for (const directory of checkpointBase ? [] : (manifest.directories ?? [])) {
@@ -428,6 +425,7 @@ async function downloadWorkspace(params: {
     // Reuse only hashes validated on this staging filesystem. Capture still checks
     // the complete tree and current handle identities before the atomic replacement.
     if (checkpointBase && checkpointBaseRef && !overlay) {
+      params.setStage("verify");
       await applyNodeRepositoryCheckpoint({
         workspaceDir: params.workspaceDir,
         stagingRoot: staging,
@@ -439,6 +437,7 @@ async function downloadWorkspace(params: {
       });
       params.hashMemo?.clear();
     } else {
+      params.setStage("verify");
       const observed = overlay
         ? await overlay.apply(staging)
         : await captureManifest({
@@ -455,22 +454,27 @@ async function downloadWorkspace(params: {
         );
       }
     }
-    if (params.transfer.attachments) {
+    if (attachmentEntries) {
       params.signal?.throwIfAborted();
-      const root = await fsRoot(params.workspaceDir);
+      const [root, sourceRoot] = await Promise.all([fsRoot(params.workspaceDir), fsRoot(staging)]);
       for (const directory of stagedInputs) {
         params.signal?.throwIfAborted();
         await ensureStagedInputDirectory(params.workspaceDir, directory, params.signal);
       }
-      for (const entry of manifest.entries) {
-        params.signal?.throwIfAborted();
-        const data = await fsp.readFile(workspacePath(staging, entry.path));
+      for (const entry of attachmentEntries) {
         params.signal?.throwIfAborted();
         try {
-          // Adopt guarded exclusive-create with identity-bound rollback when fs-safe supports it.
-          // Until then an entered create may retain this private copy after cancellation;
-          // never unlink by path or overwrite an earlier turn's edits.
-          await root.create(entry.path, data, { mode: 0o600 });
+          // Cancellation may follow publication. Keep published files and prior-turn edits.
+          await root.copyIn(
+            entry.path,
+            { root: sourceRoot, relativePath: workspacePath(sourceRoot.rootReal, entry.path) },
+            {
+              overwrite: false,
+              mode: 0o600,
+              maxBytes: entry.size,
+              signal: params.signal,
+            },
+          );
         } catch (error) {
           params.signal?.throwIfAborted();
           if (!(error instanceof FsSafeError) || error.code !== "already-exists") {
@@ -481,6 +485,7 @@ async function downloadWorkspace(params: {
         params.signal?.throwIfAborted();
       }
     } else if (!overlay && !checkpointBase) {
+      params.setStage("replace");
       await replaceWorkspace(params.workspaceDir, staging);
     }
     if (params.hashMemo && !overlay && !checkpointBase) {
@@ -518,8 +523,10 @@ async function uploadWorkspace(params: {
   transfer: Extract<NodeWorkerWorkspaceTransferInput, { direction: "upload" }>;
   prepared?: NodeWorkerPreparedWorkspaceTransfer;
   hashMemo?: WorkspaceHashMemo;
+  setStage: (stage: NodeWorkerWorkspaceTransferStage) => void;
   signal?: AbortSignal;
 }): Promise<string> {
+  params.setStage("base");
   if (params.transfer.publicationBaseCommit) {
     const { publicationBaseCommit, ...transfer } = params.transfer;
     return await withNodeRepositoryPublication(
@@ -548,7 +555,12 @@ async function uploadWorkspace(params: {
     ),
     "utf8",
   );
-  const base = parseWorkerWorkspaceManifest(baseRaw, params.transfer.baseManifestRef);
+  const base = await parseWorkspaceManifest(
+    baseRaw,
+    params.transfer.baseManifestRef,
+    params.signal,
+  );
+  params.setStage("capture");
   const currentRef = await captureManifest({
     workspaceDir: params.workspaceDir,
     manifestHome: params.manifestHome,
@@ -567,10 +579,11 @@ async function uploadWorkspace(params: {
     ),
     "utf8",
   );
-  const current = parseWorkerWorkspaceManifest(currentRaw, currentRef);
-  const changed = new Set(workerWorkspaceTransferPaths(current, base));
+  const current = await parseWorkspaceManifest(currentRaw, currentRef, params.signal);
+  const changed = new Set(workerWorkspaceTransferPaths(current, base, params.signal));
   const manifestBytes = Buffer.from(currentRaw);
   const baseBytes = Buffer.from(baseRaw);
+  params.setStage("snapshot");
   const snapshot = await createNodeWorkerUploadSnapshot({
     workspaceDir: params.workspaceDir,
     sources: current.entries.flatMap((entry) =>
@@ -592,6 +605,7 @@ async function uploadWorkspace(params: {
       baseBytes.byteLength +
       manifestBytes.byteLength +
       snapshot.files.reduce((total, file) => total + 8 + file.size, 0);
+    params.setStage("reconcile");
     const response = await openNodeWorkerTransferHttpRequest({
       gatewayUrl: params.gatewayUrl,
       tlsFingerprint: params.tlsFingerprint,
@@ -622,6 +636,7 @@ async function uploadWorkspace(params: {
         }
       },
     });
+    params.setStage("acknowledgement");
     await requireOk(response);
     const payload = JSON.parse(
       (await readResponseBody(response, TRANSFER_RESULT_MAX_BYTES)).toString("utf8"),
@@ -649,6 +664,10 @@ export async function runNodeWorkerWorkspaceTransfer(params: {
   hashMemo?: WorkspaceHashMemo;
   signal?: AbortSignal;
 }): Promise<string> {
+  let stage: NodeWorkerWorkspaceTransferStage = "recover";
+  const setStage = (next: NodeWorkerWorkspaceTransferStage) => {
+    stage = next;
+  };
   try {
     if (!params.prepared) {
       await recoverWorkspaceReplacement(params.workspaceDir);
@@ -659,12 +678,14 @@ export async function runNodeWorkerWorkspaceTransfer(params: {
           tlsFingerprint: params.gatewayTlsFingerprint,
           cloudflareAccess: params.gatewayCloudflareAccess,
           transfer: params.transfer,
+          setStage,
         })
       : await uploadWorkspace({
           ...params,
           tlsFingerprint: params.gatewayTlsFingerprint,
           cloudflareAccess: params.gatewayCloudflareAccess,
           transfer: params.transfer,
+          setStage,
         });
   } catch (error) {
     if (error instanceof NodeWorkerWorkspaceTransferError) {
@@ -692,7 +713,7 @@ export async function runNodeWorkerWorkspaceTransfer(params: {
     }
     throw new NodeWorkerWorkspaceTransferError(
       "workspace-transfer-failed: transfer did not complete",
-      { cause: error },
+      { cause: error, operation: params.transfer.direction, stage },
     );
   }
 }

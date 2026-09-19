@@ -11,8 +11,10 @@ import {
 import { toErrorObject } from "../../infra/errors.js";
 import { settlePendingFinalDelivery } from "../../infra/outbound/delivery-completion.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import type { SilentReplyConversationType } from "../../shared/silent-reply-policy.js";
 import { sleep } from "../../utils.js";
+import { getGroupThreadParticipant } from "../group-thread-context.js";
 import {
   copyReplyPayloadMetadata,
   getReplyPayloadMetadata,
@@ -78,6 +80,7 @@ type ReplyDispatchDeliveryOutcomeTracker = {
   resolve: (outcome: ReplyDispatchDeliveryOutcome) => void;
   tracked: boolean;
   pending: boolean;
+  deliveredPayload?: ReplyPayload;
 };
 
 type ReplyDispatchDeliverer = (
@@ -89,9 +92,12 @@ export type { ReplyDispatchBeforeDeliver };
 export { composeReplyDispatchBeforeDeliver, markReplyDispatchBeforeDeliverDeadlineOwned };
 
 const silentReplyLogger = createSubsystemLogger("silent-reply/dispatcher");
-const deliveryOutcomeTrackers = new WeakMap<ReplyPayload, ReplyDispatchDeliveryOutcomeTracker>();
-const undeliveredFallbacks = new WeakMap<ReplyPayload, ReplyPayload>();
-const conversationContextsByDispatcher = new WeakMap<ReplyDispatcher, string>();
+const { deliveryOutcomeTrackers, undeliveredFallbacks, conversationContextsByDispatcher } =
+  resolveGlobalSingleton(Symbol.for("openclaw.replyDispatcherState"), () => ({
+    deliveryOutcomeTrackers: new WeakMap<ReplyPayload, ReplyDispatchDeliveryOutcomeTracker>(),
+    undeliveredFallbacks: new WeakMap<ReplyPayload, ReplyPayload>(),
+    conversationContextsByDispatcher: new WeakMap<ReplyDispatcher, string>(),
+  }));
 
 /** Associate this turn's finalized prompt with its exact dispatcher without changing the SDK. */
 export function bindReplyDispatcherConversationContext(
@@ -106,6 +112,7 @@ export function captureReplyDispatchDeliveryOutcome(payload: ReplyPayload): {
   promise: Promise<ReplyDispatchDeliveryOutcome>;
   isTracked: () => boolean;
   hasPendingDelivery: () => boolean;
+  getDeliveredPayload: () => ReplyPayload | undefined;
 } {
   // Nested dispatch observers share the next enqueue's receipt. Enqueue consumes
   // it so a later send of the same payload owns a separate settlement.
@@ -126,6 +133,7 @@ export function captureReplyDispatchDeliveryOutcome(payload: ReplyPayload): {
     promise: tracker.promise,
     isTracked: () => tracker.tracked,
     hasPendingDelivery: () => tracker.pending,
+    getDeliveredPayload: () => tracker.deliveredPayload,
   };
 }
 
@@ -142,7 +150,12 @@ function buildReplyDispatchRuntimeInfo(
   kind: ReplyDispatchKind,
 ): ReplyDispatchRuntimeInfo {
   const assistantMessageIndex = getReplyPayloadMetadata(payload)?.assistantMessageIndex;
-  return { kind, ...(assistantMessageIndex !== undefined ? { assistantMessageIndex } : {}) };
+  const participant = getGroupThreadParticipant();
+  return {
+    kind,
+    ...(assistantMessageIndex !== undefined ? { assistantMessageIndex } : {}),
+    ...(participant ? { participant } : {}),
+  };
 }
 
 export type ReplyDispatcherOptions = {
@@ -364,7 +377,14 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     }
   };
 
-  const deliverOnce = async (payload: ReplyPayload, info: ReplyDispatchRuntimeInfo) => {
+  const deliverOnce = async (
+    payload: ReplyPayload,
+    info: ReplyDispatchRuntimeInfo,
+  ): Promise<{
+    settlement: Promise<ReplyDispatchDeliveryOutcome>;
+    pendingDelivery?: boolean;
+    payload?: ReplyPayload;
+  }> => {
     let deliverPayload: ReplyPayload | null = payload;
     let deliveryStarted = false;
     let pendingDelivery = false;
@@ -435,13 +455,21 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
         }
       }
       deliveryStarted = true;
-      const result = await options.deliver(deliverPayload, info);
+      const continuation =
+        info.kind === "final"
+          ? getReplyPayloadMetadata(deliverPayload)?.progressContinuation
+          : undefined;
+      const result = await options.deliver(
+        deliverPayload,
+        continuation ? { ...info, adoptProgressContinuation: continuation.adopt } : info,
+      );
       const finalization =
         isRecord(result) && result.finalization instanceof Promise
           ? result.finalization
           : undefined;
       pendingFinalizations += finalization ? 1 : 0;
       return {
+        payload: deliverPayload,
         get pendingDelivery() {
           return pendingDelivery;
         },
@@ -568,6 +596,8 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
         if (deliveryOutcomeTracker) {
           // Publish pending state before block/final observers consume this exact enqueue's outcome.
           deliveryOutcomeTracker.pending = attempt?.pendingDelivery === true;
+          deliveryOutcomeTracker.deliveredPayload =
+            deliveryOutcome === "delivered" ? attempt?.payload : undefined;
           deliveryOutcomeTracker.resolve(deliveryOutcome);
         }
         try {

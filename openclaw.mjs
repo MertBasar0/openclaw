@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { access } from "node:fs/promises";
 import module from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isNodeHostLauncherChild, runNodeHostLauncher } from "./node-host-launcher.mjs";
+import {
+  consumeLauncherRootOptionToken,
+  isForegroundGmailRunInvocation,
+  isNativeHookRelayInvocation,
+  recoverNodeRuntime,
+  runRespawnedChild,
+} from "./node-runtime-recovery.mjs";
 import {
   canRunOpenClawNodeDiagnostics,
   classifyUnsupportedNodeCommand,
@@ -43,7 +50,7 @@ const ensureSupportedRuntimeVersion = async () => {
     );
     return process.exit(1);
   }
-  const probe = detectCurrentSqliteCapabilities();
+  const probe = await detectCurrentSqliteCapabilities();
   const failure = nodeRuntimeFailure(process.versions.node, probe);
   if (!failure) {
     const note = nodeRuntimeNote(process.versions.node, probe);
@@ -55,31 +62,11 @@ const ensureSupportedRuntimeVersion = async () => {
   const unsupportedCommand = classifyUnsupportedNodeCommand(process.argv);
   const canRunDiagnostics = canRunOpenClawNodeDiagnostics(process.versions.node, probe.available);
   const diagnosticExemption = unsupportedCommand === "diagnostic" && canRunDiagnostics;
+  await recoverNodeRuntime({
+    allowInstall: !diagnosticExemption,
+  });
   if (!diagnosticExemption) {
     process.stderr.write(`openclaw: ${failure}\n`);
-  }
-  // These invocations have an exact-PID contract and cannot acquire a wrapper process.
-  if (
-    !isForegroundGmailRunInvocation(process.argv) &&
-    !(process.platform !== "win32" && isNativeHookRelayInvocation(process.argv))
-  ) {
-    const { resolveUpdatedNodeRuntime } = await import("./node-runtime-update.mjs");
-    const nodePath = await resolveUpdatedNodeRuntime(resolveLauncherHomeDir(), {
-      allowInstall: !diagnosticExemption,
-    });
-    if (nodePath) {
-      const env = { ...process.env, OPENCLAW_NODE_UPDATE_RESPAWNED: "1" };
-      const pathKey =
-        process.platform === "win32"
-          ? (await import("./scripts/windows-cmd-helpers.mjs")).resolvePathEnvKey(env)
-          : "PATH";
-      env[pathKey] = `${path.dirname(nodePath)}${path.delimiter}${env[pathKey] ?? ""}`;
-      return runRespawnedChild(
-        nodePath,
-        [...process.execArgv, process.argv[1], ...process.argv.slice(2)],
-        env,
-      );
-    }
   }
   if (diagnosticExemption) {
     return false;
@@ -101,7 +88,6 @@ const ensureSupportedRuntimeVersion = async () => {
 const isNodeCompileCacheDisabled = () => process.env.NODE_DISABLE_COMPILE_CACHE !== undefined;
 const isNodeCompileCacheRequested = () =>
   Boolean(process.env.NODE_COMPILE_CACHE) && !isNodeCompileCacheDisabled();
-const isNativeHookRelayInvocation = (argv) => argv[2] === "hooks" && argv[3] === "relay";
 const sanitizeCompileCachePathSegment = (value) => {
   const normalized = value.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
   return normalized.length > 0 ? normalized : "unknown";
@@ -136,123 +122,6 @@ const resolvePackagedCompileCacheDirectory = () => {
     version,
     sanitizeCompileCachePathSegment(installMarker),
   );
-};
-
-const respawnSignals =
-  process.platform === "win32"
-    ? ["SIGTERM", "SIGINT", "SIGBREAK"]
-    : ["SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT"];
-const respawnSignalExitGraceMs = 1_000;
-const respawnSignalForceKillGraceMs = 1_000;
-const respawnSignalHardExitGraceMs = 1_000;
-
-const runRespawnedChild = (command, args, env) => {
-  const child = spawn(command, args, {
-    stdio: "inherit",
-    env,
-  });
-  const listeners = new Map();
-  // This intentionally overlaps with src/entry.compile-cache.ts; keep the
-  // respawn supervision behavior in sync until the launcher can share TS code.
-  // Give the child a moment to honor forwarded signals, then exit the wrapper so
-  // a child that ignores SIGTERM cannot keep the launcher alive indefinitely.
-  let signalExitTimer = null;
-  let signalForceKillTimer = null;
-  let signalHardExitTimer = null;
-  let firstForwardedSignal = null;
-  let hardKillBackstopStarted = false;
-  const detach = () => {
-    for (const [signal, listener] of listeners) {
-      process.off(signal, listener);
-    }
-    listeners.clear();
-    if (signalExitTimer) {
-      clearTimeout(signalExitTimer);
-      signalExitTimer = null;
-    }
-    if (signalForceKillTimer) {
-      clearTimeout(signalForceKillTimer);
-      signalForceKillTimer = null;
-    }
-    if (signalHardExitTimer) {
-      clearTimeout(signalHardExitTimer);
-      signalHardExitTimer = null;
-    }
-  };
-  const forceKillChild = () => {
-    try {
-      child.kill(process.platform === "win32" ? "SIGTERM" : "SIGKILL");
-    } catch {
-      // Best-effort shutdown fallback.
-    }
-  };
-  const requestChildTermination = () => {
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      // Best-effort shutdown fallback.
-    }
-    signalForceKillTimer = setTimeout(() => {
-      hardKillBackstopStarted = true;
-      forceKillChild();
-      signalHardExitTimer = setTimeout(() => {
-        process.exit(1);
-      }, respawnSignalHardExitGraceMs);
-      signalHardExitTimer.unref?.();
-    }, respawnSignalForceKillGraceMs);
-    signalForceKillTimer.unref?.();
-  };
-  const scheduleParentExit = (signal) => {
-    firstForwardedSignal ??= signal;
-    if (signalExitTimer) {
-      return;
-    }
-    signalExitTimer = setTimeout(() => {
-      requestChildTermination();
-    }, respawnSignalExitGraceMs);
-    signalExitTimer.unref?.();
-  };
-  for (const signal of respawnSignals) {
-    const listener = () => {
-      try {
-        child.kill(signal);
-      } catch {
-        // Best-effort signal forwarding.
-      }
-      scheduleParentExit(signal);
-    };
-    try {
-      process.on(signal, listener);
-      listeners.set(signal, listener);
-    } catch {
-      // Unsupported signal on this platform.
-    }
-  }
-  child.once("exit", (code, signal) => {
-    detach();
-    if (signal) {
-      const forwardedSignalExitCode =
-        !hardKillBackstopStarted && signal === firstForwardedSignal
-          ? signal === "SIGINT"
-            ? 130
-            : signal === "SIGTERM"
-              ? 143
-              : undefined
-          : undefined;
-      process.exit(forwardedSignalExitCode ?? 1);
-    }
-    process.exit(code ?? 1);
-  });
-  child.once("error", (error) => {
-    detach();
-    process.stderr.write(
-      `[openclaw] Failed to respawn launcher: ${
-        error instanceof Error ? (error.stack ?? error.message) : String(error)
-      }\n`,
-    );
-    process.exit(1);
-  });
-  return true;
 };
 
 const respawnWithoutCompileCacheIfNeeded = () => {
@@ -402,8 +271,6 @@ const isBareRootHelpInvocation = (argv) =>
   argv.length === 3 && (argv[2] === "--help" || argv[2] === "-h");
 
 const LAUNCHER_HELP_FLAGS = new Set(["-h", "--help"]);
-const LAUNCHER_ROOT_BOOLEAN_FLAGS = new Set(["--dev", "--no-color"]);
-const LAUNCHER_ROOT_VALUE_FLAGS = new Set(["--profile", "--log-level", "--container"]);
 const LAUNCHER_PRECOMPUTED_COMMAND_HELP = {
   browser: { command: "browser", metadataKey: "browserHelpText" },
   secrets: { command: "secrets", metadataKey: "secretsHelpText" },
@@ -418,55 +285,6 @@ const LAUNCHER_PRECOMPUTED_SUBCOMMAND_HELP = new Set([
   "sessions",
   "tasks",
 ]);
-
-const isLauncherRootOptionValueToken = (arg) => {
-  if (!arg || arg === "--") {
-    return false;
-  }
-  if (!arg.startsWith("-")) {
-    return true;
-  }
-  return /^-\d+(?:\.\d+)?$/.test(arg);
-};
-
-const consumeLauncherRootOptionToken = (args, index) => {
-  const arg = args[index];
-  if (!arg) {
-    return 0;
-  }
-  if (LAUNCHER_ROOT_BOOLEAN_FLAGS.has(arg)) {
-    return 1;
-  }
-  if (
-    arg.startsWith("--profile=") ||
-    arg.startsWith("--log-level=") ||
-    arg.startsWith("--container=")
-  ) {
-    return 1;
-  }
-  if (LAUNCHER_ROOT_VALUE_FLAGS.has(arg)) {
-    return isLauncherRootOptionValueToken(args[index + 1]) ? 2 : 1;
-  }
-  return 0;
-};
-
-// Mirror the entry's foreground Gmail policy before any built modules can load.
-// A compile-cache wrapper would kill its owner before descendant cleanup finishes.
-const isForegroundGmailRunInvocation = (argv) => {
-  const args = argv.slice(2);
-  const commandPath = [];
-  for (let index = 0; index < args.length && commandPath.length < 3; index += 1) {
-    const consumed = consumeLauncherRootOptionToken(args, index);
-    if (consumed > 0) {
-      index += consumed - 1;
-    } else if (!args[index] || args[index].startsWith("-")) {
-      break;
-    } else {
-      commandPath.push(args[index]);
-    }
-  }
-  return commandPath.join(" ") === "webhooks gmail run";
-};
 
 const hasLauncherContainerTarget = (argv) => {
   if (normalizeLauncherMetadataValue(process.env.OPENCLAW_CONTAINER)) {
@@ -640,15 +458,18 @@ function readLauncherJson(relativePath) {
 }
 
 function resolveLauncherVersion() {
-  const packageJson = readLauncherJson("./package.json");
-  const packageVersion = normalizeLauncherMetadataValue(packageJson?.version);
-  if (packageVersion) {
-    return packageVersion;
-  }
+  // Report what is built, not what the source says: resolveLauncherCommit already
+  // prefers dist provenance, so reading package.json first pairs a source version
+  // with a built commit and hides a checkout that pulled without rebuilding.
   const buildInfo = readLauncherJson("./dist/build-info.json");
   const buildVersion = normalizeLauncherMetadataValue(buildInfo?.version);
   if (buildVersion) {
     return buildVersion;
+  }
+  const packageJson = readLauncherJson("./package.json");
+  const packageVersion = normalizeLauncherMetadataValue(packageJson?.version);
+  if (packageVersion) {
+    return packageVersion;
   }
   return normalizeLauncherMetadataValue(process.env.OPENCLAW_BUNDLED_VERSION) ?? "0.0.0";
 }
@@ -804,9 +625,18 @@ const tryOutputPrecomputedCommandHelp = () => {
 
 // Resolve Node before loading pending package lifecycle code or any built runtime modules.
 const waitingForNodeUpdateRespawn = await ensureSupportedRuntimeVersion();
+if (
+  !waitingForNodeUpdateRespawn &&
+  (await runNodeHostLauncher({
+    entryPath: fileURLToPath(import.meta.url),
+    packageRoot: fileURLToPath(new URL("./", import.meta.url)),
+  }))
+) {
+  process.exit(process.exitCode ?? 0);
+}
 const currentNodeRuntimeFailure = process.versions.bun
   ? null
-  : nodeRuntimeFailure(process.versions.node, detectCurrentSqliteCapabilities());
+  : nodeRuntimeFailure(process.versions.node, await detectCurrentSqliteCapabilities());
 
 if (!waitingForNodeUpdateRespawn) {
   // Diagnostics must not replay package lifecycle scripts under an unsupported Node.
@@ -840,7 +670,8 @@ if (!waitingForNodeUpdateRespawn) {
 // so a timeout cannot strand a compile-cache respawn child.
 const waitingForCompileCacheRespawn =
   waitingForNodeUpdateRespawn ||
-  (!isForegroundGmailRunInvocation(process.argv) &&
+  (!isNodeHostLauncherChild() &&
+    !isForegroundGmailRunInvocation(process.argv) &&
     !(process.platform !== "win32" && isNativeHookRelayInvocation(process.argv)) &&
     (respawnWithoutCompileCacheIfNeeded() || respawnWithPackagedCompileCacheIfNeeded()));
 
