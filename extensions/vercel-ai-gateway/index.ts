@@ -34,9 +34,30 @@ export default defineSingleProviderPluginEntry({
   },
   register(api) {
     api.registerDecisionProvider(
-      createVercelAiGatewayDecisionProvider(() => ({
-        apiKey: process.env.AI_GATEWAY_API_KEY,
-      })),
+      createVercelAiGatewayDecisionProvider(() => {
+        // SAFETY: pluginConfig is user-supplied configuration object mapped as a record
+        const pluginConfig = (api.pluginConfig ?? {}) as Record<string, unknown>;
+        const providerConfig = api.config?.models?.providers?.[PROVIDER_ID];
+        const apiKey =
+          (typeof pluginConfig.apiKey === "string" && pluginConfig.apiKey.trim()
+            ? pluginConfig.apiKey.trim()
+            : undefined) ||
+          (typeof providerConfig?.apiKey === "string" && providerConfig.apiKey.trim()
+            ? providerConfig.apiKey.trim()
+            : undefined) ||
+          process.env.AI_GATEWAY_API_KEY;
+        const baseUrl =
+          (typeof pluginConfig.baseUrl === "string" && pluginConfig.baseUrl.trim()
+            ? pluginConfig.baseUrl.trim()
+            : undefined) ||
+          (typeof providerConfig?.baseUrl === "string" && providerConfig.baseUrl.trim()
+            ? providerConfig.baseUrl.trim()
+            : undefined);
+        return {
+          apiKey,
+          baseUrl,
+        };
+      }),
     );
   },
 });

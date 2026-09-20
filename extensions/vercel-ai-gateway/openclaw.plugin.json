@@ -83,6 +83,15 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "Optional Vercel AI Gateway API key override."
+      },
+      "baseUrl": {
+        "type": "string",
+        "description": "Optional custom Vercel AI Gateway base URL."
+      }
+    }
   }
 }

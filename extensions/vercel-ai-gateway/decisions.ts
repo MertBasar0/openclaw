@@ -165,58 +165,148 @@ export function createVercelAiGatewayDecisionProvider(
 
         context.signal.throwIfAborted();
 
-        if (!data || typeof data !== "object" || !data.answers) {
+        if (
+          !data ||
+          typeof data !== "object" ||
+          !data.answers ||
+          typeof data.answers !== "object"
+        ) {
           return { status: "unavailable", reason: "invalid-response" };
         }
 
         const confidenceMap = data.providerMetadata?.typesafe?.confidence ?? {};
         const answers: Record<string, DecisionBatchResult["answers"][string]> = {};
 
-        for (const [id, rawAnswer] of Object.entries(data.answers)) {
-          const question = batch.questions[id];
-          if (!question) {
-            continue;
+        for (const [id, question] of Object.entries(batch.questions)) {
+          const rawAnswer = data.answers[id];
+          if (!rawAnswer || typeof rawAnswer !== "object" || rawAnswer.type !== question.type) {
+            return { status: "unavailable", reason: "invalid-response" };
           }
 
-          const confidence = typeof confidenceMap[id] === "number" ? confidenceMap[id] : undefined;
+          const confidence =
+            typeof confidenceMap[id] === "number" && Number.isFinite(confidenceMap[id])
+              ? confidenceMap[id]
+              : undefined;
 
-          if (rawAnswer.type === "boolean") {
-            const prob = typeof rawAnswer.probability === "number" ? rawAnswer.probability : 0.5;
-            answers[id] = {
-              type: "boolean",
-              probabilityTrue: prob,
-            };
-          } else if (rawAnswer.type === "choice") {
-            answers[id] = {
-              type: "choice",
-              choice: rawAnswer.choice ?? "",
-              probabilities: rawAnswer.probabilities ?? {},
-              ...(confidence !== undefined ? { confidence } : {}),
-            };
-          } else if (rawAnswer.type === "score") {
-            if (question.type !== "score") {
+          if (question.type === "boolean") {
+            if (
+              rawAnswer.type !== "boolean" ||
+              typeof rawAnswer.probability !== "number" ||
+              !Number.isFinite(rawAnswer.probability) ||
+              rawAnswer.probability < 0 ||
+              rawAnswer.probability > 1
+            ) {
               return { status: "unavailable", reason: "invalid-response" };
             }
-            const probsRecord = rawAnswer.probabilities ?? {};
-            const probabilities = question.criteria.map((_level, i) => probsRecord[String(i)] ?? 0);
+            answers[id] = {
+              type: "boolean",
+              probabilityTrue: rawAnswer.probability,
+            };
+          } else if (question.type === "choice") {
+            if (
+              rawAnswer.type !== "choice" ||
+              typeof rawAnswer.choice !== "string" ||
+              !Object.hasOwn(question.criteria, rawAnswer.choice)
+            ) {
+              return { status: "unavailable", reason: "invalid-response" };
+            }
+            const rawProbabilities = rawAnswer.probabilities;
+            if (
+              !rawProbabilities ||
+              typeof rawProbabilities !== "object" ||
+              Array.isArray(rawProbabilities)
+            ) {
+              return { status: "unavailable", reason: "invalid-response" };
+            }
+            const expectedKeys = Object.keys(question.criteria);
+            const probKeys = Object.keys(rawProbabilities);
+            if (probKeys.length !== expectedKeys.length) {
+              return { status: "unavailable", reason: "invalid-response" };
+            }
+            let hasNonZero = false;
+            for (const key of expectedKeys) {
+              if (!Object.hasOwn(rawProbabilities, key)) {
+                return { status: "unavailable", reason: "invalid-response" };
+              }
+              const prob = rawProbabilities[key];
+              if (typeof prob !== "number" || !Number.isFinite(prob) || prob < 0 || prob > 1) {
+                return { status: "unavailable", reason: "invalid-response" };
+              }
+              if (prob > 0) {
+                hasNonZero = true;
+              }
+            }
+            if (!hasNonZero) {
+              return { status: "unavailable", reason: "invalid-response" };
+            }
+            answers[id] = {
+              type: "choice",
+              choice: rawAnswer.choice,
+              probabilities: rawProbabilities,
+              ...(confidence !== undefined ? { confidence } : {}),
+            };
+          } else if (question.type === "score") {
+            if (rawAnswer.type !== "score") {
+              return { status: "unavailable", reason: "invalid-response" };
+            }
+            const probsRecord = rawAnswer.probabilities;
+            if (
+              typeof rawAnswer.score !== "number" ||
+              !Number.isInteger(rawAnswer.score) ||
+              rawAnswer.score < 0 ||
+              rawAnswer.score >= question.criteria.length ||
+              !probsRecord ||
+              typeof probsRecord !== "object" ||
+              Array.isArray(probsRecord)
+            ) {
+              return { status: "unavailable", reason: "invalid-response" };
+            }
+            const probabilities: number[] = [];
+            for (let i = 0; i < question.criteria.length; i++) {
+              const val = probsRecord[String(i)];
+              if (typeof val !== "number" || !Number.isFinite(val) || val < 0 || val > 1) {
+                return { status: "unavailable", reason: "invalid-response" };
+              }
+              probabilities.push(val);
+            }
+            if (!probabilities.some((v) => v > 0)) {
+              return { status: "unavailable", reason: "invalid-response" };
+            }
             answers[id] = {
               type: "score",
-              score: rawAnswer.score ?? 0,
+              score: rawAnswer.score,
               probabilities,
               ...(confidence !== undefined ? { confidence } : {}),
             };
           }
         }
 
+        const inputTokens =
+          typeof data.usage?.inputTokens === "number" &&
+          Number.isFinite(data.usage.inputTokens) &&
+          data.usage.inputTokens >= 0
+            ? data.usage.inputTokens
+            : undefined;
+        const outputTokens =
+          typeof data.usage?.outputTokens === "number" &&
+          Number.isFinite(data.usage.outputTokens) &&
+          data.usage.outputTokens >= 0
+            ? data.usage.outputTokens
+            : undefined;
+        const usage =
+          inputTokens !== undefined || outputTokens !== undefined
+            ? {
+                ...(inputTokens !== undefined ? { inputTokens } : {}),
+                ...(outputTokens !== undefined ? { outputTokens } : {}),
+              }
+            : undefined;
+
         return {
           status: "ok",
           result: {
             model,
             answers,
-            usage: {
-              inputTokens: data.usage?.inputTokens,
-              outputTokens: data.usage?.outputTokens,
-            },
+            ...(usage ? { usage } : {}),
           },
         };
       } catch {
