@@ -6,6 +6,23 @@
   },
   "enabledByDefault": true,
   "providers": ["vercel-ai-gateway"],
+  "contracts": {
+    "decisionProviders": [
+      "vercel-ai-gateway"
+    ]
+  },
+  "decisionModels": [
+    {
+      "provider": "vercel-ai-gateway",
+      "id": "typesafe-ai/jev",
+      "name": "Jev (Vercel AI Gateway)"
+    },
+    {
+      "provider": "vercel-ai-gateway",
+      "id": "typesafe-ai/jev-1.13.0",
+      "name": "Jev 1.13.0 (Vercel AI Gateway)"
+    }
+  ],
   "modelCatalog": {
     "discovery": {
       "vercel-ai-gateway": "refreshable"
