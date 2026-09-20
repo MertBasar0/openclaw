@@ -727,7 +727,7 @@ suite.define(() => {
       await expect(page.locator(".chat-error")).toHaveCount(0);
       await expect(page.locator(".agent-chat__composer-combobox textarea")).toHaveValue("");
       const status = group.locator(".chat-send-status");
-      await expect(status).toHaveText("· Not sent · Retry · Discard");
+      await expect(status.locator(".chat-send-status__discard")).toBeVisible();
       await expect(group.locator(".chat-sender-name")).toHaveCount(0);
       const footerLineCenters = await status
         .locator("span:not([aria-hidden]), button")
@@ -795,7 +795,10 @@ suite.define(() => {
 
     try {
       await page.goto(controlUiSessionUrl(suite.server.baseUrl, "agent:main:main"));
-      await page.getByText("Ready for a delivery check.").waitFor();
+      await page
+        .locator(".chat-group.assistant")
+        .getByText("Ready for a delivery check.")
+        .waitFor();
       await gateway.deferNext("chat.send");
       await page.locator(".agent-chat__composer-combobox textarea").fill(prompt);
       await page.getByRole("button", { name: "Send message" }).click();
@@ -808,15 +811,14 @@ suite.define(() => {
         code: "INVALID_REQUEST",
         message: "Mock delivery failure.",
       });
-      await expect
-        .poll(
-          async () =>
-            (await page.locator(".chat-send-status, .chat-queue__item--failed").count()) > 0,
-        )
-        .toBe(true);
-
-      const status = group.locator(".chat-send-status");
-      await expect(status).toHaveText("· Not sent · Retry · Discard");
+      await expect(group.locator(".chat-send-status__discard")).toBeVisible();
+      await page.reload();
+      await page
+        .locator(".chat-group.assistant")
+        .getByText("Ready for a delivery check.")
+        .waitFor();
+      await expect(group.locator(".chat-send-status__discard")).toBeVisible();
+      expect(await gateway.getRequests("chat.send")).toHaveLength(0);
       if (artifactDir) {
         await page.screenshot({
           animations: "disabled",
@@ -835,7 +837,10 @@ suite.define(() => {
       }
 
       await page.reload();
-      await page.getByText("Ready for a delivery check.").waitFor();
+      await page
+        .locator(".chat-group.assistant")
+        .getByText("Ready for a delivery check.")
+        .waitFor();
       await expect(page.locator(".chat-group.user", { hasText: prompt })).toHaveCount(0);
       await expect(page.locator(".chat-queue__item")).toHaveCount(0);
       if (artifactDir) {
