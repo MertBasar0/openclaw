@@ -135,6 +135,7 @@ export function createVercelAiGatewayDecisionProvider(
           retryAfterHeader = response.headers.get("retry-after");
 
           if (responseOk) {
+            // SAFETY: parsed JSON conforms to VercelEvaluationResponseBody and fields are validated at runtime before use.
             data = (await response.json()) as VercelEvaluationResponseBody;
           } else {
             await response.body?.cancel();
