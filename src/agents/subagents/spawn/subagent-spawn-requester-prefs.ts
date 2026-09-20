@@ -2,8 +2,8 @@ import type { SessionEntry } from "../../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import type { FastMode } from "../../../shared/fast-mode.js";
 import { resolveFastModeState } from "../../fast-mode.js";
-import type { ModelRef } from "../../model-ref-shared.js";
 import {
+  type ModelRef,
   normalizeStoredOverrideModel,
   resolveDefaultModelForAgent,
   resolvePersistedSelectedModelRef,
@@ -58,12 +58,6 @@ function resolveRequesterModel(params: RequesterPreferencesContext, entry?: Sess
   return { defaultModel, selectedModel };
 }
 
-export function readRequesterActiveModel(params: RequesterPreferencesContext): ModelRef {
-  const entry = readRequesterSession(params);
-  const { defaultModel, selectedModel } = resolveRequesterModel(params, entry);
-  return selectedModel ?? defaultModel;
-}
-
 export function readRequesterModel(params: RequesterPreferencesContext) {
   const entry = readRequesterSession(params);
   return entry ? (resolveRequesterModel(params, entry).selectedModel ?? undefined) : undefined;
@@ -86,13 +80,22 @@ export function readRequesterThinkingLevel(
   });
 }
 
-export function readRequesterFastMode(params: RequesterPreferencesContext): FastMode {
+export function readRequesterFastMode(
+  params: RequesterPreferencesContext & { requesterModel?: ModelRef; childModel: string },
+): FastMode | undefined {
   const entry = readRequesterSession(params);
-  const { defaultModel, selectedModel } = resolveRequesterModel(params, entry);
+  let model = params.requesterModel;
+  if (!model) {
+    const { defaultModel, selectedModel } = resolveRequesterModel(params, entry);
+    model = selectedModel ?? defaultModel;
+  }
+  if (params.childModel !== `${model.provider}/${model.model}`) {
+    return undefined;
+  }
   return resolveFastModeState({
     cfg: params.cfg,
-    provider: selectedModel?.provider ?? defaultModel.provider,
-    model: selectedModel?.model ?? defaultModel.model,
+    provider: model.provider,
+    model: model.model,
     agentId: params.requesterAgentId,
     sessionEntry: entry,
   }).mode;
