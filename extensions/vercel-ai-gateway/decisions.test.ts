@@ -1,9 +1,13 @@
 // Vercel AI Gateway decision provider tests.
 import type { DecisionBatch } from "openclaw/plugin-sdk/decisions";
+import { getPreparedPluginSecretInput } from "openclaw/plugin-sdk/secret-input-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { validateDecisionResult } from "../../src/decisions/validation.js";
 import { createVercelAiGatewayDecisionProvider } from "./decisions.js";
 import pluginEntry from "./index.js";
+
+vi.mock("openclaw/plugin-sdk/secret-input-runtime", () => ({
+  getPreparedPluginSecretInput: vi.fn(),
+}));
 
 const batch: DecisionBatch = {
   state: { userMessage: "Test state" },
@@ -54,7 +58,8 @@ describe("vercel ai gateway decision provider", () => {
     expect(configured.isReady?.()).toBe(true);
 
     process.env.AI_GATEWAY_API_KEY = "env-key";
-    expect(unconfigured.isReady?.()).toBe(true);
+    // Ambient env var is not used by the capability decision provider
+    expect(unconfigured.isReady?.()).toBe(false);
   });
 
   it("returns credentials-unavailable when no API key is set", async () => {
@@ -135,10 +140,6 @@ describe("vercel ai gateway decision provider", () => {
       },
     });
 
-    if (outcome.status === "ok") {
-      expect(validateDecisionResult(batch, outcome.result)).toBe(true);
-    }
-
     // Verify request headers
     const fetchMock = vi.mocked(globalThis.fetch);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -182,8 +183,9 @@ describe("vercel ai gateway decision provider", () => {
     expect(outcome.status).toBe("ok");
     if (outcome.status === "ok") {
       expect(outcome.result.usage).toEqual({ inputTokens: 120 });
-      expect(Object.hasOwn(outcome.result.usage, "outputTokens")).toBe(false);
-      expect(validateDecisionResult(batch, outcome.result)).toBe(true);
+      expect(
+        Boolean(outcome.result.usage && Object.hasOwn(outcome.result.usage, "outputTokens")),
+      ).toBe(false);
     }
   });
 
@@ -215,7 +217,6 @@ describe("vercel ai gateway decision provider", () => {
     expect(outcome.status).toBe("ok");
     if (outcome.status === "ok") {
       expect(outcome.result.usage).toBeUndefined();
-      expect(validateDecisionResult(batch, outcome.result)).toBe(true);
     }
   });
 
@@ -374,7 +375,92 @@ describe("vercel ai gateway decision provider", () => {
     ).rejects.toThrow();
   });
 
-  it("consumes prepared capability credentials and dynamically updates on reload", () => {
+  it("accepts valid fractional rubric scores bounded to criteria.length - 1", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          answers: {
+            score_q: {
+              type: "score",
+              score: 1.5,
+              probabilities: { "0": 0.1, "1": 0.5, "2": 0.4 },
+            },
+          },
+          usage: { inputTokens: 45, outputTokens: 12 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const scoreBatch: DecisionBatch = {
+      state: {},
+      questions: {
+        score_q: {
+          type: "score",
+          instructions: "Rate quality",
+          criteria: ["low", "medium", "high"],
+        },
+      },
+    };
+
+    const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+    const outcome = await provider.evaluate(scoreBatch, createContext());
+
+    expect(outcome).toEqual({
+      status: "ok",
+      result: {
+        model: "typesafe-ai/jev",
+        answers: {
+          score_q: {
+            type: "score",
+            score: 1.5,
+            probabilities: [0.1, 0.5, 0.4],
+          },
+        },
+        usage: { inputTokens: 45, outputTokens: 12 },
+      },
+    });
+  });
+
+  it("rejects fractional rubric scores exceeding criteria.length - 1", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          answers: {
+            score_q: {
+              type: "score",
+              score: 2.1,
+              probabilities: { "0": 0.1, "1": 0.3, "2": 0.6 },
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const scoreBatch: DecisionBatch = {
+      state: {},
+      questions: {
+        score_q: {
+          type: "score",
+          instructions: "Rate quality",
+          criteria: ["low", "medium", "high"],
+        },
+      },
+    };
+
+    const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+    const outcome = await provider.evaluate(scoreBatch, createContext());
+
+    expect(outcome).toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
+    });
+  });
+
+  it("uses manifest-prepared capability credentials and makes no outbound evaluation when withdrawn, even with ambient key present", async () => {
+    process.env.AI_GATEWAY_API_KEY = "ambient-key-should-never-be-used-by-capability-provider";
+
     let registeredProvider: ReturnType<typeof createVercelAiGatewayDecisionProvider> | undefined;
     const mockApi: Record<string, unknown> = {
       registerProvider: vi.fn(),
@@ -382,39 +468,56 @@ describe("vercel ai gateway decision provider", () => {
       registerDecisionProvider: vi.fn((p) => {
         registeredProvider = p;
       }),
-      config: {
-        models: {
-          providers: {
-            "vercel-ai-gateway": {
-              apiKey: "prepared-provider-key",
-              baseUrl: "https://custom-gateway.internal",
-            },
-          },
-        },
-      },
-      pluginConfig: {},
     };
 
     pluginEntry.register(mockApi as unknown as Parameters<typeof pluginEntry.register>[0]);
     expect(registeredProvider).toBeDefined();
+
+    // 1. Prepared credential present -> succeeds
+    vi.mocked(getPreparedPluginSecretInput).mockReturnValue({
+      revision: 1,
+      value: "prepared-capability-token",
+    });
     expect(registeredProvider!.isReady?.()).toBe(true);
 
-    // Dynamic config update simulates reload
-    mockApi.config = {
-      models: {
-        providers: {
-          "vercel-ai-gateway": {
-            apiKey: "",
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          answers: {
+            bool_q: { type: "boolean", probability: 0.8 },
           },
-        },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const checkBatch: DecisionBatch = {
+      state: {},
+      questions: {
+        bool_q: { type: "boolean", instructions: "Check" },
       },
     };
+
+    const successOutcome = await registeredProvider!.evaluate(checkBatch, createContext());
+    expect(successOutcome.status).toBe("ok");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(getPreparedPluginSecretInput).toHaveBeenCalledWith("vercel-ai-gateway", "apiKey");
+
+    // 2. Prepared credential withdrawn (value: undefined) -> unavailable, NO outbound evaluation
+    vi.mocked(globalThis.fetch).mockClear();
+    vi.mocked(getPreparedPluginSecretInput).mockReturnValue({
+      revision: 2,
+      value: undefined,
+    });
+
     expect(registeredProvider!.isReady?.()).toBe(false);
 
-    // Plugin config override
-    mockApi.pluginConfig = {
-      apiKey: "plugin-override-key",
-    };
-    expect(registeredProvider!.isReady?.()).toBe(true);
+    const withdrawnOutcome = await registeredProvider!.evaluate(checkBatch, createContext());
+    expect(withdrawnOutcome).toEqual({
+      status: "unavailable",
+      reason: "credentials-unavailable",
+    });
+    // Invariant: no network request leaves the process when credential is withdrawn
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

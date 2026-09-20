@@ -80,17 +80,69 @@
       "cliDescription": "Vercel AI Gateway API key"
     }
   ],
+  "configContracts": {
+    "secretInputs": {
+      "bundledDefaultEnabled": false,
+      "paths": [
+        {
+          "path": "apiKey",
+          "expected": "string",
+          "ownerKind": "capability"
+        }
+      ]
+    }
+  },
+  "uiHints": {
+    "apiKey": {
+      "label": "Vercel AI Gateway credential",
+      "help": "Select a SecretRef. Create protected credentials in Settings \u2192 Secrets. Never paste credentials in chat.",
+      "sensitive": true
+    }
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "apiKey": {
-        "type": "string",
-        "description": "Optional Vercel AI Gateway API key override."
-      },
-      "baseUrl": {
-        "type": "string",
-        "description": "Optional custom Vercel AI Gateway base URL."
+        "type": "object",
+        "required": [
+          "source",
+          "provider",
+          "id"
+        ],
+        "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "env"
+              },
+              {
+                "type": "string",
+                "const": "store"
+              },
+              {
+                "type": "string",
+                "const": "file"
+              },
+              {
+                "type": "string",
+                "const": "exec"
+              }
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "additionalProperties": false
       }
     }
   }

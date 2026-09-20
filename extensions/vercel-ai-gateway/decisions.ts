@@ -57,12 +57,12 @@ export function createVercelAiGatewayDecisionProvider(
   return {
     id: "vercel-ai-gateway",
     contractVersion: 1,
-    isReady: () => Boolean(getConfig().apiKey || process.env.AI_GATEWAY_API_KEY),
+    isReady: () => Boolean(getConfig().apiKey),
     async evaluate(batch: DecisionBatch, context): Promise<ProviderDecisionOutcome> {
       context.signal.throwIfAborted();
 
       const config = getConfig();
-      const apiKey = config.apiKey || process.env.AI_GATEWAY_API_KEY;
+      const apiKey = config.apiKey;
       if (!apiKey) {
         return { status: "unavailable", reason: "credentials-unavailable" };
       }
@@ -252,9 +252,9 @@ export function createVercelAiGatewayDecisionProvider(
             const probsRecord = rawAnswer.probabilities;
             if (
               typeof rawAnswer.score !== "number" ||
-              !Number.isInteger(rawAnswer.score) ||
+              !Number.isFinite(rawAnswer.score) ||
               rawAnswer.score < 0 ||
-              rawAnswer.score >= question.criteria.length ||
+              rawAnswer.score > question.criteria.length - 1 ||
               !probsRecord ||
               typeof probsRecord !== "object" ||
               Array.isArray(probsRecord)

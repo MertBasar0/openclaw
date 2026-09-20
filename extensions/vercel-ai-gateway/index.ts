@@ -1,5 +1,6 @@
 // Vercel Ai Gateway plugin entrypoint registers its OpenClaw integration.
 import { defineSingleProviderPluginEntry } from "openclaw/plugin-sdk/provider-entry";
+import { getPreparedPluginSecretInput } from "openclaw/plugin-sdk/secret-input-runtime";
 import { createVercelAiGatewayDecisionProvider } from "./decisions.js";
 import { applyVercelAiGatewayConfig, VERCEL_AI_GATEWAY_DEFAULT_MODEL_REF } from "./onboard.js";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
@@ -35,27 +36,9 @@ export default defineSingleProviderPluginEntry({
   register(api) {
     api.registerDecisionProvider(
       createVercelAiGatewayDecisionProvider(() => {
-        // SAFETY: pluginConfig is user-supplied configuration object mapped as a record
-        const pluginConfig = (api.pluginConfig ?? {}) as Record<string, unknown>;
-        const providerConfig = api.config?.models?.providers?.[PROVIDER_ID];
-        const apiKey =
-          (typeof pluginConfig.apiKey === "string" && pluginConfig.apiKey.trim()
-            ? pluginConfig.apiKey.trim()
-            : undefined) ||
-          (typeof providerConfig?.apiKey === "string" && providerConfig.apiKey.trim()
-            ? providerConfig.apiKey.trim()
-            : undefined) ||
-          process.env.AI_GATEWAY_API_KEY;
-        const baseUrl =
-          (typeof pluginConfig.baseUrl === "string" && pluginConfig.baseUrl.trim()
-            ? pluginConfig.baseUrl.trim()
-            : undefined) ||
-          (typeof providerConfig?.baseUrl === "string" && providerConfig.baseUrl.trim()
-            ? providerConfig.baseUrl.trim()
-            : undefined);
+        const prepared = getPreparedPluginSecretInput(PROVIDER_ID, "apiKey");
         return {
-          apiKey,
-          baseUrl,
+          apiKey: prepared.value,
         };
       }),
     );
