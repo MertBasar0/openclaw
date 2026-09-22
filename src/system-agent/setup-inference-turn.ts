@@ -52,6 +52,12 @@ import {
   setupInferenceLog,
   type VerifySetupInferenceResult,
 } from "./setup-inference-core.js";
+import {
+  runSetupInferenceProbeWork,
+  SETUP_INFERENCE_TEST_MAX_TOKENS,
+  type SetupTurnFailure,
+  type SetupTurnSuccess,
+} from "./setup-inference-probe-work.js";
 import { resolveSetupInferenceProfileError } from "./setup-inference-profile.js";
 import {
   captureSystemAgentOwnerPluginArtifacts,
@@ -62,8 +68,6 @@ import {
   type SystemAgentVerifiedInferenceBinding,
   type SystemAgentVerifiedInferenceDeps,
 } from "./verified-inference.js";
-
-const SETUP_INFERENCE_TEST_MAX_TOKENS = 256;
 
 /**
  * Runs one bounded, tool-free turn through the exact configured route. The turn is evidence,
@@ -77,7 +81,7 @@ export async function runSetupInferenceTurn(params: {
   requireExecutionOwner: boolean;
   signal?: AbortSignal;
   runtime?: RuntimeEnv;
-}) {
+}): Promise<SetupTurnSuccess | SetupTurnFailure> {
   const { route, deps } = params;
   // Probe ids stay under OpenAI's 64-char session cap and match the command-lane log filters.
   const runId = `probe-setup-inference-${randomUUID()}`;
@@ -88,7 +92,7 @@ export async function runSetupInferenceTurn(params: {
   const workspaceDir = await (
     deps.createTempDir ?? (() => fs.mkdtemp(path.join(os.tmpdir(), "openclaw-setup-inference-")))
   )();
-  const failed = (status: SetupInferenceFailureStatus, error: string) => {
+  const failed = (status: SetupInferenceFailureStatus, error: string): SetupTurnFailure => {
     setupInferenceLog.warn("Inference setup probe failed.", {
       event: "setup_inference_probe_failed",
       provider: route.provider,
@@ -101,7 +105,7 @@ export async function runSetupInferenceTurn(params: {
       durationMs: Date.now() - started,
     });
     return {
-      ok: false as const,
+      ok: false,
       status,
       error:
         status === "timeout"
@@ -173,7 +177,7 @@ export async function runSetupInferenceTurn(params: {
       const runEmbedded =
         deps.runEmbeddedAgent ?? (await import("../agents/embedded-agent.js")).runEmbeddedAgent;
       const harness = route.agentHarnessRuntimeOverride;
-      result = await runEmbedded({
+      result = await runSetupInferenceProbeWork(runEmbedded, {
         ...shared,
         // The probe owns its transcript; session admission must not create durable agent state.
         sessionPersistence: "detached",
@@ -228,7 +232,7 @@ export async function runSetupInferenceTurn(params: {
     const auth: AgentExecutionAuthBinding =
       successfulAuth ?? (route.authProfileId ? { authProfileId: route.authProfileId } : {});
     return {
-      ok: true as const,
+      ok: true,
       latencyMs: Date.now() - started,
       text,
       auth,
