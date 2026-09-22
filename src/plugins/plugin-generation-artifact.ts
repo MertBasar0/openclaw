@@ -21,8 +21,6 @@ import {
   pluginSourceStatIdentity,
   verifyPluginSourceInputs,
   pluginSourceContentHash,
-  capturePluginSourceFile,
-  capturePluginSourceAliasDigest,
   createPluginPackageMetadataCapture,
   createPluginSourceCapture,
   type PluginDependencyResolution,
@@ -35,6 +33,10 @@ import {
   capturedPluginModuleUrl,
   visitPluginSourceReferences,
 } from "./plugin-source-references.js";
+import {
+  capturePluginSourceDigest,
+  capturePluginSourceFile,
+} from "./plugin-source-stream-capture.js";
 
 /** Capture selective entries and whole dependencies without replacing earlier file bytes. */
 export function capturePluginGenerationArtifact(
@@ -47,10 +49,6 @@ export function capturePluginGenerationArtifact(
   const directory = sourceCapture.directory;
   const packages = new Map<string, PluginPackageCapture>();
   const capturedPaths = new Map<string, string>();
-  // Length recorded for each first-captured target, so a re-aliased entry's digest re-read
-  // (see `capturePluginSourceAliasDigest`) can reproduce the same length prefix without a
-  // second full-buffer read of the source.
-  const capturedLengths = new Map<string, number>();
   const originalSources = new Map<string, string>();
   const hardlinkedSources = new Set<string>();
   const metadataCapture = createPluginPackageMetadataCapture({
@@ -210,23 +208,20 @@ export function capturePluginGenerationArtifact(
         }
         fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
         if (captured) {
-          // A second filename for a prefetched entry retains its first bytes and source identity;
-          // the OS-level copy below already duplicated them, so only the digest needs a bounded
-          // re-read (see `capturePluginSourceAliasDigest`) instead of a second full-buffer read.
+          // A second filename for a prefetched entry retains its first bytes and source identity.
           fs.copyFileSync(captured, target);
-          capturePluginSourceAliasDigest(captured, digest, capturedLengths.get(captured)!);
         } else {
-          // Streams `real` -> `target` in bounded chunks instead of a whole-file Buffer,
-          // computing the content hash and feeding `digest` incrementally (see #155728).
-          const { length, contentHash } = capturePluginSourceFile({
+          // Streams `real` -> `target` in bounded chunks instead of a whole-file Buffer (#155728).
+          const { contentHash } = capturePluginSourceFile({
             source: real,
             boundary,
             target: { path: target, mode: 0o600 | Number(stat.mode & 0o100n) },
-            digest,
           });
-          capturedLengths.set(target, length);
           recordContent(contentHash);
         }
+        // One shared bounded re-read feeds `digest`, whether this entry was just captured above
+        // or is a re-aliased copy of an earlier one; never a second full-buffer read either way.
+        capturePluginSourceDigest(target, digest, fs.statSync(target).size);
         additions.add(target);
         if (path.basename(target) === "package.json") {
           metadataCapture.record(target, (manifest) => {
