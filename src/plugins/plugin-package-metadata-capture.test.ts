@@ -118,7 +118,7 @@ describe("streaming plugin source capture (issue #155728)", () => {
     vi.restoreAllMocks();
   });
 
-  function readSyncLengths(spy: ReturnType<typeof vi.spyOn<typeof fs, "readSync">>): number[] {
+  function readSyncLengths(spy: { mock: { calls: unknown[][] } }): number[] {
     return spy.mock.calls.map((call) => call[3] as number);
   }
 
