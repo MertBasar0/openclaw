@@ -1,102 +1,80 @@
+import { createRuntimeConfigReader } from "../../../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
-import { evaluateDecision } from "../../../decisions/runtime.js";
+import { evaluateDecisionInRegistry } from "../../../decisions/runtime.js";
+import { getPluginRegistryForContext } from "../../../plugins/runtime/gateway-request-scope.js";
 import { isDecisionAssistanceEligible } from "../../decision-assistance.js";
-import { log } from "../logger.js";
+import { resolveDecisionModelSetting } from "../../decision-model-setting.js";
 
-export type EvaluateAttemptDecisionToolPrefilterParams = {
+type EvaluateAttemptDecisionToolPrefilterParams = {
   config: OpenClawConfig;
-  agentId?: string;
+  agentId: string;
+  supportsTurnScopedToolRestrictions?: boolean;
+  assertActive: () => void;
   userMessage?: string;
-  signal?: AbortSignal;
-  threshold?: number;
-  timeoutMs?: number;
+  signal: AbortSignal;
 };
 
-export type AttemptDecisionToolPrefilterResult = {
-  shouldPruneTools: boolean;
-};
-
-const DEFAULT_TOOL_PROBABILITY_THRESHOLD = 0.35;
-const DEFAULT_DECISION_TIMEOUT_MS = 500;
-const TOOL_PREFILTER_PURPOSE = "tool-prefilter.semantic-gate";
-const TOOL_PREFILTER_RUBRIC_VERSION = "1";
-
-/**
- * Evaluates whether an embedded agent turn is purely conversational and can omit
- * external tool definitions from the model prompt context.
- *
- * Fails open: missing configuration, timeouts, or evaluation errors preserve all tools.
- * Preserves terminal cancellation if the attempt abort signal is aborted.
- */
+/** Ordinary unavailability preserves tools; cancellation and contract errors remain terminal. */
 export async function evaluateAttemptDecisionToolPrefilter(
   params: EvaluateAttemptDecisionToolPrefilterParams,
-): Promise<AttemptDecisionToolPrefilterResult> {
-  params.signal?.throwIfAborted();
-
-  const rawMessage = params.userMessage?.trim();
-  if (!rawMessage) {
+): Promise<{ shouldPruneTools: boolean; isCurrent?: () => boolean }> {
+  params.signal.throwIfAborted();
+  params.assertActive();
+  const readConfig = createRuntimeConfigReader(params.config);
+  const config = readConfig();
+  if (
+    !params.agentId.trim() ||
+    params.supportsTurnScopedToolRestrictions !== true ||
+    !isDecisionAssistanceEligible(config, params.agentId)
+  ) {
     return { shouldPruneTools: false };
   }
-
-  if (!params.config || !isDecisionAssistanceEligible(params.config, params.agentId ?? "")) {
+  const userMessage = params.userMessage?.trim();
+  // A named explicit evaluation is an action even if its supplied evidence is a greeting.
+  if (!userMessage || /\bdecision_evaluate\b/i.test(userMessage)) {
     return { shouldPruneTools: false };
   }
-
-  const threshold = params.threshold ?? DEFAULT_TOOL_PROBABILITY_THRESHOLD;
-  const timeoutMs = params.timeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS;
-
-  const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
-  const evaluationSignal = params.signal
-    ? AbortSignal.any([params.signal, controller.signal])
-    : controller.signal;
-
-  try {
-    const outcome = await evaluateDecision(
-      {
-        state: { userMessage: rawMessage },
-        questions: {
-          any_tool_needed: {
-            type: "boolean",
-            instructions:
-              "Does this user prompt require executing an external tool (such as bash, git, file reading/writing, web search, database operations, or APIs), or can it be answered purely as conversational knowledge/dialogue?",
-            criteria: {
-              true: "User prompt requires external tools, code execution, search, or filesystem/API operations",
-              false:
-                "Can be answered purely as conversational knowledge, greetings, or dialogue without external tools",
-            },
+  const selection = resolveDecisionModelSetting(config, params.agentId);
+  const outcome = await evaluateDecisionInRegistry(
+    {
+      state: { userMessage },
+      questions: {
+        any_tool_needed: {
+          type: "boolean",
+          criteria: {
+            true: "An action request requiring tools or a follow-up that needs missing context",
+            false:
+              "A self-contained greeting, farewell, thanks, conversation, joke, or general knowledge question",
           },
         },
       },
-      {
-        agentId: params.agentId,
-        purpose: TOOL_PREFILTER_PURPOSE,
-        rubricVersion: TOOL_PREFILTER_RUBRIC_VERSION,
-        timeoutMs,
-        signal: evaluationSignal,
-      },
+    },
+    {
+      agentId: params.agentId,
+      purpose: "tool-prefilter.semantic-gate",
+      rubricVersion: "3",
+      timeoutMs: 500,
+      signal: params.signal,
+    },
+    getPluginRegistryForContext(),
+    config,
+  );
+  const isCurrent = () => {
+    params.signal.throwIfAborted();
+    params.assertActive();
+    const current = readConfig();
+    const currentSelection = resolveDecisionModelSetting(current, params.agentId);
+    return (
+      isDecisionAssistanceEligible(current, params.agentId) &&
+      currentSelection?.provider === selection?.provider &&
+      currentSelection?.model === selection?.model
     );
-
-    if (outcome.status === "ok") {
-      const answer = outcome.result.answers.any_tool_needed;
-      if (answer && answer.type === "boolean" && typeof answer.probabilityTrue === "number") {
-        const prob = answer.probabilityTrue;
-        if (prob < threshold) {
-          log.info(
-            `[decision-prefilter] Pure conversation detected (tool probability: ${(prob * 100).toFixed(1)}% < ${(threshold * 100).toFixed(1)}%). Pruning tools to save context.`,
-          );
-          return { shouldPruneTools: true };
-        }
-      }
-    }
-  } catch (err) {
-    if (params.signal?.aborted) {
-      params.signal.throwIfAborted();
-    }
-    log.warn(`[decision-prefilter] Decision evaluation failed, failing open: ${String(err)}`);
-  } finally {
-    clearTimeout(timeoutHandle);
+  };
+  if (!isCurrent()) {
+    return { shouldPruneTools: false };
   }
-
-  return { shouldPruneTools: false };
+  const answer = outcome.status === "ok" ? outcome.result.answers.any_tool_needed : undefined;
+  return answer?.type === "boolean" && answer.probabilityTrue < 0.35
+    ? { shouldPruneTools: true, isCurrent }
+    : { shouldPruneTools: false };
 }

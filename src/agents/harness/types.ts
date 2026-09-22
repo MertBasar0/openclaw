@@ -106,6 +106,7 @@ type AgentHarnessAttemptParamsBase = Omit<
   | "onContextEngineTurnCandidate"
   | "trajectoryRecorder"
   | "inputAttachmentMedia"
+  | "supportsTurnScopedToolRestrictions"
 >;
 /**
  * @deprecated Use AgentHarnessAttemptParamsV2. The optional capability keeps

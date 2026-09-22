@@ -6,7 +6,7 @@ const enLabs = {
     decisionAssistance: {
       title: "Decision assistance",
       description:
-        "Enable experimental features powered by Decision models. Requires a Decision model, set globally or per agent. No features use this setting yet.",
+        "Let the built-in OpenClaw runtime omit optional tools on self-contained conversational turns. Requires a Decision model, set globally or per agent. Other harnesses keep their normal tools.",
       optedIn: "Preference saved.",
       loading: "Loading setting…",
       unavailable: "Couldn’t load this setting. Reconnect or refresh to try again.",

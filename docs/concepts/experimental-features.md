@@ -60,9 +60,12 @@ that default.
 
 ## Decision assistance
 
-**Foundation only:** this Labs entry saves intent but connects no automatic
-Decision consumers. Turning it on does not start inference, enable consumer
-modes, select a provider, provision credentials, or download models.
+This opt-in enables experimental conversational tool filtering in the built-in
+OpenClaw runtime. Before an eligible user turn, the configured Decision provider
+judges whether the request needs tools. A conversational result can omit optional
+tools for that turn. Other harnesses keep their normal tools and perform no
+automatic prefilter inference. The switch does not select a provider, provision
+credentials, download models, or enable unrelated consumer modes.
 
 The switch and manually authored config use the same global Boolean:
 
@@ -82,7 +85,7 @@ unrelated experimental options do not. Objects such as
 removes its override and restores off, preserving model selections and sibling
 settings. There is no browser-local preference.
 
-Saved opt-in is not per-agent eligibility. Future automatic consumers also need
+Saved opt-in is not per-agent eligibility. Automatic consumers also need
 an effective [Decision model](/concepts/decision-models) for their owning agent.
 An unset agent model inherits `agents.defaults.decisionModel`; an explicit empty
 `agents.entries.<id>.decisionModel` disables eligibility for that agent. A model
@@ -105,7 +108,7 @@ It performs no provider probes, secret resolution, file reads, network requests,
 model loading, or inference, and returns no provider-readiness diagnostics.
 This is an internal foundation boundary, not a new plugin SDK surface.
 
-For example, at a future automatic consumer boundary:
+For example, at an automatic consumer boundary:
 
 ```ts
 import { isDecisionAssistanceEligible } from "./decision-assistance.js";
@@ -117,15 +120,34 @@ if (!isDecisionAssistanceEligible(preparedConfig, owningAgentId)) {
 // before loading its optional implementation or preparing evaluation evidence.
 ```
 
-Use the existing config publication/refresh lifecycle, not file polling. Future
-consumers must stop admitting automatic work after opt-out takes effect and
+Use the existing config publication/refresh lifecycle, not file polling.
+Consumers must stop admitting automatic work after opt-out takes effect and
 revalidate current config, model selection, and live authority before applying
 awaited results. This helper is not an authority token or a cancellation owner.
 
-Any future consumer must document its evidence transfer, costs, latency, and
-failure behavior. Hosted evaluations send selected evidence to the configured
-provider and can incur charges; this foundation sends no evidence and makes no
-performance or quality claims.
+### Conversational tool filtering
+
+The prefilter sends the current request text and a Boolean rubric to the owning
+agent’s configured Decision provider. Hosted providers receive that evidence and
+can incur charges. Local providers keep inference local. Classification adds work
+before the primary model request; it is not a guaranteed latency improvement.
+
+The current internal budget is 500 ms and the tool-need threshold is 0.35, not
+configuration options. Ordinary unavailable results, including a deadline, keep
+the normal tool surface. Cancellation, closed authority, and contract errors
+remain errors rather than starting fallback work. Cold model loading may exceed
+the budget. Classifier estimates are not guarantees that every action request
+will retain its optional tools.
+
+Filtering skips raw probes, continuations, internal events, queued steering,
+orphan repair, and turns with prompt-build hooks, added instructions, or prior
+assistant/tool-result history. This conservative history boundary preserves tools
+for context-dependent approvals and follow-ups. It uses
+the existing host tool policy, preserves already-required tools without granting
+denied tools, and keeps submitted schemas, discovery, and callability aligned.
+Each subsequent turn starts from its own normal tool baseline. Revoked opt-in or
+changed model selection prevents applying an awaited restriction. No historical
+transcript is rewritten and no native thread is recreated.
 
 ## Local model lean mode
 
