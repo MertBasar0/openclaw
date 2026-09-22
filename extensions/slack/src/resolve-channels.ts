@@ -20,6 +20,18 @@ export type SlackChannelResolution = {
   archived?: boolean;
 };
 
+// Real Slack channel/group ids fold to <C|G><digit><alphanumerics>, at least 9 characters
+// total. A bare name that happens to start with "c" or "g" (e.g. "general") never has a digit
+// second character, so this cannot misclassify it as an id the way the previous unbounded
+// `[CG][A-Z0-9]+` pattern did (openclaw/openclaw#155820).
+//
+// "D" (Slack DM conversation ids) is deliberately excluded: `channels.slack.channels` only
+// configures channel and group rooms, and a DM id here is a misconfiguration that doctor.ts's
+// looksLikeSlackDmId() already warns about, pointing the user at `dmPolicy`/`allowFrom` instead.
+// Accepting it as a resolvable id would make this resolver report success on an entry Doctor
+// says belongs somewhere else, without fixing the actual misconfiguration.
+const SLACK_CHANNEL_OR_GROUP_ID_RE = /^[CG][0-9][A-Z0-9]{6,}$/i;
+
 function parseSlackChannelMention(raw: string): { id?: string; name?: string } {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -32,7 +44,7 @@ function parseSlackChannelMention(raw: string): { id?: string; name?: string } {
     return { id, name };
   }
   const prefixed = trimmed.replace(/^(slack:|channel:)/i, "");
-  if (/^[CG][A-Z0-9]+$/i.test(prefixed)) {
+  if (SLACK_CHANNEL_OR_GROUP_ID_RE.test(prefixed)) {
     return { id: prefixed.toUpperCase() };
   }
   const name = prefixed.replace(/^#/, "").trim();

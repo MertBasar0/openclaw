@@ -43,12 +43,53 @@ describe("resolveSlackChannelAllowlist", () => {
     const list = vi.fn();
     const res = await resolveSlackChannelAllowlist({
       token: "xoxb-test",
-      entries: ["C123", "channel:G456", "<#C789|general>"],
+      entries: ["C01CU3R54A1", "channel:G0AFBKXS3CP", "<#C0AG61APJ3B|general>"],
       client: { conversations: { list } } as never,
     });
 
-    expect(res.map((entry) => entry.id)).toEqual(["C123", "G456", "C789"]);
+    expect(res.map((entry) => entry.id)).toEqual(["C01CU3R54A1", "G0AFBKXS3CP", "C0AG61APJ3B"]);
     expect(list).not.toHaveBeenCalled();
+  });
+
+  it("does not misclassify a bare channel name starting with c/g as an id (#155820)", async () => {
+    const client = {
+      conversations: {
+        list: vi.fn().mockResolvedValue({
+          channels: [{ id: "C0AG61APJ3B", name: "general", is_archived: false }],
+        }),
+      },
+    };
+
+    const res = await resolveSlackChannelAllowlist({
+      token: "xoxb-test",
+      entries: ["general"],
+      client: client as never,
+    });
+
+    expect(client.conversations.list).toHaveBeenCalledOnce();
+    expect(res[0]).toEqual({
+      input: "general",
+      resolved: true,
+      id: "C0AG61APJ3B",
+      name: "general",
+      archived: false,
+    });
+  });
+
+  it("keeps a Slack DM conversation id unresolved instead of accepting it as a channel id", async () => {
+    const client = {
+      conversations: {
+        list: vi.fn().mockResolvedValue({ channels: [] }),
+      },
+    };
+
+    const res = await resolveSlackChannelAllowlist({
+      token: "xoxb-test",
+      entries: ["D0AFBKXS3CP"],
+      client: client as never,
+    });
+
+    expect(res[0]?.resolved).toBe(false);
   });
 
   it("preserves workspace-qualified channel ids without listing a workspace", async () => {
