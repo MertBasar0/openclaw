@@ -6,7 +6,7 @@ import { createRequire, isBuiltin } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
-import { openRootFileSync } from "../infra/boundary-file-read.js";
+import { openRootFileSync, readFileWindowFullySync } from "../infra/boundary-file-read.js";
 import { isPathInside } from "../infra/path-guards.js";
 import { escapeRegExp } from "../shared/regexp.js";
 import { retainPluginSourceCaptureInstance } from "./plugin-source-capture-directory.js";
@@ -32,7 +32,32 @@ export function createPluginSourceLinkCapture() {
 export const pluginSourceStatIdentity = (stat: fs.BigIntStats): string =>
   `${stat.dev}:${stat.ino}:${stat.mode}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
 
-export function readPluginSourceBytes(source: string, boundary: string): Buffer {
+// Bounded chunk size for streaming large plugin source files during capture/verification;
+// keeps peak buffer use fixed instead of proportional to file size (see issue #155728).
+const PLUGIN_SOURCE_STREAM_CHUNK_BYTES = 1024 * 1024; // 1 MiB
+
+/**
+ * Reads `fd` in fixed-size chunks (reusing one scratch buffer) instead of buffering it whole.
+ * With `limit`, stops after that many bytes even if more remain; without it, reads to EOF.
+ */
+function drainFileInChunks(fd: number, onChunk: (chunk: Buffer) => void, limit = Infinity): void {
+  const buffer = Buffer.allocUnsafe(PLUGIN_SOURCE_STREAM_CHUNK_BYTES);
+  let position = 0;
+  while (position < limit) {
+    const window = Math.min(buffer.length, limit - position);
+    const target = window === buffer.length ? buffer : buffer.subarray(0, window);
+    const bytesRead = readFileWindowFullySync(fd, target, position);
+    if (bytesRead > 0) {
+      onChunk(target.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+    if (bytesRead < window) {
+      break;
+    }
+  }
+}
+
+function openPluginSourceFile(source: string, boundary: string) {
   const opened = openRootFileSync({
     absolutePath: source,
     rootPath: boundary,
@@ -42,8 +67,75 @@ export function readPluginSourceBytes(source: string, boundary: string): Buffer 
   if (!opened.ok) {
     throw new Error(`Cannot capture plugin source ${source}`, { cause: opened.error });
   }
+  return opened;
+}
+
+/**
+ * Streams a boundary-checked source file to `target` in bounded chunks, computing its SHA-256
+ * content hash incrementally and feeding `digest` the exact `String(length)` + NUL + byte
+ * sequence a single whole-buffer read would have produced — without ever holding the whole
+ * file in memory. The length fed to `digest` (and returned) comes from the same boundary-checked
+ * open's `fstat`, so it is known before any content byte is read or written.
+ */
+export function capturePluginSourceFile(params: {
+  source: string;
+  boundary: string;
+  target: { path: string; mode: number };
+  digest: ReturnType<typeof createHash>;
+}): { length: number; contentHash: string } {
+  const opened = openPluginSourceFile(params.source, params.boundary);
   try {
-    return fs.readFileSync(opened.fd);
+    const length = opened.stat.size;
+    params.digest.update(String(length)).update("\0");
+    const contentHash = createHash("sha256");
+    const targetFd = fs.openSync(params.target.path, "w", params.target.mode);
+    try {
+      drainFileInChunks(
+        opened.fd,
+        (chunk) => {
+          contentHash.update(chunk);
+          params.digest.update(chunk);
+          fs.writeSync(targetFd, chunk);
+        },
+        length,
+      );
+    } finally {
+      fs.closeSync(targetFd);
+    }
+    return { length, contentHash: contentHash.digest("hex") };
+  } finally {
+    fs.closeSync(opened.fd);
+  }
+}
+
+/**
+ * Feeds `digest` the same length-prefixed byte sequence as {@link capturePluginSourceFile} for a
+ * file whose bytes were already captured once under a different alias (the `captured` branch in
+ * `plugin-generation-artifact.ts`). The OS-level `copyFileSync` already duplicated the bytes onto
+ * disk, so this only needs a bounded re-read of the already-local `path` to fold it into `digest`
+ * again — never a second full-buffer read of the original source.
+ */
+export function capturePluginSourceAliasDigest(
+  filePath: string,
+  digest: ReturnType<typeof createHash>,
+  length: number,
+): void {
+  digest.update(String(length)).update("\0");
+  const fd = fs.openSync(filePath, "r");
+  try {
+    drainFileInChunks(fd, (chunk) => digest.update(chunk), length);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** Boundary-checked, bounded-memory equivalent of hashing a whole-buffer read of `source`. */
+export function pluginSourceFileContentHash(source: string, boundary: string): string {
+  const opened = openPluginSourceFile(source, boundary);
+  try {
+    const hash = createHash("sha256");
+    drainFileInChunks(opened.fd, (chunk) => hash.update(chunk));
+    return hash.digest("hex");
   } finally {
     fs.closeSync(opened.fd);
   }
@@ -70,11 +162,9 @@ export function verifyPluginSourceInputs(
     if (
       fs.realpathSync(source) !== source ||
       pluginSourceStatIdentity(fs.statSync(source, { bigint: true })) !== input.identity ||
-      pluginSourceContentHash(
-        input.directory
-          ? fs.readdirSync(source).toSorted()
-          : readPluginSourceBytes(source, input.boundary),
-      ) !== input.contentHash
+      (input.directory
+        ? pluginSourceContentHash(fs.readdirSync(source).toSorted())
+        : pluginSourceFileContentHash(source, input.boundary)) !== input.contentHash
     ) {
       throw new Error(
         "Plugin source changed while preparing its reload; retry after the edit finishes.",

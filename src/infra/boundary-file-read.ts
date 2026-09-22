@@ -14,6 +14,7 @@ export {
   matchRootFileOpenFailure,
   openRootFile,
   openRootFileSync,
+  readFileWindowFullySync,
   type RootFileOpenFailure,
   type RootFileOpenResult,
 } from "@openclaw/fs-safe/advanced";
