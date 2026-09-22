@@ -87,6 +87,7 @@ function buildRestrictedFinalizationAttempt(
 export function createOpenClawAgentHarness(): AgentHarnessV2 {
   const harness: AgentHarnessV2 = {
     ...BUILTIN_AGENT_HARNESS_METADATA,
+    supportsTurnScopedToolRestrictions: true,
     runAttempt: (params) => runEmbeddedAttempt(params as EmbeddedRunAttemptParams),
     runIsolatedCompletionV2: runHostPreparedIsolatedCompletion,
     finalizeSettledTurn: async ({ attempt }) => {

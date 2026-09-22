@@ -19,6 +19,8 @@ import type { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js
 import { buildInterSessionPromptContext } from "../../../sessions/input-provenance.js";
 import { resolveAdmittedRunActiveAssertion } from "../../admitted-run-context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
+import { getRegisteredAgentHarness } from "../../harness/registry.js";
+import { harnessSupportsTurnScopedToolRestrictions } from "../../harness/types.js";
 import {
   buildAgentInternalEventContext,
   resolveInternalEventPromptBody,
@@ -50,6 +52,7 @@ import {
   truncateOversizedToolResultsInMessages,
 } from "../tool-result-truncation.js";
 import { buildEmbeddedAgentHookContext } from "./agent-hook-context.js";
+import { evaluateAttemptDecisionToolPrefilter } from "./attempt-decision-prefilter.js";
 import {
   normalizeCurrentPromptTextForLlmBoundary,
   usesEscapedRuntimeContext,
@@ -110,12 +113,21 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
   sessionAgentId: string;
   runtimeModel: string;
   systemPromptText: string;
+  runAbortSignal?: AbortSignal;
   applyPromptBuildToolsAllow: (toolsAllow: string[] | undefined) => string[];
   prepareSystemPrompt?: (currentSystemPrompt: string) => Promise<string>;
   setActiveSessionSystemPrompt: (systemPrompt: string) => void;
   setLeasedSteering: (lease: EmbeddedAttemptSteeringLease) => void;
 }): Promise<EmbeddedAttemptPromptAssembly> {
   const { attempt } = input;
+  const attemptAbortSignal = attempt.abortSignal;
+  const runAbortSignal = input.runAbortSignal;
+  const activeAbortSignal =
+    attemptAbortSignal && runAbortSignal
+      ? AbortSignal.any([attemptAbortSignal, runAbortSignal])
+      : (attemptAbortSignal ?? runAbortSignal);
+  activeAbortSignal?.throwIfAborted();
+
   const isSettledTurnFinalization = attempt.operation === "settled-tool-finalization";
   const preserveExactPrompt = input.isRawModelRun || isSettledTurnFinalization;
   let systemPromptText = input.systemPromptText;
@@ -165,7 +177,60 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
         hookRunner: input.hookRunner,
         bootstrapContextRunKind: attempt.bootstrapContextRunKind,
       });
-  const callableToolNames = input.applyPromptBuildToolsAllow(hookResult?.toolsAllow);
+
+  let leasedSteering: EmbeddedAttemptSteeringLease | undefined;
+  let leasedSteeringPrompt: string | undefined;
+  if (attempt.sessionKey && !preserveExactPrompt) {
+    const leaseId = `${attempt.runId}:agent-steering`;
+    const leased = await leasePendingAgentSteeringItems({
+      requesterSessionKey: attempt.sessionKey,
+      leaseId,
+    });
+    if (leased) {
+      leasedSteering = { leaseId, runIds: leased.runIds, isCurrent: leased.isCurrent };
+      // Transfer cleanup ownership before any prompt mutation can throw.
+      input.setLeasedSteering(leasedSteering);
+      if (!leased.isCurrent()) {
+        throw new Error(
+          "The queued child results lost authority before requester prompt injection.",
+        );
+      }
+      leasedSteeringPrompt = leased.prompt;
+    }
+  }
+
+  const hasPendingActionInstructions = Boolean(
+    hookResult?.prependContext?.trim() ||
+    hookResult?.appendContext?.trim() ||
+    input.orphanRepair?.messageEntry ||
+    leasedSteering,
+  );
+
+  const harnessId = attempt.agentHarnessId;
+  const harnessSupported =
+    !harnessId ||
+    harnessId === "openclaw" ||
+    harnessSupportsTurnScopedToolRestrictions(getRegisteredAgentHarness(harnessId)?.harness);
+
+  let effectiveToolsAllow = hookResult?.toolsAllow;
+  if (
+    !preserveExactPrompt &&
+    !attempt.disableTools &&
+    effectiveToolsAllow === undefined &&
+    !hasPendingActionInstructions &&
+    harnessSupported
+  ) {
+    const prefilterResult = await evaluateAttemptDecisionToolPrefilter({
+      config: attempt.config ?? getRuntimeConfig(),
+      agentId: input.sessionAgentId,
+      userMessage: effectivePrompt,
+      signal: activeAbortSignal,
+    });
+    if (prefilterResult.shouldPruneTools) {
+      effectiveToolsAllow = [];
+    }
+  }
+  const callableToolNames = input.applyPromptBuildToolsAllow(effectiveToolsAllow);
   // Regenerate owned capability guidance before composing hook additions, without
   // rerunning hooks or altering already-recorded conversation messages.
   if (input.prepareSystemPrompt) {
@@ -177,7 +242,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
   const hookRunner = input.hookRunner;
   const assertHostActive = resolveAdmittedRunActiveAssertion(
     attempt.admittedRunContext,
-    attempt.abortSignal,
+    activeAbortSignal,
   );
   const authorizedHookResult =
     preserveExactPrompt || !hookRunner || !attempt.toolAuthorityFingerprint || !assertHostActive
@@ -290,35 +355,19 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     }
   }
 
-  let leasedSteering: EmbeddedAttemptSteeringLease | undefined;
-  if (attempt.sessionKey && !preserveExactPrompt) {
-    const leaseId = `${attempt.runId}:agent-steering`;
-    const leased = await leasePendingAgentSteeringItems({
-      requesterSessionKey: attempt.sessionKey,
-      leaseId,
+  if (leasedSteering && leasedSteeringPrompt) {
+    effectivePrompt = prependAgentSteeringPrompt({
+      steeringPrompt: leasedSteeringPrompt,
+      prompt: effectivePrompt,
     });
-    if (leased) {
-      leasedSteering = { leaseId, runIds: leased.runIds, isCurrent: leased.isCurrent };
-      // Transfer cleanup ownership before any prompt mutation can throw.
-      input.setLeasedSteering(leasedSteering);
-      if (!leased.isCurrent()) {
-        throw new Error(
-          "The queued child results lost authority before requester prompt injection.",
-        );
-      }
-      effectivePrompt = prependAgentSteeringPrompt({
-        steeringPrompt: leased.prompt,
-        prompt: effectivePrompt,
-      });
-      effectiveTranscriptPrompt = prependAgentSteeringPrompt({
-        steeringPrompt: leased.prompt,
-        prompt: effectiveTranscriptPrompt,
-      });
-      log.debug(
-        `agent steering: injected ${leased.runIds.length} queued item(s) into parent turn ` +
-          `runId=${attempt.runId} sessionKey=${attempt.sessionKey}`,
-      );
-    }
+    effectiveTranscriptPrompt = prependAgentSteeringPrompt({
+      steeringPrompt: leasedSteeringPrompt,
+      prompt: effectiveTranscriptPrompt,
+    });
+    log.debug(
+      `agent steering: injected ${leasedSteering.runIds.length} queued item(s) into parent turn ` +
+        `runId=${attempt.runId} sessionKey=${attempt.sessionKey}`,
+    );
   }
 
   const currentUserAdmission =
