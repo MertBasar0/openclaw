@@ -57,14 +57,22 @@ it.each([
       };
       mocks.config.mockReturnValue(cfg);
       let failedWrite = false;
-      const write = fs.writeFileSync;
+      // Plugin source capture opens its target for writing via fs.openSync(path, "w", mode)
+      // and streams chunks with fs.writeSync (see plugin-source-stream-capture.ts, #155728);
+      // this fixture injects ENOSPC at that open call rather than a whole-buffer writeFileSync.
+      const openSync = fs.openSync;
       if (failure === "ENOSPC") {
-        vi.spyOn(fs, "writeFileSync").mockImplementation((target, ...args) => {
-          if (path.basename(String(target)) === "index.cjs" && String(target) !== source) {
+        vi.spyOn(fs, "openSync").mockImplementation((target, flags, ...rest) => {
+          if (
+            typeof flags === "string" &&
+            flags.includes("w") &&
+            path.basename(String(target)) === "index.cjs" &&
+            String(target) !== source
+          ) {
             failedWrite = true;
             throw Object.assign(new Error("fixture capture write failed"), { code: "ENOSPC" });
           }
-          return write(target, ...args);
+          return openSync(target, flags, ...rest);
         });
       }
       mocks.runContributions.mockImplementation(async () => {
