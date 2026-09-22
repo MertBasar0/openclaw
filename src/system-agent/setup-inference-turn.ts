@@ -52,6 +52,7 @@ import {
   type VerifySetupInferenceResult,
 } from "./setup-inference-core.js";
 import { resolveSetupInferenceProfileError } from "./setup-inference-profile.js";
+import { markSetupInferenceProbeHidden } from "./setup-inference-turn-visibility.js";
 import {
   captureSystemAgentOwnerPluginArtifacts,
   createSystemAgentVerifiedInferenceBinding,
@@ -152,6 +153,7 @@ export async function runSetupInferenceTurn(params: {
     if (params.signal?.aborted) {
       throw new SetupInferenceCancelledError();
     }
+    using _ = markSetupInferenceProbeHidden(runId, route.agentId, sessionKey);
     const cliError = await resolveToolFreeCliSetupError(route);
     if (cliError) {
       return failed("unavailable", cliError);

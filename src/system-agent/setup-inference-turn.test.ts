@@ -4,6 +4,7 @@ import {
   makeRegistry,
 } from "../config/plugin-auto-enable.test-helpers.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { getAgentRunContext } from "../infra/agent-run-registry.js";
 import { getCurrentPluginMetadataSnapshot } from "../plugins/current-plugin-metadata-snapshot.js";
 import { createPluginCache, withPluginCache } from "../plugins/plugin-cache.js";
 import { resolvePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
@@ -19,6 +20,7 @@ import type { SystemAgentConfiguredRoute } from "./inference-route.js";
 import {
   loadSetupInferencePluginGeneration,
   revalidateStableSetupInferenceOwner,
+  runSetupInferenceTurn,
 } from "./setup-inference-turn.js";
 import { createSystemAgentVerifiedInferenceTestFixture } from "./system-agent.test-helpers.js";
 
@@ -206,5 +208,75 @@ describe("setup inference plugin ownership", () => {
     ).resolves.toBe(binding);
 
     expect(mocks.loadAgentRuntimePluginRegistryHandle).not.toHaveBeenCalled();
+  });
+});
+
+describe("runSetupInferenceTurn visibility", () => {
+  it("hides the probe run from chat/web-push projection and clears it once the run ends", async () => {
+    const route = embeddedRoute();
+    let observedRunId: string | undefined;
+    let observedContextDuringRun: ReturnType<typeof getAgentRunContext>;
+    const runEmbeddedAgent = vi.fn(async (params: { runId: string }) => {
+      observedRunId = params.runId;
+      // Captured while the run is still in flight: this is the only window in which
+      // a producer's visibility metadata can suppress a later terminal projection.
+      observedContextDuringRun = getAgentRunContext(params.runId);
+      return {
+        meta: {
+          durationMs: 1,
+          finalAssistantVisibleText: "ok",
+          executionTrace: { winnerProvider: route.provider, winnerModel: route.model },
+        },
+      };
+    });
+
+    const result = await runSetupInferenceTurn({
+      route,
+      deps: {
+        runEmbeddedAgent,
+        createTempDir: async () => "/tmp/openclaw-setup-inference-turn-test",
+        removeTempDir: async () => {},
+      },
+      requireExecutionOwner: false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(runEmbeddedAgent).toHaveBeenCalledTimes(1);
+    expect(observedRunId).toBeTruthy();
+    // This is the fix under test: without it, an absent run context defaults to
+    // visible, the probe's terminal event is projected as an ordinary chat
+    // completion, and an "agent finished" web-push notification opens the
+    // probe's throwaway, never-persisted session as an empty chat.
+    expect(observedContextDuringRun).toMatchObject({
+      isControlUiVisible: false,
+      projectSessionActive: false,
+      projectSessionLifecycle: false,
+      projectSessionMessages: false,
+    });
+    // The hidden context must not leak past the probe's own lifetime.
+    expect(getAgentRunContext(observedRunId!)).toBeUndefined();
+  });
+
+  it("clears the hidden run context even when the probe fails", async () => {
+    const route = embeddedRoute();
+    let observedRunId: string | undefined;
+    const runEmbeddedAgent = vi.fn(async (params: { runId: string }) => {
+      observedRunId = params.runId;
+      throw new Error("synthetic probe failure");
+    });
+
+    const result = await runSetupInferenceTurn({
+      route,
+      deps: {
+        runEmbeddedAgent,
+        createTempDir: async () => "/tmp/openclaw-setup-inference-turn-test-failure",
+        removeTempDir: async () => {},
+      },
+      requireExecutionOwner: false,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(observedRunId).toBeTruthy();
+    expect(getAgentRunContext(observedRunId!)).toBeUndefined();
   });
 });
