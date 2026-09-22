@@ -37,6 +37,7 @@ import {
   releaseAgentRunContext,
 } from "../infra/agent-run-registry.js";
 import { subscribePluginSessionsChanged } from "../plugins/services.test-support.js";
+import { markSetupInferenceProbeHidden } from "../system-agent/setup-inference-turn-visibility.js";
 import { GatewayClientRegistry } from "./server/client-registry.js";
 
 const persistGatewaySessionLifecycleEventMock = vi.fn();
@@ -6525,6 +6526,58 @@ describe("agent event handler", () => {
       clientRunId: "run-maintenance-child",
       sessionKey: "session-maintenance-parent",
     });
+  });
+
+  it("suppresses chat/web-push projection for a real setup-inference probe run and leaves an ordinary run's projection intact", () => {
+    // Regression for #155744: runSetupInferenceTurn never registered its run with the
+    // agent-run registry, so its terminal event defaulted to visible and produced an
+    // "agent finished" web-push notification pointing at the probe's throwaway,
+    // never-persisted session. This drives the actual shipped suppression function
+    // (not hand-set flags) through the real event handler, and contrasts it against an
+    // ordinary run to prove normal completion notifications still project.
+    const { broadcast, broadcastToConnIds, nodeSendToSession, chatRunState, handler } =
+      createHarness();
+    const runId = "probe-setup-inference-real-behavior-proof";
+    const agentId = "main";
+    const sessionKey = `agent:${agentId}:setup-inference:incognito-${runId}`;
+
+    {
+      using _hidden = markSetupInferenceProbeHidden(runId, agentId, sessionKey);
+      emitAgentEvents(handler, runId, [
+        ["lifecycle", { phase: "start", startedAt: 1_000 }],
+        ["assistant", { text: "ok", delta: "ok" }],
+        ["lifecycle", { phase: "end", endedAt: 1_050 }],
+      ]);
+    }
+
+    // The probe's events never reach the broadcast pipeline at all, which is what
+    // event-web-push.ts's handleEvent is wired to (see server-connection-state.ts's
+    // `onBroadcast: (event, payload, opts) => eventWebPush.handleEvent(...)`): no
+    // broadcast call means no chance for a push notification to be built.
+    expect(chatBroadcastCalls(broadcast)).toHaveLength(0);
+    expect(agentBroadcastCalls(broadcast)).toHaveLength(0);
+    expect(broadcastToConnIds).not.toHaveBeenCalled();
+    expect(nodeSendToSession).not.toHaveBeenCalled();
+
+    registerChatRun(
+      chatRunState,
+      "run-ordinary-completion",
+      "session-ordinary-completion",
+      "client-ordinary-completion",
+    );
+    emitAgentEvents(handler, "run-ordinary-completion", [
+      ["lifecycle", { phase: "start", startedAt: 2_000 }],
+      ["assistant", { text: "ordinary completion", delta: "ordinary completion" }],
+      ["lifecycle", { phase: "end", endedAt: 2_050 }],
+    ]);
+
+    const ordinaryFinal = chatBroadcastCalls(broadcast).find(
+      ([, payload]) => (payload as { state?: string }).state === "final",
+    );
+    expect(ordinaryFinal).toBeDefined();
+    expect((ordinaryFinal?.[1] as { message?: { content?: unknown } }).message?.content).toEqual([
+      { type: "text", text: "ordinary completion" },
+    ]);
   });
 
   it("sends non-control-UI-visible live chat only to exact session message subscribers", () => {
