@@ -2,6 +2,7 @@ import { ensureSystemPromptCacheBoundary } from "@openclaw/ai/internal/shared";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { filterHeartbeatTranscriptArtifacts } from "../../../auto-reply/heartbeat-filter.js";
 import { getRuntimeConfig } from "../../../config/config.js";
+import { createRuntimeConfigReader } from "../../../config/runtime-snapshot.js";
 import type { SessionSystemPromptReport } from "../../../config/sessions/types.js";
 import {
   type DiagnosticTraceContext,
@@ -16,8 +17,6 @@ import { buildInterSessionPromptContext } from "../../../sessions/input-provenan
 import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
 import { resolveAdmittedRunActiveAssertion } from "../../admitted-run-context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
-import { getRegisteredAgentHarness } from "../../harness/registry.js";
-import { harnessSupportsTurnScopedToolRestrictions } from "../../harness/types.js";
 import {
   buildAgentInternalEventContext,
   resolveInternalEventPromptBody,
@@ -99,6 +98,8 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
   setLeasedSteering: (lease: EmbeddedAttemptSteeringLease) => void;
 }) {
   const { attempt } = input;
+  // Capture runtime ownership before hook/steering awaits; explicit scopes stay pinned.
+  const readConfig = createRuntimeConfigReader(attempt.config ?? getRuntimeConfig());
   const attemptAbortSignal = attempt.abortSignal;
   const runAbortSignal = input.runAbortSignal;
   const activeAbortSignal =
@@ -177,37 +178,54 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     }
   }
 
+  const assertHostActive = resolveAdmittedRunActiveAssertion(
+    attempt.admittedRunContext,
+    activeAbortSignal,
+  );
+  assertHostActive?.();
   const hasPendingActionInstructions = Boolean(
+    // Authorized enrichment runs after policy; do not pre-empt its required actions.
+    input.hookRunner?.hasHooks("before_prompt_build", hookCtx) ||
     hookResult?.prependContext?.trim() ||
     hookResult?.appendContext?.trim() ||
+    hookResult?.systemPrompt?.trim() ||
+    hookResult?.prependSystemContext?.trim() ||
+    hookResult?.appendSystemContext?.trim() ||
     input.orphanRepair?.messageEntry ||
+    // A short approval/follow-up can need actions established by earlier assistant work.
+    promptBuildMessages.some(
+      (message) => message.role === "assistant" || message.role === "toolResult",
+    ) ||
     leasedSteering,
   );
-
-  const harnessId = attempt.agentHarnessId;
-  const harnessSupported =
-    !harnessId ||
-    harnessId === "openclaw" ||
-    harnessSupportsTurnScopedToolRestrictions(getRegisteredAgentHarness(harnessId)?.harness);
 
   let effectiveToolsAllow = hookResult?.toolsAllow;
   if (
     !preserveExactPrompt &&
+    assertHostActive &&
+    activeAbortSignal &&
+    attempt.supportsTurnScopedToolRestrictions === true &&
+    !attempt.skipPreparedUserTurnMessage &&
+    attempt.trigger === "user" &&
+    !attempt.internalEvents?.length &&
     !attempt.disableTools &&
     effectiveToolsAllow === undefined &&
-    !hasPendingActionInstructions &&
-    harnessSupported
+    !hasPendingActionInstructions
   ) {
     const prefilterResult = await evaluateAttemptDecisionToolPrefilter({
-      config: attempt.config ?? getRuntimeConfig(),
+      config: readConfig(),
       agentId: input.sessionAgentId,
       userMessage: effectivePrompt,
       signal: activeAbortSignal,
+      assertActive: assertHostActive,
+      supportsTurnScopedToolRestrictions: attempt.supportsTurnScopedToolRestrictions,
     });
-    if (prefilterResult.shouldPruneTools) {
+    if (prefilterResult.shouldPruneTools && prefilterResult.isCurrent?.()) {
       effectiveToolsAllow = [];
     }
   }
+  activeAbortSignal?.throwIfAborted();
+  assertHostActive?.();
   const callableToolNames = input.applyPromptBuildToolsAllow(effectiveToolsAllow);
   // Regenerate owned capability guidance before composing hook additions, without
   // rerunning hooks or altering already-recorded conversation messages.
@@ -218,10 +236,6 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     }
   }
   const hookRunner = input.hookRunner;
-  const assertHostActive = resolveAdmittedRunActiveAssertion(
-    attempt.admittedRunContext,
-    activeAbortSignal,
-  );
   const authorizedHookResult =
     preserveExactPrompt || !hookRunner || !attempt.toolAuthorityFingerprint || !assertHostActive
       ? undefined

@@ -485,7 +485,7 @@ describe("LabsPage Decision assistance", () => {
       });
       const row = labRow(page, "Decision assistance");
       expect(labToggle(page, "Decision assistance").checked).toBe(expected);
-      expect(row.textContent).toContain("No features use this setting yet");
+      expect(row.textContent).toContain("Other harnesses keep their normal tools");
       expect(row.textContent?.includes("Preference saved.")).toBe(expected);
     },
   );

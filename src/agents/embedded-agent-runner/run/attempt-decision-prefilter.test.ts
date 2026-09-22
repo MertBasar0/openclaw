@@ -1,262 +1,199 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  clearRuntimeConfigSnapshot,
+  setRuntimeConfigSnapshot,
+} from "../../../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+import { AgentDefaultsBaseSchema } from "../../../config/zod-schema.agent-defaults-base.js";
+import type { evaluateDecisionInRegistry } from "../../../decisions/runtime.js";
 import type { DecisionOutcome } from "../../../decisions/types.js";
-import { isDecisionAssistanceEligible } from "../../decision-assistance.js";
 import { evaluateAttemptDecisionToolPrefilter } from "./attempt-decision-prefilter.js";
 
-const mockEvaluateDecision = vi.fn<() => Promise<DecisionOutcome>>();
-
-vi.mock("../../../decisions/runtime.js", () => ({
-  evaluateDecision: () => mockEvaluateDecision(),
+const mocks = vi.hoisted(() => ({ evaluate: vi.fn<typeof evaluateDecisionInRegistry>() }));
+vi.mock("../../../decisions/runtime.js", () => ({ evaluateDecisionInRegistry: mocks.evaluate }));
+vi.mock("../../../plugins/runtime/gateway-request-scope.js", () => ({
+  getPluginRegistryForContext: () => null,
 }));
 
-const testProvenance = {
-  providerId: "test-provider",
-  rubricVersion: "1",
-  runtimeGeneration: "test-gen-1",
-};
-
-describe("evaluateAttemptDecisionToolPrefilter", () => {
-  const configWithDecisionAndLabs: OpenClawConfig = {
+function config(optIn = true, model: string | undefined = "fixture/model"): OpenClawConfig {
+  return {
     agents: {
-      defaults: {
-        experimental: {
-          decisionAssistance: true,
-        },
-        decisionModel: "fast-judge/v1",
-      },
+      defaults: AgentDefaultsBaseSchema.parse({
+        experimental: { decisionAssistance: optIn },
+        decisionModel: model,
+      }),
     },
   };
-
-  const configWithDecisionWithoutLabs: OpenClawConfig = {
-    agents: {
-      defaults: {
-        decisionModel: "fast-judge/v1",
-      },
-    },
+}
+const answer = (probabilityTrue = 0.1): DecisionOutcome => ({
+  status: "ok",
+  provenance: { providerId: "fixture", rubricVersion: "3", runtimeGeneration: "test" },
+  result: { model: "model", answers: { any_tool_needed: { type: "boolean", probabilityTrue } } },
+});
+function params(cfg = config()) {
+  return {
+    config: cfg,
+    agentId: "main",
+    supportsTurnScopedToolRestrictions: true,
+    assertActive: vi.fn(),
+    userMessage: "Hello",
+    signal: new AbortController().signal,
   };
+}
+beforeEach(() => {
+  mocks.evaluate.mockReset().mockResolvedValue(answer());
+});
+afterEach(clearRuntimeConfigSnapshot);
 
-  const configWithoutDecision: OpenClawConfig = {
-    agents: {
-      defaults: {},
-    },
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe("Decision tool prefilter admission", () => {
+  it.each([
+    [false, undefined],
+    [false, "fixture/model"],
+    [true, undefined],
+  ] as const)("does not dispatch with opt-in %s and model %s", async (enabled, model) => {
+    const cfg = config(enabled);
+    cfg.agents!.defaults!.decisionModel = model;
+    expect(await evaluateAttemptDecisionToolPrefilter(params(cfg))).toEqual({
+      shouldPruneTools: false,
+    });
+    expect(mocks.evaluate).not.toHaveBeenCalled();
   });
-
-  describe("Labs gating", () => {
-    it("returns shouldPruneTools false and dispatches zero inference when Labs consent is absent despite configured decisionModel", async () => {
-      const result = await evaluateAttemptDecisionToolPrefilter({
-        config: configWithDecisionWithoutLabs,
-        userMessage: "What is the capital of France?",
-      });
-      expect(result).toEqual({ shouldPruneTools: false });
-      expect(mockEvaluateDecision).not.toHaveBeenCalled();
-    });
-
-    it("returns shouldPruneTools false when Labs flag is explicitly false", async () => {
-      const configWithLabsDisabled: OpenClawConfig = {
-        agents: {
-          defaults: {
-            experimental: {
-              decisionAssistance: false,
-            },
-            decisionModel: "fast-judge/v1",
-          },
-        },
-      };
-      const result = await evaluateAttemptDecisionToolPrefilter({
-        config: configWithLabsDisabled,
-        userMessage: "What is the capital of France?",
-      });
-      expect(result).toEqual({ shouldPruneTools: false });
-      expect(mockEvaluateDecision).not.toHaveBeenCalled();
-    });
-
-    it("evaluates eligibility accurately across scopes and overrides", async () => {
-      expect(isDecisionAssistanceEligible(configWithoutDecision, "main")).toBe(false);
-      expect(isDecisionAssistanceEligible(configWithDecisionWithoutLabs, "main")).toBe(false);
-      expect(isDecisionAssistanceEligible(configWithDecisionAndLabs, "main")).toBe(true);
-
-      const configWithAgentOptOut: OpenClawConfig = {
-        agents: {
-          defaults: {
-            experimental: { decisionAssistance: true },
-            decisionModel: "fast-judge/v1",
-          },
-          entries: {
-            "agent-opt-out": { decisionModel: "" },
-          },
-        },
-      };
-
-      expect(isDecisionAssistanceEligible(configWithAgentOptOut, "agent-opt-out")).toBe(false);
-      expect(isDecisionAssistanceEligible(configWithAgentOptOut, "other-agent")).toBe(true);
-
-      const resultOptOut = await evaluateAttemptDecisionToolPrefilter({
-        config: configWithAgentOptOut,
-        agentId: "agent-opt-out",
-        userMessage: "What is the capital of France?",
-      });
-      expect(resultOptOut).toEqual({ shouldPruneTools: false });
-      expect(mockEvaluateDecision).not.toHaveBeenCalled();
-    });
-  });
-
-  it("returns shouldPruneTools false when user message is empty or whitespace", async () => {
-    const resultEmpty = await evaluateAttemptDecisionToolPrefilter({
-      config: configWithDecisionAndLabs,
-      userMessage: "",
-    });
-    expect(resultEmpty).toEqual({ shouldPruneTools: false });
-
-    const resultWhitespace = await evaluateAttemptDecisionToolPrefilter({
-      config: configWithDecisionAndLabs,
-      userMessage: "   \n\t  ",
-    });
-    expect(resultWhitespace).toEqual({ shouldPruneTools: false });
-    expect(mockEvaluateDecision).not.toHaveBeenCalled();
-  });
-
-  it("returns shouldPruneTools false when no decision model is configured", async () => {
-    const result = await evaluateAttemptDecisionToolPrefilter({
-      config: configWithoutDecision,
-      userMessage: "Hello, how are you?",
-    });
-    expect(result).toEqual({ shouldPruneTools: false });
-    expect(mockEvaluateDecision).not.toHaveBeenCalled();
-  });
-
-  it("prunes tools when decision model detects pure conversation below threshold", async () => {
-    mockEvaluateDecision.mockResolvedValueOnce({
-      status: "ok",
-      provenance: testProvenance,
-      result: {
-        model: "fast-judge/v1",
-        answers: {
-          any_tool_needed: {
-            type: "boolean",
-            probabilityTrue: 0.12,
-          },
-        },
-      },
-    });
-
-    const result = await evaluateAttemptDecisionToolPrefilter({
-      config: configWithDecisionAndLabs,
-      userMessage: "What is the capital of France?",
-    });
-
-    expect(result).toEqual({ shouldPruneTools: true });
-    expect(mockEvaluateDecision).toHaveBeenCalledTimes(1);
-  });
-
-  it("retains tools when decision model indicates tools are needed", async () => {
-    mockEvaluateDecision.mockResolvedValueOnce({
-      status: "ok",
-      provenance: testProvenance,
-      result: {
-        model: "fast-judge/v1",
-        answers: {
-          any_tool_needed: {
-            type: "boolean",
-            probabilityTrue: 0.85,
-          },
-        },
-      },
-    });
-
-    const result = await evaluateAttemptDecisionToolPrefilter({
-      config: configWithDecisionAndLabs,
-      userMessage: "Run git status and show untracked files",
-    });
-
-    expect(result).toEqual({ shouldPruneTools: false });
-  });
-
-  it("respects custom probability threshold", async () => {
-    mockEvaluateDecision.mockResolvedValueOnce({
-      status: "ok",
-      provenance: testProvenance,
-      result: {
-        model: "fast-judge/v1",
-        answers: {
-          any_tool_needed: {
-            type: "boolean",
-            probabilityTrue: 0.45,
-          },
-        },
-      },
-    });
-
-    // Default threshold is 0.35 -> 0.45 >= 0.35 -> should not prune
-    // With custom threshold 0.50 -> 0.45 < 0.50 -> should prune
-    const result = await evaluateAttemptDecisionToolPrefilter({
-      config: configWithDecisionAndLabs,
-      userMessage: "Can you explain this function?",
-      threshold: 0.5,
-    });
-
-    expect(result).toEqual({ shouldPruneTools: true });
-  });
-
-  it("fails open when decision provider is unavailable", async () => {
-    mockEvaluateDecision.mockResolvedValueOnce({
-      status: "unavailable",
-      reason: "rate-limited",
-    });
-
-    const result = await evaluateAttemptDecisionToolPrefilter({
-      config: configWithDecisionAndLabs,
-      userMessage: "Hello world",
-    });
-
-    expect(result).toEqual({ shouldPruneTools: false });
-  });
-
-  it("fails open when evaluateDecision throws an ordinary error", async () => {
-    mockEvaluateDecision.mockRejectedValueOnce(new Error("Network timeout"));
-
-    const result = await evaluateAttemptDecisionToolPrefilter({
-      config: configWithDecisionAndLabs,
-      userMessage: "Hello world",
-    });
-
-    expect(result).toEqual({ shouldPruneTools: false });
-  });
-
-  describe("cancellation binding", () => {
-    it("throws immediately when signal is already aborted before evaluation", async () => {
-      const abortController = new AbortController();
-      abortController.abort(new Error("Attempt cancelled"));
-
-      await expect(
-        evaluateAttemptDecisionToolPrefilter({
-          config: configWithDecisionAndLabs,
-          userMessage: "Hello world",
-          signal: abortController.signal,
+  it.each([false, undefined])(
+    "does not dispatch without explicit harness support %s",
+    async (support) => {
+      expect(
+        await evaluateAttemptDecisionToolPrefilter({
+          ...params(),
+          supportsTurnScopedToolRestrictions: support,
         }),
-      ).rejects.toThrow();
-
-      expect(mockEvaluateDecision).not.toHaveBeenCalled();
-    });
-
-    it("rethrows terminal cancellation when signal is aborted during evaluation", async () => {
-      const abortController = new AbortController();
-      mockEvaluateDecision.mockImplementationOnce(async () => {
-        abortController.abort(new Error("Terminal attempt abort"));
-        throw new Error("Evaluation aborted");
+      ).toEqual({ shouldPruneTools: false });
+      expect(mocks.evaluate).not.toHaveBeenCalled();
+    },
+  );
+  it("preserves explicit empty agent override and requires the owning agent", async () => {
+    const cfg = config();
+    cfg.agents!.entries = { quiet: { decisionModel: "" } };
+    for (const agentId of ["quiet", ""]) {
+      expect(await evaluateAttemptDecisionToolPrefilter({ ...params(cfg), agentId })).toEqual({
+        shouldPruneTools: false,
       });
-
-      await expect(
-        evaluateAttemptDecisionToolPrefilter({
-          config: configWithDecisionAndLabs,
-          userMessage: "Hello world",
-          signal: abortController.signal,
-        }),
-      ).rejects.toThrow();
+    }
+    expect(mocks.evaluate).not.toHaveBeenCalled();
+  });
+  it("submits the actual Boolean rubric, trusted owner, signal and runtime deadline", async () => {
+    const input = params();
+    expect(await evaluateAttemptDecisionToolPrefilter(input)).toMatchObject({
+      shouldPruneTools: true,
     });
+    expect(mocks.evaluate).toHaveBeenCalledWith(
+      {
+        state: { userMessage: "Hello" },
+        questions: {
+          any_tool_needed: {
+            type: "boolean",
+            criteria: { true: expect.any(String), false: expect.any(String) },
+          },
+        },
+      },
+      {
+        agentId: "main",
+        purpose: "tool-prefilter.semantic-gate",
+        rubricVersion: "3",
+        timeoutMs: 500,
+        signal: input.signal,
+      },
+      null,
+      input.config,
+    );
+    expect(input.assertActive).toHaveBeenCalledTimes(2);
+  });
+  it.each([0.35, 0.9])("retains tools at probability %s", async (probability) => {
+    mocks.evaluate.mockResolvedValue(answer(probability));
+    expect(await evaluateAttemptDecisionToolPrefilter(params())).toEqual({
+      shouldPruneTools: false,
+    });
+  });
+  it.each(["deadline", "not-configured", "transport"] as const)(
+    "skips ordinary %s unavailability",
+    async (reason) => {
+      mocks.evaluate.mockResolvedValue({ status: "unavailable", reason });
+      expect(await evaluateAttemptDecisionToolPrefilter(params())).toEqual({
+        shouldPruneTools: false,
+      });
+    },
+  );
+  it("never classifies a named explicit decision_evaluate request", async () => {
+    expect(
+      await evaluateAttemptDecisionToolPrefilter({
+        ...params(),
+        userMessage: "Use decision_evaluate on Hello",
+      }),
+    ).toEqual({ shouldPruneTools: false });
+    expect(mocks.evaluate).not.toHaveBeenCalled();
+  });
+  it("rechecks published eligibility at final proposal acceptance", async () => {
+    const cfg = config();
+    setRuntimeConfigSnapshot(cfg);
+    const proposal = await evaluateAttemptDecisionToolPrefilter(params(cfg));
+    expect(proposal.isCurrent?.()).toBe(true);
+    setRuntimeConfigSnapshot(config(false));
+    expect(proposal.isCurrent?.()).toBe(false);
+  });
+  it("does not infer from an empty request", async () => {
+    expect(await evaluateAttemptDecisionToolPrefilter({ ...params(), userMessage: "  " })).toEqual({
+      shouldPruneTools: false,
+    });
+    expect(mocks.evaluate).not.toHaveBeenCalled();
+  });
+  it.each(["opt-out", "model-change"])(
+    "rejects stale pruning after %s publication",
+    async (change) => {
+      const cfg = config();
+      setRuntimeConfigSnapshot(cfg);
+      mocks.evaluate.mockImplementation(async () => {
+        setRuntimeConfigSnapshot(
+          change === "opt-out" ? config(false) : config(true, "fixture/other"),
+        );
+        return answer();
+      });
+      expect(await evaluateAttemptDecisionToolPrefilter(params(cfg))).toEqual({
+        shouldPruneTools: false,
+      });
+    },
+  );
+  it("preserves explicit prepared config scope independently of the global runtime", async () => {
+    setRuntimeConfigSnapshot(config(false));
+    const input = params();
+    expect(await evaluateAttemptDecisionToolPrefilter(input)).toMatchObject({
+      shouldPruneTools: true,
+    });
+    expect(mocks.evaluate.mock.calls[0]?.[3]).toBe(input.config);
+  });
+  it("never dispatches after abort or closed authority", async () => {
+    const input = params();
+    const controller = new AbortController();
+    controller.abort(new Error("cancelled"));
+    await expect(
+      evaluateAttemptDecisionToolPrefilter({ ...input, signal: controller.signal }),
+    ).rejects.toThrow("cancelled");
+    input.assertActive.mockImplementation(() => {
+      throw new Error("closed");
+    });
+    await expect(evaluateAttemptDecisionToolPrefilter(input)).rejects.toThrow("closed");
+    expect(mocks.evaluate).not.toHaveBeenCalled();
+  });
+  it("preserves unexpected contract errors and late owner cancellation", async () => {
+    mocks.evaluate.mockRejectedValueOnce(new Error("contract failure"));
+    await expect(evaluateAttemptDecisionToolPrefilter(params())).rejects.toThrow(
+      "contract failure",
+    );
+    const input = params();
+    mocks.evaluate.mockImplementation(async () => {
+      input.assertActive.mockImplementation(() => {
+        throw new Error("closed");
+      });
+      return answer();
+    });
+    await expect(evaluateAttemptDecisionToolPrefilter(input)).rejects.toThrow("closed");
   });
 });
