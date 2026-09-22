@@ -51,6 +51,30 @@ describe("resolveSlackChannelAllowlist", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
+  it("keeps canonical uppercase ids with a letter second character as ids", async () => {
+    const list = vi.fn();
+    const res = await resolveSlackChannelAllowlist({
+      token: "xoxb-test",
+      entries: ["CA1234567", "channel:GA1234567", "slack:CABCDEFGH"],
+      client: { conversations: { list } } as never,
+    });
+
+    expect(res.map((entry) => entry.id)).toEqual(["CA1234567", "GA1234567", "CABCDEFGH"]);
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("repairs folded digit-second ids to their canonical casing", async () => {
+    const list = vi.fn();
+    const res = await resolveSlackChannelAllowlist({
+      token: "xoxb-test",
+      entries: ["c0ag61apj3b", "channel:g0afbkxs3cp"],
+      client: { conversations: { list } } as never,
+    });
+
+    expect(res.map((entry) => entry.id)).toEqual(["C0AG61APJ3B", "G0AFBKXS3CP"]);
+    expect(list).not.toHaveBeenCalled();
+  });
+
   it("does not misclassify a bare channel name starting with c/g as an id (#155820)", async () => {
     const client = {
       conversations: {

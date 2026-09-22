@@ -20,17 +20,24 @@ export type SlackChannelResolution = {
   archived?: boolean;
 };
 
-// Real Slack channel/group ids fold to <C|G><digit><alphanumerics>, at least 9 characters
-// total. A bare name that happens to start with "c" or "g" (e.g. "general") never has a digit
-// second character, so this cannot misclassify it as an id the way the previous unbounded
-// `[CG][A-Z0-9]+` pattern did (openclaw/openclaw#155820).
+// Two id shapes, mirroring SLACK_CANONICAL_CHANNEL_ID_RE / SLACK_LOWERCASE_CHANNEL_ID_RE in
+// doctor.ts (keep them in sync):
+//
+// - Canonical: already-uppercase <C|G> followed by 8+ alphanumerics (9+ characters total), any
+//   second character (e.g. "CA1234567"). Slack channel names are always lowercase, so case alone
+//   rules out a name collision here.
+// - Folded: a lowercased id is ambiguous with a name, so it only counts as an id when the second
+//   character is a digit (e.g. "c0abcdefg", 9+ characters total). Case-insensitive so mixed-case
+//   copy-pastes still resolve. A bare name like "general" matches neither shape, which the
+//   previous unbounded `[CG][A-Z0-9]+` pattern got wrong (openclaw/openclaw#155820).
 //
 // "D" (Slack DM conversation ids) is deliberately excluded: `channels.slack.channels` only
 // configures channel and group rooms, and a DM id here is a misconfiguration that doctor.ts's
 // looksLikeSlackDmId() already warns about, pointing the user at `dmPolicy`/`allowFrom` instead.
 // Accepting it as a resolvable id would make this resolver report success on an entry Doctor
 // says belongs somewhere else, without fixing the actual misconfiguration.
-const SLACK_CHANNEL_OR_GROUP_ID_RE = /^[CG][0-9][A-Z0-9]{6,}$/i;
+const SLACK_CANONICAL_CHANNEL_ID_RE = /^[CG][A-Z0-9]{8,}$/;
+const SLACK_FOLDED_CHANNEL_ID_RE = /^[cg][0-9][a-z0-9]{7,}$/i;
 
 function parseSlackChannelMention(raw: string): { id?: string; name?: string } {
   const trimmed = raw.trim();
@@ -44,7 +51,7 @@ function parseSlackChannelMention(raw: string): { id?: string; name?: string } {
     return { id, name };
   }
   const prefixed = trimmed.replace(/^(slack:|channel:)/i, "");
-  if (SLACK_CHANNEL_OR_GROUP_ID_RE.test(prefixed)) {
+  if (SLACK_CANONICAL_CHANNEL_ID_RE.test(prefixed) || SLACK_FOLDED_CHANNEL_ID_RE.test(prefixed)) {
     return { id: prefixed.toUpperCase() };
   }
   const name = prefixed.replace(/^#/, "").trim();
