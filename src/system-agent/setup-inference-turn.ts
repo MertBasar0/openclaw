@@ -17,7 +17,7 @@ import { loadAgentRuntimePluginRegistryHandle } from "../agents/runtime-plugins.
 import { SessionManager } from "../agents/sessions/index.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
-import { clearAgentRunContext, registerAgentRunContext } from "../infra/agent-run-registry.js";
+import { clearAgentRunContext } from "../infra/agent-run-registry.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { loadInstalledPluginIndexInstallRecordsSync } from "../plugins/installed-plugin-index-record-reader.js";
 import { loadInstalledPluginIndex } from "../plugins/installed-plugin-index.js";
@@ -53,6 +53,7 @@ import {
   type VerifySetupInferenceResult,
 } from "./setup-inference-core.js";
 import {
+  registerHiddenSetupInferenceProbeRun,
   runSetupInferenceProbeWork,
   SETUP_INFERENCE_TEST_MAX_TOKENS,
   type SetupTurnFailure,
@@ -149,14 +150,7 @@ export async function runSetupInferenceTurn(params: {
     if (params.signal?.aborted) {
       throw new SetupInferenceCancelledError();
     }
-    registerAgentRunContext(runId, {
-      agentId: route.agentId,
-      sessionKey,
-      isControlUiVisible: false,
-      projectSessionActive: false,
-      projectSessionLifecycle: false,
-      projectSessionMessages: false,
-    });
+    registerHiddenSetupInferenceProbeRun(runId, route.agentId, sessionKey);
     const cliError = await resolveToolFreeCliSetupError(route);
     if (cliError) {
       return failed("unavailable", cliError);
@@ -229,13 +223,11 @@ export async function runSetupInferenceTurn(params: {
         "Inference succeeded, but its runtime did not report an owner that OpenClaw can safely reuse.",
       );
     }
-    const auth: AgentExecutionAuthBinding =
-      successfulAuth ?? (route.authProfileId ? { authProfileId: route.authProfileId } : {});
     return {
       ok: true,
       latencyMs: Date.now() - started,
       text,
-      auth,
+      auth: successfulAuth ?? (route.authProfileId ? { authProfileId: route.authProfileId } : {}),
     };
   } catch (error) {
     const described = describeFailoverError(error);
