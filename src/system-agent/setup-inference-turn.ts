@@ -17,6 +17,7 @@ import { loadAgentRuntimePluginRegistryHandle } from "../agents/runtime-plugins.
 import { SessionManager } from "../agents/sessions/index.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
+import { clearAgentRunContext, registerAgentRunContext } from "../infra/agent-run-registry.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { loadInstalledPluginIndexInstallRecordsSync } from "../plugins/installed-plugin-index-record-reader.js";
 import { loadInstalledPluginIndex } from "../plugins/installed-plugin-index.js";
@@ -64,15 +65,6 @@ import {
 
 const SETUP_INFERENCE_TEST_MAX_TOKENS = 256;
 
-type SetupTurnFailure = { ok: false; status: SetupInferenceFailureStatus; error: string };
-
-type SetupTurnSuccess = {
-  ok: true;
-  latencyMs: number;
-  text: string;
-  auth: AgentExecutionAuthBinding;
-};
-
 /**
  * Runs one bounded, tool-free turn through the exact configured route. The turn is evidence,
  * never a mutation: auth state stays read-only and the prepared runtime stays isolated so a
@@ -85,7 +77,7 @@ export async function runSetupInferenceTurn(params: {
   requireExecutionOwner: boolean;
   signal?: AbortSignal;
   runtime?: RuntimeEnv;
-}): Promise<SetupTurnSuccess | SetupTurnFailure> {
+}) {
   const { route, deps } = params;
   // Probe ids stay under OpenAI's 64-char session cap and match the command-lane log filters.
   const runId = `probe-setup-inference-${randomUUID()}`;
@@ -96,7 +88,7 @@ export async function runSetupInferenceTurn(params: {
   const workspaceDir = await (
     deps.createTempDir ?? (() => fs.mkdtemp(path.join(os.tmpdir(), "openclaw-setup-inference-")))
   )();
-  const failed = (status: SetupInferenceFailureStatus, error: string): SetupTurnFailure => {
+  const failed = (status: SetupInferenceFailureStatus, error: string) => {
     setupInferenceLog.warn("Inference setup probe failed.", {
       event: "setup_inference_probe_failed",
       provider: route.provider,
@@ -109,7 +101,7 @@ export async function runSetupInferenceTurn(params: {
       durationMs: Date.now() - started,
     });
     return {
-      ok: false,
+      ok: false as const,
       status,
       error:
         status === "timeout"
@@ -143,6 +135,7 @@ export async function runSetupInferenceTurn(params: {
     messageChannel: "openclaw",
     messageProvider: "openclaw",
     disableTools: true,
+    ...(route.authProfileId ? { authProfileId: route.authProfileId } : {}),
     onSuccessfulAuthBinding: (binding: AgentExecutionAuthBinding) => {
       successfulAuth = binding;
     },
@@ -152,6 +145,14 @@ export async function runSetupInferenceTurn(params: {
     if (params.signal?.aborted) {
       throw new SetupInferenceCancelledError();
     }
+    registerAgentRunContext(runId, {
+      agentId: route.agentId,
+      sessionKey,
+      isControlUiVisible: false,
+      projectSessionActive: false,
+      projectSessionLifecycle: false,
+      projectSessionMessages: false,
+    });
     const cliError = await resolveToolFreeCliSetupError(route);
     if (cliError) {
       return failed("unavailable", cliError);
@@ -165,7 +166,6 @@ export async function runSetupInferenceTurn(params: {
       const runCli = deps.runCliAgent ?? (await import("../agents/cli-runner.js")).runCliAgent;
       result = await runCli({
         ...shared,
-        ...(route.authProfileId ? { authProfileId: route.authProfileId } : {}),
         executionMode: "side-question",
         cleanupCliLiveSessionOnRunEnd: true,
       });
@@ -177,9 +177,7 @@ export async function runSetupInferenceTurn(params: {
         ...shared,
         // The probe owns its transcript; session admission must not create durable agent state.
         sessionPersistence: "detached",
-        ...(route.authProfileId
-          ? { authProfileId: route.authProfileId, authProfileIdSource: "user" as const }
-          : {}),
+        ...(route.authProfileId ? { authProfileIdSource: "user" as const } : {}),
         authProfileStateMode: "read-only",
         allowAuthProfileFallback: false,
         preparedModelRuntimeMode: "isolated-read-only",
@@ -202,8 +200,7 @@ export async function runSetupInferenceTurn(params: {
     }
     const terminalError = extractAgentRunTerminalError(result);
     if (terminalError) {
-      const described = describeFailoverError(new Error(terminalError));
-      return failed(mapFailoverReasonToSetupStatus(described.reason), described.message);
+      throw new Error(terminalError);
     }
     const text = extractAgentRunText(result)?.trim();
     if (!text) {
@@ -228,17 +225,20 @@ export async function runSetupInferenceTurn(params: {
         "Inference succeeded, but its runtime did not report an owner that OpenClaw can safely reuse.",
       );
     }
+    const auth: AgentExecutionAuthBinding =
+      successfulAuth ?? (route.authProfileId ? { authProfileId: route.authProfileId } : {});
     return {
-      ok: true,
+      ok: true as const,
       latencyMs: Date.now() - started,
       text,
-      auth: successfulAuth ?? (route.authProfileId ? { authProfileId: route.authProfileId } : {}),
+      auth,
     };
   } catch (error) {
     const described = describeFailoverError(error);
     return failed(mapFailoverReasonToSetupStatus(described.reason), described.message);
   } finally {
     preparedRunAdmission.close();
+    clearAgentRunContext(runId);
     try {
       await (deps.removeTempDir ?? ((dir: string) => fs.rm(dir, { recursive: true, force: true })))(
         workspaceDir,
