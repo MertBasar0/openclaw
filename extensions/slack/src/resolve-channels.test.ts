@@ -63,30 +63,21 @@ describe("resolveSlackChannelAllowlist", () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it("repairs folded digit-second ids to their canonical casing", async () => {
-    const list = vi.fn();
-    const res = await resolveSlackChannelAllowlist({
-      token: "xoxb-test",
-      entries: ["c0ag61apj3b", "channel:g0afbkxs3cp"],
-      client: { conversations: { list } } as never,
-    });
-
-    expect(res.map((entry) => entry.id)).toEqual(["C0AG61APJ3B", "G0AFBKXS3CP"]);
-    expect(list).not.toHaveBeenCalled();
-  });
-
   it("does not misclassify a bare channel name starting with c/g as an id (#155820)", async () => {
     const client = {
       conversations: {
         list: vi.fn().mockResolvedValue({
-          channels: [{ id: "C0AG61APJ3B", name: "general", is_archived: false }],
+          channels: [
+            { id: "C0AG61APJ3B", name: "general", is_archived: false },
+            { id: "C01234567", name: "c0ag61apj3b", is_archived: false },
+          ],
         }),
       },
     };
 
     const res = await resolveSlackChannelAllowlist({
       token: "xoxb-test",
-      entries: ["general"],
+      entries: ["general", "c0ag61apj3b"],
       client: client as never,
     });
 
@@ -98,6 +89,7 @@ describe("resolveSlackChannelAllowlist", () => {
       name: "general",
       archived: false,
     });
+    expect(res[1]).toMatchObject({ resolved: true, id: "C01234567" });
   });
 
   it("keeps a Slack DM conversation id unresolved instead of accepting it as a channel id", async () => {
