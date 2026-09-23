@@ -519,5 +519,149 @@ describe("vercel ai gateway decision provider", () => {
     });
     // Invariant: no network request leaves the process when credential is withdrawn
     expect(globalThis.fetch).not.toHaveBeenCalled();
+
+    // 3. Prepared credential changes during transport preparation -> unavailable before network dispatch
+    vi.mocked(globalThis.fetch).mockClear();
+    let currentPrepared = { revision: 1, value: "initial-token" };
+    vi.mocked(getPreparedPluginSecretInput).mockImplementation(() => currentPrepared);
+
+    // After initial entry read, withdraw credential before network dispatch occurs
+    let evaluateStarted = false;
+    vi.mocked(getPreparedPluginSecretInput).mockImplementation(() => {
+      if (evaluateStarted) {
+        return { revision: 2, value: undefined };
+      }
+      evaluateStarted = true;
+      return { revision: 1, value: "initial-token" };
+    });
+
+    const midFlightWithdrawnOutcome = await registeredProvider!.evaluate(
+      checkBatch,
+      createContext(),
+    );
+    expect(midFlightWithdrawnOutcome).toEqual({
+      status: "unavailable",
+      reason: "credentials-unavailable",
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("revalidates credentials immediately before network dispatch and rejects stale credentials", async () => {
+    let callCount = 0;
+    let currentConfig: { apiKey?: string; revision?: number } = {
+      apiKey: "key-v1",
+      revision: 1,
+    };
+    const provider = createVercelAiGatewayDecisionProvider(() => {
+      callCount++;
+      return currentConfig;
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          answers: {
+            bool_q: { type: "boolean", probability: 0.5 },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const checkBatch: DecisionBatch = {
+      state: {},
+      questions: {
+        bool_q: { type: "boolean", instructions: "Check" },
+      },
+    };
+
+    // Case 1: Key withdrawn before dispatch (inside beforeRequest)
+    // First read gets key-v1, second read (in beforeRequest) sees withdrawn
+    let evaluateStep = 0;
+    const withdrawingProvider = createVercelAiGatewayDecisionProvider(() => {
+      evaluateStep++;
+      if (evaluateStep === 1) {
+        return { apiKey: "key-v1", revision: 1 };
+      }
+      return { apiKey: undefined, revision: 2 };
+    });
+
+    const withdrawnOutcome = await withdrawingProvider.evaluate(checkBatch, createContext());
+    expect(withdrawnOutcome).toEqual({
+      status: "unavailable",
+      reason: "credentials-unavailable",
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+
+    // Case 2: Key replaced with another key before dispatch
+    evaluateStep = 0;
+    const replacingProvider = createVercelAiGatewayDecisionProvider(() => {
+      evaluateStep++;
+      if (evaluateStep === 1) {
+        return { apiKey: "key-v1", revision: 1 };
+      }
+      return { apiKey: "key-v2", revision: 2 };
+    });
+
+    const replacedOutcome = await replacingProvider.evaluate(checkBatch, createContext());
+    expect(replacedOutcome).toEqual({
+      status: "unavailable",
+      reason: "credentials-unavailable",
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+
+    // Case 3: Revision incremented before dispatch even if key string is same
+    evaluateStep = 0;
+    const revisionChangedProvider = createVercelAiGatewayDecisionProvider(() => {
+      evaluateStep++;
+      if (evaluateStep === 1) {
+        return { apiKey: "key-v1", revision: 1 };
+      }
+      return { apiKey: "key-v1", revision: 2 };
+    });
+
+    const revisionOutcome = await revisionChangedProvider.evaluate(checkBatch, createContext());
+    expect(revisionOutcome).toEqual({
+      status: "unavailable",
+      reason: "credentials-unavailable",
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves __proto__ as an own answer key without prototype pollution", async () => {
+    const protoBatch: DecisionBatch = {
+      state: { evidence: "test __proto__ key" },
+      questions: {
+        ["__proto__"]: { type: "boolean", instructions: "Proto question" },
+      },
+    };
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          answers: JSON.parse('{"__proto__": {"type": "boolean", "probability": 0.95}}'),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+    const outcome = await provider.evaluate(protoBatch, createContext());
+
+    expect(outcome.status).toBe("ok");
+    if (outcome.status === "ok") {
+      const answers = outcome.result.answers;
+      // Invariant: __proto__ must be an own property, not prototype setter
+      expect(Object.hasOwn(answers, "__proto__")).toBe(true);
+      expect(Object.keys(answers)).toEqual(["__proto__"]);
+      expect(answers["__proto__"]).toEqual({
+        type: "boolean",
+        probabilityTrue: 0.95,
+      });
+      // Invariant: Object.prototype must not be polluted
+      expect(
+        (Object.prototype as unknown as Record<string, unknown>).probabilityTrue,
+      ).toBeUndefined();
+    }
   });
 });

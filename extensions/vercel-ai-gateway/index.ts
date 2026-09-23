@@ -39,6 +39,7 @@ export default defineSingleProviderPluginEntry({
         const prepared = getPreparedPluginSecretInput(PROVIDER_ID, "apiKey");
         return {
           apiKey: prepared.value,
+          revision: prepared.revision,
         };
       }),
     );

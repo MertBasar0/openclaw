@@ -18,9 +18,17 @@ const DEFAULT_DECISION_MODEL = "typesafe-ai/jev";
 
 export type VercelAiGatewayDecisionConfig = {
   apiKey?: string;
+  revision?: number;
   baseUrl?: string;
   timeoutMs?: number;
 };
+
+class CredentialUnavailableError extends Error {
+  constructor(message = "Credentials unavailable") {
+    super(message);
+    this.name = "CredentialUnavailableError";
+  }
+}
 
 type VercelEvaluationRawAnswer =
   | {
@@ -63,6 +71,7 @@ export function createVercelAiGatewayDecisionProvider(
 
       const config = getConfig();
       const apiKey = config.apiKey;
+      const initialRevision = config.revision;
       if (!apiKey) {
         return { status: "unavailable", reason: "credentials-unavailable" };
       }
@@ -102,11 +111,28 @@ export function createVercelAiGatewayDecisionProvider(
         providerOptions: {},
       });
 
+      const assertCurrentCredentials = () => {
+        context.signal.throwIfAborted();
+        const current = getConfig();
+        if (
+          !current.apiKey ||
+          current.apiKey !== apiKey ||
+          (initialRevision !== undefined && current.revision !== initialRevision)
+        ) {
+          throw new CredentialUnavailableError(
+            "Credentials withdrawn or modified prior to dispatch",
+          );
+        }
+      };
+
       try {
+        assertCurrentCredentials();
+
         const guarded = await fetchWithSsrFGuard(
           withTrustedEnvProxyGuardedFetchMode({
             url: endpoint,
             fetchImpl: globalThis.fetch,
+            beforeRequest: assertCurrentCredentials,
             init: {
               method: "POST",
               headers: {
@@ -174,18 +200,25 @@ export function createVercelAiGatewayDecisionProvider(
           return { status: "unavailable", reason: "invalid-response" };
         }
 
-        const confidenceMap = data.providerMetadata?.typesafe?.confidence ?? {};
-        const answers: Record<string, DecisionBatchResult["answers"][string]> = {};
+        const confidenceMap = data.providerMetadata?.typesafe?.confidence;
+        const answers: Record<string, DecisionBatchResult["answers"][string]> = Object.create(null);
 
         for (const [id, question] of Object.entries(batch.questions)) {
+          if (!data.answers || !Object.hasOwn(data.answers, id)) {
+            return { status: "unavailable", reason: "invalid-response" };
+          }
           const rawAnswer = data.answers[id];
           if (!rawAnswer || typeof rawAnswer !== "object" || rawAnswer.type !== question.type) {
             return { status: "unavailable", reason: "invalid-response" };
           }
 
-          const confidence =
-            typeof confidenceMap[id] === "number" && Number.isFinite(confidenceMap[id])
+          const confidenceVal =
+            confidenceMap && typeof confidenceMap === "object" && Object.hasOwn(confidenceMap, id)
               ? confidenceMap[id]
+              : undefined;
+          const confidence =
+            typeof confidenceVal === "number" && Number.isFinite(confidenceVal)
+              ? confidenceVal
               : undefined;
 
           if (question.type === "boolean") {
@@ -263,6 +296,9 @@ export function createVercelAiGatewayDecisionProvider(
             }
             const probabilities: number[] = [];
             for (let i = 0; i < question.criteria.length; i++) {
+              if (!Object.hasOwn(probsRecord, String(i))) {
+                return { status: "unavailable", reason: "invalid-response" };
+              }
               const val = probsRecord[String(i)];
               if (typeof val !== "number" || !Number.isFinite(val) || val < 0 || val > 1) {
                 return { status: "unavailable", reason: "invalid-response" };
@@ -309,8 +345,11 @@ export function createVercelAiGatewayDecisionProvider(
             ...(usage ? { usage } : {}),
           },
         };
-      } catch {
+      } catch (error) {
         context.signal.throwIfAborted();
+        if (error instanceof CredentialUnavailableError) {
+          return { status: "unavailable", reason: "credentials-unavailable" };
+        }
         return { status: "unavailable", reason: "transport" };
       } finally {
         cleanup();
