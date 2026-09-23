@@ -298,6 +298,88 @@ describe("vercel ai gateway decision provider", () => {
     expect(outcome).toEqual({ status: "unavailable", reason: "invalid-response" });
   });
 
+  it("rejects an oversized response as invalid-response without reading all of it", async () => {
+    // Well-formed answers padded past the 4 MiB bound: only the size makes this response invalid.
+    const encoded = new TextEncoder().encode(
+      JSON.stringify({
+        answers: {
+          bool_q: { type: "boolean", probability: 0.12 },
+          choice_q: {
+            type: "choice",
+            choice: "opt_a",
+            probabilities: { opt_a: 0.85, opt_b: 0.15 },
+          },
+          score_q: {
+            type: "score",
+            score: 2,
+            probabilities: { "0": 0.05, "1": 0.25, "2": 0.7 },
+          },
+        },
+        providerMetadata: { padding: "x".repeat(6 * 1024 * 1024) },
+      }),
+    );
+    const chunkBytes = 256 * 1024;
+    let offset = 0;
+    let cancelled = false;
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (offset >= encoded.byteLength) {
+              controller.close();
+              return;
+            }
+            controller.enqueue(encoded.subarray(offset, offset + chunkBytes));
+            offset += chunkBytes;
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+    const outcome = await provider.evaluate(batch, createContext());
+
+    expect(outcome).toEqual({ status: "unavailable", reason: "invalid-response" });
+    expect(cancelled).toBe(true);
+    expect(offset).toBeLessThan(encoded.byteLength);
+  });
+
+  it("classifies malformed JSON in a successful response as invalid-response", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('{"answers": {"bool_q": ', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+    const outcome = await provider.evaluate(batch, createContext());
+
+    expect(outcome).toEqual({ status: "unavailable", reason: "invalid-response" });
+  });
+
+  it("keeps a response body read failure classified as transport", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            controller.error(new Error("connection reset"));
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+    const outcome = await provider.evaluate(batch, createContext());
+
+    expect(outcome).toEqual({ status: "unavailable", reason: "transport" });
+  });
+
   it("handles 401 and 403 as authentication failure", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 }));
 

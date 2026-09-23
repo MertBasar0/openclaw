@@ -7,6 +7,7 @@ import type {
 } from "openclaw/plugin-sdk/decisions";
 import { buildTimeoutAbortSignal } from "openclaw/plugin-sdk/extension-shared";
 import { withTrustedEnvProxyGuardedFetchMode } from "openclaw/plugin-sdk/fetch-runtime";
+import { readResponseWithLimit } from "openclaw/plugin-sdk/response-limit-runtime";
 import { parseRetryAfterHeaderSeconds } from "openclaw/plugin-sdk/retry-runtime";
 import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 import { VERCEL_AI_GATEWAY_BASE_URL } from "./models.js";
@@ -14,6 +15,8 @@ import { VERCEL_AI_GATEWAY_BASE_URL } from "./models.js";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_CHOICE_OPTIONS = 255;
 const MAX_SCORE_LEVELS = 10;
+// Same bound as the TypeSafe transport; the reader stops at the limit instead of buffering the rest.
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const DEFAULT_DECISION_MODEL = "typesafe-ai/jev";
 
 export type VercelAiGatewayDecisionConfig = {
@@ -27,6 +30,13 @@ class CredentialUnavailableError extends Error {
   constructor(message = "Credentials unavailable") {
     super(message);
     this.name = "CredentialUnavailableError";
+  }
+}
+
+class InvalidResponseError extends Error {
+  constructor(message = "Invalid Vercel AI Gateway evaluation response") {
+    super(message);
+    this.name = "InvalidResponseError";
   }
 }
 
@@ -147,7 +157,7 @@ export function createVercelAiGatewayDecisionProvider(
           }),
         );
 
-        let data: VercelEvaluationResponseBody | undefined;
+        let body: Buffer | undefined;
         let responseStatus: number;
         let responseOk: boolean;
         let retryAfterHeader: string | null;
@@ -159,8 +169,11 @@ export function createVercelAiGatewayDecisionProvider(
           retryAfterHeader = response.headers.get("retry-after");
 
           if (responseOk) {
-            // SAFETY: parsed JSON conforms to VercelEvaluationResponseBody and fields are validated at runtime before use.
-            data = (await response.json()) as VercelEvaluationResponseBody;
+            body = await readResponseWithLimit(response, MAX_RESPONSE_BYTES, {
+              signal,
+              onOverflow: () =>
+                new InvalidResponseError("Vercel AI Gateway evaluation response exceeds its limit"),
+            });
           } else {
             await response.body?.cancel();
           }
@@ -188,6 +201,14 @@ export function createVercelAiGatewayDecisionProvider(
         }
 
         context.signal.throwIfAborted();
+
+        let data: VercelEvaluationResponseBody | undefined;
+        try {
+          // Parsed JSON is untrusted; every field below is validated before use.
+          data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
+        } catch {
+          return { status: "unavailable", reason: "invalid-response" };
+        }
 
         if (
           !data ||
@@ -347,6 +368,9 @@ export function createVercelAiGatewayDecisionProvider(
         context.signal.throwIfAborted();
         if (error instanceof CredentialUnavailableError) {
           return { status: "unavailable", reason: "credentials-unavailable" };
+        }
+        if (error instanceof InvalidResponseError) {
+          return { status: "unavailable", reason: "invalid-response" };
         }
         return { status: "unavailable", reason: "transport" };
       } finally {
