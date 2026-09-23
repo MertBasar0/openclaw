@@ -77,7 +77,7 @@ describe("resolveSlackChannelAllowlist", () => {
 
     const res = await resolveSlackChannelAllowlist({
       token: "xoxb-test",
-      entries: ["general", "c0ag61apj3b"],
+      entries: ["general", "c0ag61apj3b", "#c0ag61apj3b"],
       client: client as never,
     });
 
@@ -89,7 +89,8 @@ describe("resolveSlackChannelAllowlist", () => {
       name: "general",
       archived: false,
     });
-    expect(res[1]).toMatchObject({ resolved: true, id: "C01234567" });
+    expect(res[1]).toMatchObject({ resolved: true, id: "C0AG61APJ3B" });
+    expect(res[2]).toMatchObject({ resolved: true, id: "C01234567" });
   });
 
   it("keeps a Slack DM conversation id unresolved instead of accepting it as a channel id", async () => {

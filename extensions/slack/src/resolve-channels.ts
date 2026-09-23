@@ -32,8 +32,8 @@ function parseSlackChannelMention(raw: string): { id?: string; name?: string } {
     return { id, name };
   }
   const prefixed = trimmed.replace(/^(slack:|channel:)/i, "");
-  if (/^[CG][A-Z0-9]+$/.test(prefixed)) {
-    return { id: prefixed };
+  if (/^[CG][A-Z0-9]{8,}$/.test(prefixed) || /^[cg][0-9][a-z0-9]{7,}$/i.test(prefixed)) {
+    return { id: prefixed.toUpperCase() };
   }
   const name = prefixed.replace(/^#/, "").trim();
   return name ? { name } : {};
