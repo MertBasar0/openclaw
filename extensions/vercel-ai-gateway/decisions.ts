@@ -126,8 +126,6 @@ export function createVercelAiGatewayDecisionProvider(
       };
 
       try {
-        assertCurrentCredentials();
-
         const guarded = await fetchWithSsrFGuard(
           withTrustedEnvProxyGuardedFetchMode({
             url: endpoint,
