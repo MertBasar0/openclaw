@@ -24,10 +24,18 @@ import type {
 import type { TaskDeliveryState, TaskRecord, TaskRuntime } from "./task-registry.types.js";
 import type { TaskRunOwner } from "./task-run-owner.types.js";
 
+export type TaskRegistryReadIdentity =
+  | "preserved"
+  | {
+      kind: "creation";
+      taskId: string;
+      runId?: string;
+    };
+
 export type PendingTaskRegistryMutation = {
   scope: TaskRegistryMutationScope;
   readEventTarget?: () => TaskAgentEventTarget | undefined;
-  readIdentity?: "preserved";
+  readIdentity?: TaskRegistryReadIdentity;
   readSettlement?: {
     databaseKey: string;
     store: TaskExecutionRestoreStore;
@@ -147,6 +155,7 @@ type TaskRegistryProcessState = {
     mutationDepth: number;
     pending: Set<PendingTaskRegistryMutation>;
     readTail?: Promise<void>;
+    mutationTail?: Promise<void>;
     dirtyScopes: Set<TaskRegistryMutationScope>;
   };
 };

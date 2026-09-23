@@ -130,16 +130,16 @@ Current-target `build-artifacts` uses the existing 16-class. A [controlled Testb
 
 Existing recommendation-based promotions from the 8-class remain for `checks-node-compact-large-5` and `checks-node-compact-large-9`. Extension bundles follow the planner's runner metadata: the former bundle-16/bundle-25 overrides would attach old recommendations to different work after compaction. The former 32-to-16 overrides for `checks-node-compact-small-3`, `checks-node-compact-small-4`, and `checks-node-compact-small-10` are removed so these rows retain their planner-owned parallel or tooling capacity. Numbered bins can contain different work across profiles and revisions; the retained compact recommendations use a 24-hour window and still need ownership-based replacement when those bins change. A later recommendation identified CPU saturation for `build-artifacts` on the 16-class. Current complete-job duration and memory headroom still need measurement; the earlier controlled proof retains its original source scope.
 
-Eligible `checks-ui-e2e-real-gateway` jobs retain their planned 32-class. Their
-private artifact build overlaps canonical SDK cache misses only when measured
-capacity permits it. Each compiler keeps
-its 12-GiB heap: overlap requires at least two available CPUs and 25.5 GiB of
-observed remaining capacity, including 768 MiB of native headroom per compiler.
-An unknown finite-cgroup usage value or insufficient capacity keeps compilation
-serial. The requested label does not establish those facts. Browser workers,
-test inventory, build-before-test ordering, hosted fallbacks, and job
-count are unchanged; this placement adds no runner registrations. Compiler-only
-measurements do not establish CI timing; exact-head CI must measure the complete job.
+Eligible `checks-ui-e2e-real-gateway` rows retain their planned 32-class. The
+planner balances serial fixtures and audited parallel standalone files in the
+first row; the second owns the remaining parallel files. The first row also owns
+the desktop transport proof when selected by full manual/release validation or
+a direct desktop-spec edit. Both rows retain their existing worker limits, build-before-test
+ordering, hosted fallbacks, and test deadlines. Runtime-only preparation leaves
+SDK declaration generation and validation with `build-artifacts`. The split adds
+one job and possible registration when the lane is selected, while ordinary PRs
+continue to omit it. Runner labels and backend routing are unchanged. Exact-head
+CI measures complete row walls, including setup and transport proof.
 
 The 32-class restores capacity for the unchanged 20-minute Blacksmith budget.
 In [run 35120538555](https://github.com/openclaw/openclaw/actions/runs/35120538555/job/104877350907),
@@ -293,7 +293,9 @@ Hosted `ci.yml` paths use the same setup exercised by manual dispatches and fork
 
 The `agents-sessions` graph owns the complete `src/agents/sessions/` and `src/config/sessions/` test subtrees, keeping session runtime and storage tests together. The `agents-tools` graph also owns shell/tool tests, nested sandbox tests, managed-worktree tests, and the complete security and secrets test subtrees. The `config-cli` graph owns configuration, hook, and CLI tests except the separately owned session, daemon, cron, program, and update subtrees. The `cli-update` graph owns `src/cli/update-cli/` and root `src/cli/update*.test.ts(x)` tests; `commands` owns `src/cli/program/`. Root-level Gateway session tests belong to `gateway-root`; `gateway-server` owns root-level `server*.test.ts(x)` tests and the complete `src/gateway/server/` test subtree. The `gateway-methods` graph owns `src/gateway/server-methods/`; `gateway-other` owns `src/gateway/worker-environments/` and the remaining nested Gateway tests. The `infra` graph owns infrastructure and media tests; `state-logging` owns audit, state, logging, and shared tests. The `plugin-sdk` graph owns the complete `src/plugin-sdk/` and `src/channels/` test subtrees; `messaging` owns auto-reply and outbound infrastructure tests. The `services` graph owns daemon CLI, cron CLI (the nested `src/cli/cron-cli/` tests and root `src/cli/cron*.test.ts(x)` tests), cron, daemon, heartbeat, process, skills, and infrastructure update tests. New graph splits are appended to the canonical registry so existing stripe assignments stay stable. The core-test boundary guard requires every test root exactly once across the canonical graphs, with at most 720 roots per graph. The inventory regression test requires at most 700 roots per graph so rebalancing happens before a shard reaches the hard cap. The graphs keep their existing stripe assignments and compiler concurrency; moved tests follow their new graph's stripe. Changed-test selection still checks every consuming graph.
 
-Android Play and ThirdParty unit/lint pairs keep separate Gradle processes but capture one UTC build timestamp for both commands through the existing `openclawBuildTimestamp` property. Reusing that instant avoids regenerating `BuildConfig` solely because lint starts later. Unit-only compatibility tasks and other Android rows retain their existing metadata behavior; task coverage, failure ordering, memory settings, and job budgets are unchanged.
+Android Play and ThirdParty rows run their unit tests. In the normal four-row tier, Wear also owns third-party app lint, while the Kotlin-lint row owns Play app and Wear-shared lint. Every row keeps separate, sequential Gradle processes and shares one UTC build timestamp through the existing `openclawBuildTimestamp` property when it has multiple native invocations, avoiding `BuildConfig` regeneration solely because a later command starts. Phone test classes on Blacksmith run in at most two isolated JVMs, bounded by available processors, with the existing 1 GiB heap per JVM. Classes remain sequential within each JVM; hosted tests keep one JVM. Full manual and historical compatibility task inventories are unchanged.
+
+Task-scoped Blacksmith sticky disks retain the Gradle user home across dependency changes. Gradle owns content-addressed invalidation and periodic expiry of unused caches and wrapper distributions; CI does not erase the warm home when a dependency fingerprint changes. Protected pushes remain the only snapshot writers, and pull requests consume read-only clones. Dependency resolution remains online so a changed dependency or cold snapshot can populate missing artifacts.
 
 On hosts with less than 24 GiB RAM, serial plugin lint runs use eight-directory chunks by default. Automatic Linux CI uses sixteen-directory chunks with at least four CPUs and 15 GiB of verified physical and cgroup memory capacity, including ancestor limits. Unknown or smaller capacity, local runs, Windows, explicit plugin stripes, and explicit serial selections retain eight-directory chunks. This amortizes repeated type-graph startup while covering every plugin and root source file. Outside Windows, explicit full-speed or parallel overrides keep the previous unsplit workload. The Windows chunk-size override remains Windows-only. Lint prepares only the SDK declaration tree; the separate package TypeScript boundary check still prepares the SDK and plugin declarations.
 
