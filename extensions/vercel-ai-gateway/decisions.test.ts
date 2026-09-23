@@ -522,8 +522,6 @@ describe("vercel ai gateway decision provider", () => {
 
     // 3. Prepared credential changes during transport preparation -> unavailable before network dispatch
     vi.mocked(globalThis.fetch).mockClear();
-    let currentPrepared = { revision: 1, value: "initial-token" };
-    vi.mocked(getPreparedPluginSecretInput).mockImplementation(() => currentPrepared);
 
     // After initial entry read, withdraw credential before network dispatch occurs
     let evaluateStarted = false;
@@ -547,16 +545,6 @@ describe("vercel ai gateway decision provider", () => {
   });
 
   it("revalidates credentials immediately before network dispatch and rejects stale credentials", async () => {
-    let callCount = 0;
-    let currentConfig: { apiKey?: string; revision?: number } = {
-      apiKey: "key-v1",
-      revision: 1,
-    };
-    const provider = createVercelAiGatewayDecisionProvider(() => {
-      callCount++;
-      return currentConfig;
-    });
-
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -654,7 +642,7 @@ describe("vercel ai gateway decision provider", () => {
       // Invariant: __proto__ must be an own property, not prototype setter
       expect(Object.hasOwn(answers, "__proto__")).toBe(true);
       expect(Object.keys(answers)).toEqual(["__proto__"]);
-      expect(answers["__proto__"]).toEqual({
+      expect(Object.getOwnPropertyDescriptor(answers, "__proto__")?.value).toEqual({
         type: "boolean",
         probabilityTrue: 0.95,
       });
