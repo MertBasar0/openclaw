@@ -93,6 +93,32 @@ describe("resolveSlackChannelAllowlist", () => {
     expect(res[2]).toMatchObject({ resolved: true, id: "C01234567" });
   });
 
+  it("keeps folded letter-second ids as ids when a namesake channel exists", async () => {
+    const client = {
+      conversations: {
+        list: vi.fn().mockResolvedValue({
+          channels: [
+            { id: "C0AG61APJ3B", name: "general", is_archived: false },
+            { id: "C09876543", name: "ca1234567", is_archived: false },
+          ],
+        }),
+      },
+    };
+
+    const res = await resolveSlackChannelAllowlist({
+      token: "xoxb-test",
+      entries: ["general", "ca1234567", "channel:ga1234567", "#ca1234567"],
+      client: client as never,
+    });
+
+    expect(res.map((entry) => entry.id)).toEqual([
+      "C0AG61APJ3B",
+      "CA1234567",
+      "GA1234567",
+      "C09876543",
+    ]);
+  });
+
   it("keeps a Slack DM conversation id unresolved instead of accepting it as a channel id", async () => {
     const client = {
       conversations: {
