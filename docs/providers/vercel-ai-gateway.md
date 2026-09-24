@@ -129,6 +129,14 @@ The environment variable must be visible to the Gateway process, as described
 under [Advanced configuration](#advanced-configuration). Evaluations send the
 selected evidence through Vercel AI Gateway and incur its normal usage charges.
 
+The Gateway answers evidence beyond the model's input limit with HTTP 503, the
+same status it uses for a service outage, so OpenClaw counts it as a transport
+failure. After three consecutive transport failures, evaluations through this
+provider pause for at least 10 seconds; callers keep their normal behavior
+while it is paused. Keep evaluation evidence well within the model's input
+limit. Boolean questions also need non-empty `instructions`: the Gateway
+rejects them otherwise, and the evaluation returns `unsupported-input`.
+
 ## Advanced configuration
 
 <AccordionGroup>
