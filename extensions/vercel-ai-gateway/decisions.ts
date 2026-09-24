@@ -203,9 +203,7 @@ export function createVercelAiGatewayDecisionProvider(
               ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
             };
           }
-          // 400/422 are request validation and 413 is Content Too Large. Input rejection must
-          // not count toward the provider circuit, so none of these are reported as transport.
-          if (responseStatus === 400 || responseStatus === 413 || responseStatus === 422) {
+          if (responseStatus === 400) {
             return { status: "unavailable", reason: "unsupported-input" };
           }
           return { status: "unavailable", reason: "transport" };

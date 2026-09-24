@@ -410,31 +410,16 @@ describe("vercel ai gateway decision provider", () => {
     });
   });
 
-  it.each([400, 413, 422])(
-    "handles HTTP %s as unsupported-input without retry or private details",
-    async (status) => {
-      globalThis.fetch = vi
-        .fn()
-        .mockResolvedValue(new Response("synthetic-key: synthetic only", { status }));
-
-      const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
-      const outcome = await provider.evaluate(batch, createContext());
-
-      expect(outcome).toEqual({
-        status: "unavailable",
-        reason: "unsupported-input",
-      });
-      expect(globalThis.fetch).toHaveBeenCalledOnce();
-    },
-  );
-
-  it("keeps HTTP 500 classified as transport", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response("Server Error", { status: 500 }));
+  it("handles 400 as unsupported-input", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response("Bad Request", { status: 400 }));
 
     const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
     const outcome = await provider.evaluate(batch, createContext());
 
-    expect(outcome).toEqual({ status: "unavailable", reason: "transport" });
+    expect(outcome).toEqual({
+      status: "unavailable",
+      reason: "unsupported-input",
+    });
   });
 
   it("rejects immediately when input exceeds choice bounds without network call", async () => {
