@@ -713,6 +713,49 @@ describe("vercel ai gateway decision provider", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("sends empty instructions for questions without them, since the gateway requires the field", async () => {
+    const fetchMock = vi.fn(
+      async (_url: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ answers: {} }), { status: 200 }),
+    );
+    globalThis.fetch = fetchMock;
+    const questions = {
+      omitted: { type: "choice", criteria: { a: "A", b: "B" } },
+      nulled: { type: "score", instructions: null, criteria: ["Low", "High"] },
+      given: { type: "boolean", instructions: "Keep this text." },
+    } as const satisfies DecisionBatch["questions"];
+    Object.defineProperty(questions, "__proto__", {
+      value: { type: "boolean" },
+      enumerable: true,
+    });
+
+    const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+    await provider.evaluate({ state: { evidence: "e" }, questions }, createContext());
+
+    const body = fetchMock.mock.calls[0]?.[1]?.body;
+    if (typeof body !== "string") {
+      throw new Error("expected a JSON string request body");
+    }
+    const wire = JSON.parse(body);
+    expect(wire.questions.omitted).toEqual({
+      type: "choice",
+      instructions: "",
+      criteria: { a: "A", b: "B" },
+    });
+    expect(wire.questions.nulled).toEqual({
+      type: "score",
+      instructions: "",
+      criteria: ["Low", "High"],
+    });
+    expect(wire.questions.given).toEqual({ type: "boolean", instructions: "Keep this text." });
+    expect(Object.hasOwn(wire.questions, "__proto__")).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(wire.questions, "__proto__")?.value).toEqual({
+      type: "boolean",
+      instructions: "",
+    });
+    expect((Object.prototype as unknown as Record<string, unknown>).instructions).toBeUndefined();
+  });
+
   it("preserves __proto__ as an own answer key without prototype pollution", async () => {
     const protoBatch: DecisionBatch = {
       state: { evidence: "test __proto__ key" },

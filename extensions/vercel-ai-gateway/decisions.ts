@@ -115,9 +115,18 @@ export function createVercelAiGatewayDecisionProvider(
       const endpoint = `${baseUrl}/v4/ai/evaluation-model`;
       const model = context.model || DEFAULT_DECISION_MODEL;
 
+      // The gateway rejects a question without instructions (null included) with HTTP 400,
+      // while the Decision contract makes them optional. Choice and score questions carry their
+      // meaning in criteria and accept an empty string; a boolean question still needs real
+      // instructions, so the gateway keeps rejecting it as unsupported input. A null prototype
+      // keeps "__proto__" an ordinary question ID.
+      const questions: Record<string, unknown> = Object.create(null);
+      for (const [id, question] of Object.entries(batch.questions)) {
+        questions[id] = { ...question, instructions: question.instructions ?? "" };
+      }
       const bodyPayload = JSON.stringify({
         state: batch.state,
-        questions: batch.questions,
+        questions,
         providerOptions: {},
       });
 
