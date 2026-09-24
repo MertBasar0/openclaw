@@ -7,6 +7,7 @@ import {
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { AgentDefaultsBaseSchema } from "../../../config/zod-schema.agent-defaults-base.js";
 import type { DecisionProviderV1, ProviderDecisionOutcome } from "../../../decisions/types.js";
+import type { Context, Model } from "../../../llm/types.js";
 import { runPluginRegisterSyncInRegistry } from "../../../plugins/loader-module-runtime.js";
 import { createPluginRecord } from "../../../plugins/loader-records.js";
 import { getPluginInstance } from "../../../plugins/plugin-instance-scope.js";
@@ -18,6 +19,8 @@ import {
 import { prepareSystemAgentRunAdmission } from "../../admitted-run-context.js";
 import {
   createAssistant,
+  createAssistantResultStream,
+  streamMocks,
   createTestSession,
   registerAgentSessionLoopTestLifecycle,
   testModel,
@@ -43,7 +46,13 @@ afterEach(() => {
 });
 const result = (probabilityTrue = 0.1): ProviderDecisionOutcome => ({
   status: "ok",
-  result: { model: "model", answers: { any_tool_needed: { type: "boolean", probabilityTrue } } },
+  result: {
+    model: "model",
+    answers: {
+      missing_request_context: { type: "boolean", probabilityTrue: 0.1 },
+      next_response_needs_tools: { type: "boolean", probabilityTrue },
+    },
+  },
 });
 function config(enabled = true, selected = true): OpenClawConfig {
   return {
@@ -89,7 +98,7 @@ async function fixture(
   agentId = "main",
 ) {
   const runId = "prefilter-" + ++sequence;
-  const tools = ["read", "message", "decision_evaluate"].map((name) => ({
+  const tools = ["inspect_file", "message", "decision_evaluate"].map((name) => ({
     name,
     label: name,
     description: name,
@@ -126,6 +135,7 @@ async function fixture(
         };
   const policy = createPromptBuildToolPolicy({
     session,
+    readModelTools: () => session.agent.state.tools,
     effectiveTools: mode === "structured" ? tools : [...controlTools, tools[1]!],
     uncompactedEffectiveTools: tools,
     tools,
@@ -176,7 +186,7 @@ async function fixture(
       setActiveSessionSystemPrompt: () => {},
       setLeasedSteering: () => {},
     });
-  return { assemble, session, policy, catalogRef, controller, admission };
+  return { assemble, session, policy, catalogRef, controller, admission, attempt };
 }
 
 describe("prompt assembly with registered Decision runtime", () => {
@@ -191,14 +201,22 @@ describe("prompt assembly with registered Decision runtime", () => {
     await f.assemble();
     expect(call).toHaveBeenCalledTimes(enabled && selected ? 1 : 0);
     expect(f.policy.current.tools.map((t) => t.name)).toEqual(
-      enabled && selected ? ["message"] : ["read", "message", "decision_evaluate"],
+      enabled && selected ? ["message"] : ["inspect_file", "message", "decision_evaluate"],
     );
     if (enabled && selected) {
       expect(call.mock.calls[0]).toEqual([
         expect.objectContaining({
-          state: { userMessage: "Hello" },
+          state: {
+            recentConversation: [],
+            latestRequest: "Hello",
+            omittedContext: { olderConversation: false, toolPayloads: false },
+          },
           questions: {
-            any_tool_needed: expect.objectContaining({
+            missing_request_context: expect.objectContaining({
+              type: "boolean",
+              instructions: expect.stringContaining("`latestRequest`"),
+            }),
+            next_response_needs_tools: expect.objectContaining({
               criteria: { true: expect.any(String), false: expect.any(String) },
             }),
           },
@@ -235,11 +253,11 @@ describe("prompt assembly with registered Decision runtime", () => {
       call.mockResolvedValue(result(0.9));
       await f.assemble({ prompt: "Read package.json" });
       expect(f.policy.current.tools.map((t) => t.name)).toEqual([
-        "read",
+        "inspect_file",
         "message",
         "decision_evaluate",
       ]);
-      expect(f.policy.current.callableToolNames).toContain("read");
+      expect(f.policy.current.callableToolNames).toContain("inspect_file");
     },
   );
   it("keeps another agent's empty override independent", async () => {
@@ -341,5 +359,109 @@ describe("prompt assembly with registered Decision runtime", () => {
     await f.assemble({ prompt: "Go ahead." });
     expect(call).not.toHaveBeenCalled();
     expect(f.policy.current.tools).toHaveLength(3);
+  });
+  it.each(["structured", "search", "code"] as const)(
+    "submits the second-turn restriction and next-action restoration in %s mode",
+    async (mode) => {
+      const call = register(async () => result(0.9));
+      const f = await fixture(config(), mode);
+      f.session.agent.state.messages = [];
+      const captures: Array<{ names: string[]; definitions: unknown[] }> = [];
+      let reply = "Would you like an explanation?";
+      streamMocks.streamSimple.mockImplementation((model: Model, context: Context) => {
+        captures.push({
+          names: (context.tools ?? []).map((tool) => tool.name),
+          definitions: (context.tools ?? []).map(({ name, description, parameters }) => ({
+            name,
+            description,
+            parameters,
+          })),
+        });
+        return createAssistantResultStream(createAssistant(model, [{ type: "text", text: reply }]));
+      });
+      const submit = async (prompt: string) => {
+        await f.assemble({ prompt });
+        await f.session.prompt(prompt);
+      };
+      await submit("Help me understand this example.");
+      call.mockResolvedValue(result(0.1));
+      reply = "Here is the explanation.";
+      await submit("Yes");
+      expect(call).toHaveBeenCalledTimes(2);
+      expect(call.mock.calls[1]?.[0].state).toMatchObject({
+        latestRequest: "Yes",
+        recentConversation: [
+          { user: "Help me understand this example.", assistant: "Would you like an explanation?" },
+        ],
+      });
+      expect(captures[1]?.names).toEqual(["message"]);
+      expect(captures[1]?.names).not.toContain("denied");
+      expect(JSON.stringify(captures[1]?.definitions).length).toBeLessThan(
+        JSON.stringify(captures[0]?.definitions).length,
+      );
+      call.mockResolvedValue(result(0.9));
+      await submit("Read package.json now.");
+      expect(call).toHaveBeenCalledTimes(3);
+      expect(captures[2]?.names).toEqual(captures[0]?.names);
+      expect(f.policy.current.callableToolNames).toContain("inspect_file");
+      expect(f.policy.current.callableToolNames).not.toContain("denied");
+    },
+  );
+  it.each([
+    ["Help me fix this", "Should I apply the patch?", "Yes", 0.9, false],
+    ["Help me understand this", "Would you like an explanation?", "Yes", 0.1, true],
+    ["Apply the patch", "The action failed; no changes were made.", "Try again", 0.9, false],
+    ["Apply the patch", "The action finished successfully.", "Thanks", 0.1, true],
+    [
+      "Tell me something interesting",
+      "Here is an interesting fact.",
+      "Now read package.json",
+      0.9,
+      false,
+    ],
+  ] as const)(
+    "carries context for %s / %s / %s through the real prompt boundary",
+    async (priorUser, priorAssistant, latest, probability, prune) => {
+      const call = register(async () => result(0.9));
+      const f = await fixture();
+      f.session.agent.state.messages = [];
+      streamMocks.streamSimple.mockImplementation((model: Model) =>
+        createAssistantResultStream(
+          createAssistant(model, [{ type: "text", text: priorAssistant }]),
+        ),
+      );
+      await f.assemble({ prompt: priorUser });
+      await f.session.prompt(priorUser);
+      call.mockResolvedValue(result(probability));
+      const submitted: string[][] = [];
+      streamMocks.streamSimple.mockImplementation((model: Model, context: Context) => {
+        submitted.push((context.tools ?? []).map((tool) => tool.name));
+        return createAssistantResultStream(
+          createAssistant(model, [{ type: "text", text: "Final response" }]),
+        );
+      });
+      await f.assemble({ prompt: latest });
+      await f.session.prompt(latest);
+      expect(call).toHaveBeenCalledTimes(2);
+      expect(call.mock.calls[1]?.[0].state).toMatchObject({
+        latestRequest: latest,
+        recentConversation: [{ user: priorUser, assistant: priorAssistant }],
+      });
+      expect(submitted).toEqual([
+        prune ? ["message"] : ["inspect_file", "message", "decision_evaluate"],
+      ]);
+    },
+  );
+  it("does not re-evaluate on primary-model fallback", async () => {
+    const call = register();
+    const f = await fixture();
+    await f.assemble();
+    await f.assemble({ fallbackActive: true });
+    expect(call).toHaveBeenCalledOnce();
+    expect(f.policy.current.tools.map((tool) => tool.name)).toEqual([
+      "inspect_file",
+      "message",
+      "decision_evaluate",
+    ]);
   });
 });

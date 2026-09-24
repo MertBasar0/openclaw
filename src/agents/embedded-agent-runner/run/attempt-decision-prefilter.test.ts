@@ -7,6 +7,7 @@ import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { AgentDefaultsBaseSchema } from "../../../config/zod-schema.agent-defaults-base.js";
 import type { evaluateDecisionInRegistry } from "../../../decisions/runtime.js";
 import type { DecisionOutcome } from "../../../decisions/types.js";
+import type { AgentMessage } from "../../runtime/index.js";
 import { evaluateAttemptDecisionToolPrefilter } from "./attempt-decision-prefilter.js";
 
 const mocks = vi.hoisted(() => ({ evaluate: vi.fn<typeof evaluateDecisionInRegistry>() }));
@@ -27,8 +28,14 @@ function config(optIn = true, model: string | undefined = "fixture/model"): Open
 }
 const answer = (probabilityTrue = 0.1): DecisionOutcome => ({
   status: "ok",
-  provenance: { providerId: "fixture", rubricVersion: "3", runtimeGeneration: "test" },
-  result: { model: "model", answers: { any_tool_needed: { type: "boolean", probabilityTrue } } },
+  provenance: { providerId: "fixture", rubricVersion: "6", runtimeGeneration: "test" },
+  result: {
+    model: "model",
+    answers: {
+      missing_request_context: { type: "boolean", probabilityTrue: 0.1 },
+      next_response_needs_tools: { type: "boolean", probabilityTrue },
+    },
+  },
 });
 function params(cfg = config()) {
   return {
@@ -37,6 +44,26 @@ function params(cfg = config()) {
     supportsTurnScopedToolRestrictions: true,
     assertActive: vi.fn(),
     userMessage: "Hello",
+    messages: [
+      { role: "user", content: "Can we chat?", timestamp: 1 },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Of course." }],
+        api: "openai-responses",
+        provider: "fixture",
+        model: "fixture",
+        stopReason: "stop",
+        timestamp: 2,
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+      },
+    ] satisfies AgentMessage[],
     signal: new AbortController().signal,
   };
 }
@@ -53,7 +80,7 @@ describe("Decision tool prefilter admission", () => {
   ] as const)("does not dispatch with opt-in %s and model %s", async (enabled, model) => {
     const cfg = config(enabled);
     cfg.agents!.defaults!.decisionModel = model;
-    expect(await evaluateAttemptDecisionToolPrefilter(params(cfg))).toEqual({
+    expect(await evaluateAttemptDecisionToolPrefilter(params(cfg))).toMatchObject({
       shouldPruneTools: false,
     });
     expect(mocks.evaluate).not.toHaveBeenCalled();
@@ -66,7 +93,7 @@ describe("Decision tool prefilter admission", () => {
           ...params(),
           supportsTurnScopedToolRestrictions: support,
         }),
-      ).toEqual({ shouldPruneTools: false });
+      ).toMatchObject({ shouldPruneTools: false });
       expect(mocks.evaluate).not.toHaveBeenCalled();
     },
   );
@@ -74,9 +101,11 @@ describe("Decision tool prefilter admission", () => {
     const cfg = config();
     cfg.agents!.entries = { quiet: { decisionModel: "" } };
     for (const agentId of ["quiet", ""]) {
-      expect(await evaluateAttemptDecisionToolPrefilter({ ...params(cfg), agentId })).toEqual({
-        shouldPruneTools: false,
-      });
+      expect(await evaluateAttemptDecisionToolPrefilter({ ...params(cfg), agentId })).toMatchObject(
+        {
+          shouldPruneTools: false,
+        },
+      );
     }
     expect(mocks.evaluate).not.toHaveBeenCalled();
   });
@@ -87,10 +116,20 @@ describe("Decision tool prefilter admission", () => {
     });
     expect(mocks.evaluate).toHaveBeenCalledWith(
       {
-        state: { userMessage: "Hello" },
+        state: {
+          recentConversation: [{ user: "Can we chat?", assistant: "Of course." }],
+          latestRequest: "Hello",
+          omittedContext: { olderConversation: false, toolPayloads: false },
+        },
         questions: {
-          any_tool_needed: {
+          missing_request_context: {
             type: "boolean",
+            instructions: expect.stringContaining("`latestRequest`"),
+            criteria: { true: expect.any(String), false: expect.any(String) },
+          },
+          next_response_needs_tools: {
+            type: "boolean",
+            instructions: expect.stringContaining("`latestRequest`"),
             criteria: { true: expect.any(String), false: expect.any(String) },
           },
         },
@@ -98,7 +137,7 @@ describe("Decision tool prefilter admission", () => {
       {
         agentId: "main",
         purpose: "tool-prefilter.semantic-gate",
-        rubricVersion: "3",
+        rubricVersion: "6",
         timeoutMs: 500,
         signal: input.signal,
       },
@@ -109,15 +148,15 @@ describe("Decision tool prefilter admission", () => {
   });
   it.each([0.35, 0.9])("retains tools at probability %s", async (probability) => {
     mocks.evaluate.mockResolvedValue(answer(probability));
-    expect(await evaluateAttemptDecisionToolPrefilter(params())).toEqual({
+    expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({
       shouldPruneTools: false,
     });
   });
-  it.each(["deadline", "not-configured", "transport"] as const)(
+  it.each(["deadline", "not-configured", "transport", "unsupported-input"] as const)(
     "skips ordinary %s unavailability",
     async (reason) => {
       mocks.evaluate.mockResolvedValue({ status: "unavailable", reason });
-      expect(await evaluateAttemptDecisionToolPrefilter(params())).toEqual({
+      expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({
         shouldPruneTools: false,
       });
     },
@@ -128,7 +167,7 @@ describe("Decision tool prefilter admission", () => {
         ...params(),
         userMessage: "Use decision_evaluate on Hello",
       }),
-    ).toEqual({ shouldPruneTools: false });
+    ).toMatchObject({ shouldPruneTools: false });
     expect(mocks.evaluate).not.toHaveBeenCalled();
   });
   it("rechecks published eligibility at final proposal acceptance", async () => {
@@ -140,7 +179,9 @@ describe("Decision tool prefilter admission", () => {
     expect(proposal.isCurrent?.()).toBe(false);
   });
   it("does not infer from an empty request", async () => {
-    expect(await evaluateAttemptDecisionToolPrefilter({ ...params(), userMessage: "  " })).toEqual({
+    expect(
+      await evaluateAttemptDecisionToolPrefilter({ ...params(), userMessage: "  " }),
+    ).toMatchObject({
       shouldPruneTools: false,
     });
     expect(mocks.evaluate).not.toHaveBeenCalled();
@@ -156,7 +197,7 @@ describe("Decision tool prefilter admission", () => {
         );
         return answer();
       });
-      expect(await evaluateAttemptDecisionToolPrefilter(params(cfg))).toEqual({
+      expect(await evaluateAttemptDecisionToolPrefilter(params(cfg))).toMatchObject({
         shouldPruneTools: false,
       });
     },
@@ -196,4 +237,93 @@ describe("Decision tool prefilter admission", () => {
     });
     await expect(evaluateAttemptDecisionToolPrefilter(input)).rejects.toThrow("closed");
   });
+  it("evaluates a complete fresh-session request with no invented history", async () => {
+    const result = await evaluateAttemptDecisionToolPrefilter({ ...params(), messages: [] });
+    expect(result).toMatchObject({ shouldPruneTools: true, status: "proposed" });
+    expect(mocks.evaluate).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        state: {
+          recentConversation: [],
+          latestRequest: "Hello",
+          omittedContext: { olderConversation: false, toolPayloads: false },
+        },
+      }),
+      expect.any(Object),
+      null,
+      expect.any(Object),
+    );
+  });
+  it("does not reinterpret incomplete existing history as a fresh session", async () => {
+    const result = await evaluateAttemptDecisionToolPrefilter({
+      ...params(),
+      messages: [{ role: "user", content: "Apply the patch", timestamp: 1 }],
+    });
+    expect(result).toMatchObject({
+      shouldPruneTools: false,
+      status: "skipped",
+      reason: "missing-exchange",
+    });
+    expect(mocks.evaluate).not.toHaveBeenCalled();
+  });
+  it.each([undefined, 0.35, 0.5, 0.9])(
+    "retains tools when missing-context answer is %s",
+    async (probabilityTrue) => {
+      const value = answer();
+      if (value.status !== "ok") {
+        throw new Error("fixture");
+      }
+      if (probabilityTrue === undefined) {
+        delete value.result.answers.missing_request_context;
+      } else {
+        value.result.answers.missing_request_context = { type: "boolean", probabilityTrue };
+      }
+      mocks.evaluate.mockResolvedValue(value);
+      expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({
+        shouldPruneTools: false,
+        reason: "missing-context-or-uncertain",
+      });
+      expect(mocks.evaluate).toHaveBeenCalledOnce();
+    },
+  );
+  it("retains tools when the tool-need answer is missing", async () => {
+    const value = answer();
+    if (value.status !== "ok") {
+      throw new Error("fixture");
+    }
+    delete value.result.answers.next_response_needs_tools;
+    mocks.evaluate.mockResolvedValue(value);
+    expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({
+      shouldPruneTools: false,
+    });
+  });
+  it("sends omission facts without treating older omitted context as a veto", async () => {
+    const input = params();
+    input.messages.unshift(...input.messages, ...input.messages);
+    expect(await evaluateAttemptDecisionToolPrefilter(input)).toMatchObject({
+      shouldPruneTools: true,
+    });
+    expect(mocks.evaluate.mock.calls[0]?.[0].state).toMatchObject({
+      omittedContext: { olderConversation: true, toolPayloads: false },
+    });
+  });
+
+  it.each(["missing_request_context", "next_response_needs_tools"])(
+    "retains tools for a non-Boolean %s answer",
+    async (id) => {
+      const value = answer();
+      if (value.status !== "ok") {
+        throw new Error("fixture");
+      }
+      value.result.answers[id] = {
+        type: "choice",
+        choice: "no",
+        probabilities: { yes: 0.1, no: 0.9 },
+        confidence: 0.9,
+      };
+      mocks.evaluate.mockResolvedValue(value);
+      expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({
+        shouldPruneTools: false,
+      });
+    },
+  );
 });

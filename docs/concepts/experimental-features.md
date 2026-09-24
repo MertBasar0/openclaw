@@ -127,27 +127,69 @@ awaited results. This helper is not an authority token or a cancellation owner.
 
 ### Conversational tool filtering
 
-The prefilter sends the current request text and a Boolean rubric to the owning
-agent’s configured Decision provider. Hosted providers receive that evidence and
-can incur charges. Local providers keep inference local. Classification adds work
-before the primary model request; it is not a guaranteed latency improvement.
+The prefilter sends the complete current request and a deterministic, bounded
+projection of recent conversation to the owning agent’s configured Decision
+provider. It retains the nearest complete user/assistant exchange and, when it
+fits, one additional exchange in chronological order, within an internal limit
+of 6,000 text characters. It never cuts the current request or an essential
+assistant proposal to force classification. Omitted older history alone does not
+disable filtering; missing or unsuitable essential context retains normal tools.
+A genuinely fresh session is evaluated using the current request alone. Existing
+incomplete history is not treated as a fresh session; missing referents and
+uncertainty must retain tools.
 
-The current internal budget is 500 ms and the tool-need threshold is 0.35, not
-configuration options. Ordinary unavailable results, including a deadline, keep
-the normal tool surface. Cancellation, closed authority, and contract errors
+Only user-visible text and counts of returned/failed tool calls are secondary
+evidence. System/developer instructions, hidden reasoning, raw tool arguments or
+results, internal-event envelopes, and media are not sent. Tool return counts do
+not assert that an action succeeded. Hosted providers receive the bounded recent
+conversation and can incur charges; local providers keep inference local.
+Classification adds work before the primary model request and is not a guaranteed
+latency improvement.
+
+The current internal budget is 500 ms, not a configuration option. One existing
+Decision batch asks two independent Boolean questions: whether the latest request
+has an unresolved contextual reference, and whether fulfilling it requires tools
+in the next response. Both probabilities must be below 0.35 to omit optional tools.
+Missing, affirmative, or uncertain answers preserve tools. These are probabilities
+of yes, not degrees of tool use or separate confidence values.
+
+The structured state names the latest request, chronological recent exchanges,
+and facts about omitted older conversation and raw tool payloads. Each question
+references those fields explicitly. Earlier mentions of tools do not by themselves
+request new actions, and omitted older history alone does not veto filtering.
+This follows [TypeSafe atomic Noul guidance](https://docs.typesafe.ai/primitives/noul)
+while using the provider-neutral Decision contract; it makes no provider-specific
+requests or calibrated-correctness guarantees. There is
+no model-aware input estimator, automatic trimming retry, or second provider.
+Ordinary unavailable results, including a deadline or actual provider input
+rejection, keep the normal tool surface. Cancellation, closed authority, and contract errors
 remain errors rather than starting fallback work. Cold model loading may exceed
 the budget. Classifier estimates are not guarantees that every action request
 will retain its optional tools.
 
 Filtering skips raw probes, continuations, internal events, queued steering,
-orphan repair, and turns with prompt-build hooks, added instructions, or prior
-assistant/tool-result history. This conservative history boundary preserves tools
-for context-dependent approvals and follow-ups. It uses
+orphan repair, pending tool work, and turns with prompt-build hooks or added
+instructions. It no longer rejects a turn merely because prior assistant or tool
+messages exist. Complete contextual approvals remain action requests, while a
+conversational acknowledgment can omit optional tools on later turns. It uses
 the existing host tool policy, preserves already-required tools without granting
 denied tools, and keeps submitted schemas, discovery, and callability aligned.
 Each subsequent turn starts from its own normal tool baseline. Revoked opt-in or
 changed model selection prevents applying an awaited restriction. No historical
 transcript is rewritten and no native thread is recreated.
+
+With DEBUG logging enabled for the embedded runner, a safe record at the first
+foreground primary dispatch reports decision status/reason, decision latency,
+context counts and omission flags, visible tool counts, required tools retained,
+and the before/after normalized tool-definition JSON UTF-16 character difference
+(`name`, `description`, and `parameters`). Tool Search and Code Mode count only
+the actually exposed controls/direct tools, including their descriptions—not
+every hidden catalog schema. This schema-only metric is not provider wire bytes,
+full prompt savings, tokens, cost, or proof that a provider accepted the request.
+Tool-related prompt guidance is reported as unmeasured. Unknown measurements
+remain unknown, not zero. DEBUG-off avoids the extra definition serialization.
+No conversation, tool payloads, full schemas, or credentials are logged by this
+record; existing logging and trace-correlation controls apply.
 
 ## Local model lean mode
 

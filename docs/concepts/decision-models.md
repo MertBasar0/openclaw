@@ -35,8 +35,10 @@ chooses the provider for explicit evaluation and supported consumers. The core
 Selection does not start background work or replace the chat model.
 Automatic experimental consumers additionally require explicit
 [Decision assistance opt-in](/concepts/experimental-features#decision-assistance).
-The built-in OpenClaw runtime uses that opt-in for conversational tool filtering;
-explicit `decision_evaluate` remains independent of Labs.
+The built-in OpenClaw runtime uses that opt-in for conversational tool filtering
+with bounded recent conversation. The selected Decision provider receives that
+secondary evidence; see the [privacy and fallback contract](/concepts/experimental-features#conversational-tool-filtering).
+Explicit `decision_evaluate` remains independent of Labs.
 
 ## Choose a provider and model
 

@@ -48,7 +48,10 @@ import {
   truncateOversizedToolResultsInMessages,
 } from "../tool-result-truncation.js";
 import { buildEmbeddedAgentHookContext } from "./agent-hook-context.js";
-import { evaluateAttemptDecisionToolPrefilter } from "./attempt-decision-prefilter.js";
+import {
+  evaluateAttemptDecisionToolPrefilter,
+  type DecisionPrefilterResult,
+} from "./attempt-decision-prefilter.js";
 import {
   normalizeCurrentPromptTextForLlmBoundary,
   usesEscapedRuntimeContext,
@@ -192,36 +195,55 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     hookResult?.prependSystemContext?.trim() ||
     hookResult?.appendSystemContext?.trim() ||
     input.orphanRepair?.messageEntry ||
-    // A short approval/follow-up can need actions established by earlier assistant work.
-    promptBuildMessages.some(
-      (message) => message.role === "assistant" || message.role === "toolResult",
-    ) ||
     leasedSteering,
   );
 
   let effectiveToolsAllow = hookResult?.toolsAllow;
-  if (
-    !preserveExactPrompt &&
-    assertHostActive &&
-    activeAbortSignal &&
-    attempt.supportsTurnScopedToolRestrictions === true &&
-    !attempt.skipPreparedUserTurnMessage &&
-    attempt.trigger === "user" &&
-    !attempt.internalEvents?.length &&
-    !attempt.disableTools &&
-    effectiveToolsAllow === undefined &&
-    !hasPendingActionInstructions
-  ) {
-    const prefilterResult = await evaluateAttemptDecisionToolPrefilter({
+  const guard = preserveExactPrompt
+    ? "exact-prompt"
+    : !assertHostActive || !activeAbortSignal
+      ? "missing-authority"
+      : attempt.supportsTurnScopedToolRestrictions !== true
+        ? "unsupported-harness"
+        : attempt.fallbackActive
+          ? "primary-fallback"
+          : attempt.skipPreparedUserTurnMessage
+            ? "continuation"
+            : attempt.trigger !== "user" || attempt.internalEvents?.length
+              ? "internal-input"
+              : attempt.disableTools
+                ? "tools-disabled"
+                : effectiveToolsAllow !== undefined
+                  ? "hook-tool-policy"
+                  : hasPendingActionInstructions
+                    ? "pending-action-context"
+                    : undefined;
+  let decisionPrefilter: DecisionPrefilterResult = {
+    shouldPruneTools: false,
+    status: "skipped",
+    reason: guard ?? "not-evaluated",
+  };
+  if (!guard && assertHostActive && activeAbortSignal) {
+    decisionPrefilter = await evaluateAttemptDecisionToolPrefilter({
       config: readConfig(),
       agentId: input.sessionAgentId,
       userMessage: effectivePrompt,
+      messages: promptBuildMessages,
+      currentInputExcluded: Boolean(
+        attempt.images?.length ||
+        attempt.media?.length ||
+        attempt.inputAttachmentMedia?.length ||
+        (attempt.inputProvenance && attempt.inputProvenance.kind !== "external_user") ||
+        attempt.userTurnTranscriptRecorder?.message?.excludeFromContext ||
+        attempt.isTurnTainted?.(),
+      ),
       signal: activeAbortSignal,
       assertActive: assertHostActive,
       supportsTurnScopedToolRestrictions: attempt.supportsTurnScopedToolRestrictions,
     });
-    if (prefilterResult.shouldPruneTools && prefilterResult.isCurrent?.()) {
+    if (decisionPrefilter.shouldPruneTools && decisionPrefilter.isCurrent?.()) {
       effectiveToolsAllow = [];
+      decisionPrefilter.restrictionApplied = true;
     }
   }
   activeAbortSignal?.throwIfAborted();
@@ -375,6 +397,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
       : undefined;
 
   return {
+    decisionPrefilter,
     assertHostActive,
     hookCtx,
     effectivePrompt,
