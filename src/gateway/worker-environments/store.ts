@@ -70,7 +70,9 @@ function isCommitAdmission(value: unknown): value is WorkerEnvironmentCommitAdmi
 }
 
 registerOpenClawStateDatabaseLifecycleListener((event) => {
-  if (event.kind !== "opened") {
+  // A refused native open does not retire an admitted worker inventory.
+  // Explicit closure and terminal failures still revoke its owner.
+  if (event.kind !== "opened" && event.kind !== "open-error") {
     workerEnvironmentProjections.invalidate(event.identity, event.path);
   }
 });
@@ -344,6 +346,8 @@ export async function createWorkerEnvironmentStore(
       read(() => owner.hasPendingNodeEnrollmentSetup(setup, device)),
     preparedCapacity: (input: Parameters<typeof preparedCapacityFromReservations>[1]) =>
       read(() => preparedCapacityFromReservations(prepared(), input)),
+    preparedReservationEnvironmentIds: () =>
+      read(() => prepared().map((record) => record.environmentId)),
     isPreparedIntentWithinCapacity: (
       input: Parameters<typeof isPreparedReservationWithinCapacity>[1],
     ) =>
