@@ -272,12 +272,13 @@ describe("Decision tool prefilter admission", () => {
       if (value.status !== "ok") {
         throw new Error("fixture");
       }
+      const answers = { ...value.result.answers };
       if (probabilityTrue === undefined) {
-        delete value.result.answers.missing_request_context;
+        delete answers.missing_request_context;
       } else {
-        value.result.answers.missing_request_context = { type: "boolean", probabilityTrue };
+        answers.missing_request_context = { type: "boolean", probabilityTrue };
       }
-      mocks.evaluate.mockResolvedValue(value);
+      mocks.evaluate.mockResolvedValue({ ...value, result: { ...value.result, answers } });
       expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({
         shouldPruneTools: false,
         reason: "missing-context-or-uncertain",
@@ -290,8 +291,9 @@ describe("Decision tool prefilter admission", () => {
     if (value.status !== "ok") {
       throw new Error("fixture");
     }
-    delete value.result.answers.next_response_needs_tools;
-    mocks.evaluate.mockResolvedValue(value);
+    const answers = { ...value.result.answers };
+    delete answers.next_response_needs_tools;
+    mocks.evaluate.mockResolvedValue({ ...value, result: { ...value.result, answers } });
     expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({
       shouldPruneTools: false,
     });
@@ -314,13 +316,14 @@ describe("Decision tool prefilter admission", () => {
       if (value.status !== "ok") {
         throw new Error("fixture");
       }
-      value.result.answers[id] = {
+      const answers = { ...value.result.answers };
+      answers[id] = {
         type: "choice",
         choice: "no",
         probabilities: { yes: 0.1, no: 0.9 },
         confidence: 0.9,
       };
-      mocks.evaluate.mockResolvedValue(value);
+      mocks.evaluate.mockResolvedValue({ ...value, result: { ...value.result, answers } });
       expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({
         shouldPruneTools: false,
       });
