@@ -6,7 +6,7 @@ const enLabs = {
     decisionAssistance: {
       title: "Decision assistance",
       description:
-        "Let the built-in OpenClaw runtime use the current request and bounded recent conversation to omit optional tools on conversational turns. This text goes to the selected Decision provider; hosted providers may charge. Requires a Decision model, set globally or per agent. Other harnesses keep their normal tools.",
+        "Enable experimental assistance from your configured Decision model. See the documentation for supported uses, setup, and data handling.",
       optedIn: "Preference saved.",
       loading: "Loading setting…",
       unavailable: "Couldn’t load this setting. Reconnect or refresh to try again.",
