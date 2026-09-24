@@ -23,6 +23,10 @@ import type { ToolSearchCatalogEntry, ToolSearchCatalogRef } from "../../tool-se
 import { log } from "../logger.js";
 import { buildEmbeddedAgentHookContext } from "./agent-hook-context.js";
 import { summarizeSessionContext } from "./attempt-context-summary.js";
+import {
+  measureDecisionToolSurface,
+  type DecisionModelTool,
+} from "./attempt-decision-diagnostics.js";
 import { resolvePromptSubmissionSkipReason } from "./attempt-prompt-submit.js";
 import type { ResolvedToolPromptFinalizer } from "./params.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
@@ -45,6 +49,7 @@ export function createPromptBuildToolPolicy<
     Parameters<typeof applyPromptBuildToolsAllow<TEffectiveTool, TUncompactedTool, TTool>>[0],
     "baseline" | "toolsAllow"
   > & {
+    readModelTools?: () => readonly DecisionModelTool[];
     onApplied?: (
       surface: ReturnType<
         typeof applyPromptBuildToolsAllow<TEffectiveTool, TUncompactedTool, TTool>
@@ -57,6 +62,9 @@ export function createPromptBuildToolPolicy<
     catalogEntries: [...(params.catalogRef?.current?.entries ?? [])],
   });
   let baseline = captureBaseline();
+  let decisionBaseline = params.readModelTools
+    ? measureDecisionToolSurface(params.readModelTools, params.forceToolNames)
+    : undefined;
   let toolsAllow: string[] | undefined;
   const current = {
     activeToolNames: [...baseline.activeToolNames],
@@ -74,10 +82,16 @@ export function createPromptBuildToolPolicy<
   return {
     current,
     apply,
+    readDecisionBaseline: () => decisionBaseline,
+    decisionRequiredNames: params.forceToolNames,
     refresh: () => {
       // A late hook must filter this generation, never restore retained callable
       // entries from the catalog that the permission owner has just revoked.
       baseline = captureBaseline();
+      // Capture scalars before catalog restriction mutates retained Code Mode descriptions.
+      decisionBaseline = params.readModelTools
+        ? measureDecisionToolSurface(params.readModelTools, params.forceToolNames)
+        : undefined;
       return apply(toolsAllow);
     },
   };

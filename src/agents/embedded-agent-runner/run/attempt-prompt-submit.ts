@@ -84,6 +84,9 @@ export async function submitEmbeddedAttemptPrompt(input: {
   leasedSteering?: SteeringLease;
   modelPrompt: string;
   onFinalPromptText: (prompt: string) => void;
+  assertHostActive?: () => void;
+  /** Observes only the first admitted foreground dispatch, not preflight/compaction. */
+  onPrimaryModelRequest?: (tools: NonNullable<Parameters<StreamFn>[1]["tools"]>) => void;
   onSteeringAcknowledged: () => void;
   persistToolResultProjections: () => Promise<void>;
   prependContext?: string;
@@ -115,12 +118,18 @@ export async function submitEmbeddedAttemptPrompt(input: {
       ? (userTurnRecorder.getPersistedMessage?.() ?? userTurnRecorder.message)?.idempotencyKey
       : undefined;
 
+  let primaryRequestObserved = false;
   const installProviderPromptHistoryTransform = (): (() => void) => {
     const baseStreamFn = activeSession.agent.streamFn;
     const persistThenStream: StreamFn = async (model, context, options) => {
       await input.persistToolResultProjections();
       options?.signal?.throwIfAborted();
       assertSteeringCurrent();
+      input.assertHostActive?.();
+      if (captureCurrentPromptForModel && !primaryRequestObserved) {
+        primaryRequestObserved = true;
+        input.onPrimaryModelRequest?.(context.tools ?? []);
+      }
       const stream = await baseStreamFn(model, context, options);
       // Pre-prompt compaction has not consumed the deferred answer.
       if (captureCurrentPromptForModel) {
