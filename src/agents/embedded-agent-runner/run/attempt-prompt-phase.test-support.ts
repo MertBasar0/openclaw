@@ -100,6 +100,7 @@ export function createFixture({ pendingPrompt = "hello", pendingImageCount = 1 }
     yieldMessage: null as string | null,
   };
   const activeSession = {
+    isCompacting: false,
     messages: [],
     agent: {
       state: { messages: [] },
@@ -260,6 +261,7 @@ export function createFixture({ pendingPrompt = "hello", pendingImageCount = 1 }
           return this.current;
         },
         readDecisionBaseline: () => undefined,
+        prepareForDispatch: () => undefined,
         decisionRequiredNames: [],
         refresh() {
           return this.current;

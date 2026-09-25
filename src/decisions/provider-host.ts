@@ -301,9 +301,9 @@ export class DecisionProviderHost {
         controller.signal.reason === "decision-deadline" ||
         performance.now() >= deadlineMonotonicMs
       ) {
-        const outcome = this.unavailable("deadline");
-        this.fail(health, "transport");
-        return outcome;
+        // The host deadline bounds this request; it is not a provider-reported outage.
+        // Genuine transport, rate-limit, and auth failures are accounted below.
+        return this.unavailable("deadline");
       }
       const currentConfig = readConfig();
       const selection = resolveDecisionModelSetting(currentConfig, options.agentId);

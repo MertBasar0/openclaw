@@ -31,6 +31,7 @@ function createSession() {
     },
   };
   const activeSession = {
+    isCompacting: false,
     [agentSessionQueuePromptContext]: vi.fn(() => () => undefined),
     get messages() {
       return state.messages;
@@ -95,6 +96,117 @@ describe("primary submission observation", () => {
     expect(observe).toHaveBeenCalledExactlyOnceWith(tools);
     expect(activeSession.agent.streamFn).toBe(stream);
   });
+  it("leaves mid-turn compaction context intact and restores only the next foreground request", async () => {
+    const { activeSession } = createSession();
+    const captures: Array<Parameters<StreamFn>[1]> = [];
+    activeSession.agent.streamFn = (_model, context) => {
+      captures.push(context);
+      return createAssistantResultStream(createAssistant(testModel, []));
+    };
+    let changed = false;
+    const restoredTools = [
+      {
+        name: "permitted",
+        description: "restored",
+        parameters: { type: "object" as const, properties: {} },
+      },
+    ];
+    const prepare = vi.fn(() =>
+      changed
+        ? Promise.resolve(() => ({ tools: restoredTools, systemPrompt: "ordinary prompt" }))
+        : undefined,
+    );
+    await submitEmbeddedAttemptPrompt({
+      ...createBaseInput(),
+      activeSession,
+      preparePrimaryModelRequest: prepare,
+      promptActiveSession: async (_prompt, options) => {
+        options?.preflightResult?.(true);
+        await activeSession.agent.streamFn(
+          testModel,
+          { messages: [], tools: [], systemPrompt: "filtered prompt" },
+          {},
+        );
+        prepare.mockClear();
+        changed = true;
+        activeSession.isCompacting = true;
+        await activeSession.agent.streamFn(
+          testModel,
+          { messages: [], tools: [], systemPrompt: "compaction prompt" },
+          {},
+        );
+        expect(prepare).not.toHaveBeenCalled();
+        activeSession.isCompacting = false;
+        await activeSession.agent.streamFn(
+          testModel,
+          { messages: [], tools: [], systemPrompt: "filtered prompt" },
+          {},
+        );
+      },
+    });
+    expect(
+      captures.map((context) => ({ tools: context.tools, systemPrompt: context.systemPrompt })),
+    ).toEqual([
+      { tools: [], systemPrompt: "filtered prompt" },
+      { tools: [], systemPrompt: "compaction prompt" },
+      { tools: restoredTools, systemPrompt: "ordinary prompt" },
+    ]);
+    expect(prepare).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])(
+    "rechecks authority after restoration preparation (closed=%s)",
+    async (closed) => {
+      const { activeSession } = createSession();
+      const stream = vi.fn<StreamFn>(() =>
+        createAssistantResultStream(createAssistant(testModel, [])),
+      );
+      activeSession.agent.streamFn = stream;
+      let active = true;
+      const ordinary = [
+        {
+          name: "restored",
+          description: "permitted",
+          parameters: { type: "object" as const, properties: {} },
+        },
+      ];
+      const reader = vi.fn(() => ({ tools: ordinary, systemPrompt: "restored prompt" }));
+      const prepare = vi.fn(async () => {
+        active = !closed;
+        return reader;
+      });
+      const execute = submitEmbeddedAttemptPrompt({
+        ...createBaseInput(),
+        activeSession,
+        assertHostActive: () => {
+          if (!active) {
+            throw new Error("authority closed");
+          }
+        },
+        preparePrimaryModelRequest: prepare,
+        promptActiveSession: async (_prompt, options) => {
+          await activeSession.agent.streamFn(testModel, { messages: [] }, {});
+          expect(prepare).not.toHaveBeenCalled();
+          stream.mockClear();
+          options?.preflightResult?.(true);
+          await activeSession.agent.streamFn(testModel, { messages: [], tools: [] }, {});
+        },
+      });
+      if (closed) {
+        await expect(execute).rejects.toThrow("authority closed");
+        expect(reader).not.toHaveBeenCalled();
+        expect(stream).not.toHaveBeenCalled();
+      } else {
+        await execute;
+        expect(reader).toHaveBeenCalledOnce();
+        expect(stream.mock.calls[0]?.[1]).toMatchObject({
+          tools: ordinary,
+          systemPrompt: "restored prompt",
+        });
+      }
+    },
+  );
+
   it.each(["preflight", "aborted"])(
     "does not report applied filtering for %s-only submission",
     async (kind) => {
