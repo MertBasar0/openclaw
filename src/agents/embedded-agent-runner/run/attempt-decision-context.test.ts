@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, UserMessage } from "../../../llm/types.js";
 import type { AgentMessage } from "../../runtime/index.js";
+import { makeAssistantMessageFixture } from "../../test-helpers/assistant-message-fixtures.js";
 import { prepareDecisionContext } from "./attempt-decision-context.js";
 
 const user = (content: UserMessage["content"]): UserMessage => ({
@@ -8,24 +9,8 @@ const user = (content: UserMessage["content"]): UserMessage => ({
   content,
   timestamp: 1,
 });
-const assistant = (text: string, extra: Partial<AssistantMessage> = {}): AssistantMessage => ({
-  role: "assistant",
-  content: [{ type: "text", text }],
-  api: "openai-responses",
-  provider: "fixture",
-  model: "fixture",
-  usage: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  },
-  stopReason: "stop",
-  timestamp: 2,
-  ...extra,
-});
+const assistant = (text: string, extra: Partial<AssistantMessage> = {}) =>
+  makeAssistantMessageFixture({ content: [{ type: "text", text }], stopReason: "stop", ...extra });
 const project = (messages: AgentMessage[], latestRequest = "Yes") =>
   prepareDecisionContext({ latestRequest, messages });
 
@@ -132,22 +117,6 @@ describe("bounded Decision conversation projection", () => {
     });
     expect(JSON.stringify(result)).not.toContain("private");
   });
-  it("retains tools for pending tool work despite an assistant claim of completion", () => {
-    expect(
-      project(
-        [
-          user("Do it"),
-          assistant("Done", {
-            content: [
-              { type: "toolCall", id: "pending", name: "read", arguments: {} },
-              { type: "text", text: "Done" },
-            ],
-          }),
-        ],
-        "Thanks",
-      ),
-    ).toMatchObject({ status: "skipped", reason: "pending-tool-work" });
-  });
   it.each([
     { content: "See /tmp/synthetic-private-image.png" },
     { content: [{ type: "text" as const, text: "See /tmp/synthetic-private-image.png" }] },
@@ -186,42 +155,35 @@ describe("bounded Decision conversation projection", () => {
       ]),
     ).toMatchObject({ status: "ready" });
   });
-  it("keeps every visible assistant part of a proposal without exposing thinking", () => {
-    expect(
-      project([
-        user("Help"),
-        assistant("Should I apply the patch?"),
-        assistant("It will restart the service."),
-      ]),
-    ).toMatchObject({
-      status: "ready",
-      recentConversation: [
-        { assistant: "Should I apply the patch?\nIt will restart the service." },
-      ],
-    });
-  });
-  it("does not consume one old return for a later repeated tool-call ID", () => {
-    const call = assistant("", {
-      content: [{ type: "toolCall", id: "reused", name: "read", arguments: {} }],
-      stopReason: "toolUse",
-    });
-    expect(
-      project([
-        user("Do it"),
-        call,
-        {
-          role: "toolResult",
-          toolCallId: "reused",
-          toolName: "read",
-          content: [],
-          isError: false,
-          timestamp: 3,
-        },
-        call,
-        assistant("Done"),
-      ]),
-    ).toMatchObject({ status: "skipped", reason: "pending-tool-work" });
-  });
+  it.each([false, true])(
+    "requires a return for each tool call, including reused IDs (%s)",
+    (priorReturn) => {
+      const call = assistant("", {
+        content: [{ type: "toolCall", id: "reused", name: "read", arguments: {} }],
+        stopReason: "toolUse",
+      });
+      expect(
+        project([
+          user("Do it"),
+          ...(priorReturn
+            ? [
+                call,
+                {
+                  role: "toolResult" as const,
+                  toolCallId: "reused",
+                  toolName: "read",
+                  content: [],
+                  isError: false,
+                  timestamp: 3,
+                },
+              ]
+            : []),
+          call,
+          assistant("Done"),
+        ]),
+      ).toMatchObject({ status: "skipped", reason: "pending-tool-work" });
+    },
+  );
   it("preserves visible commentary proposals alongside generic final answers", () => {
     const proposal = assistant("", {
       content: [
@@ -238,10 +200,16 @@ describe("bounded Decision conversation projection", () => {
         },
       ],
     });
-    const result = project([user("Help me fix this"), proposal]);
+    const result = project([
+      user("Help me fix this"),
+      proposal,
+      assistant("It will restart the service."),
+    ]);
     expect(result).toMatchObject({
       status: "ready",
-      recentConversation: [{ assistant: "Should I apply the patch?\nLet me know." }],
+      recentConversation: [
+        { assistant: "Should I apply the patch?\nLet me know.\nIt will restart the service." },
+      ],
     });
     expect(JSON.stringify(result)).not.toContain("private reasoning");
   });
