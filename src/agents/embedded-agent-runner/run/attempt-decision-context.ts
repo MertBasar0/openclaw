@@ -14,7 +14,7 @@ import { detectImageReferences } from "./images.js";
 
 // Projection limits, not a tokenizer or provider admission estimate. Never cut a
 // request/proposal to fit: omit only whole older exchanges, or retain tools.
-const MAX_CONTEXT_CHARS = 6_000;
+export const MAX_DECISION_CONTEXT_CHARS = 6_000;
 const MAX_SCAN_MESSAGES = 64;
 const MAX_CONTENT_BLOCKS = 64;
 const MAX_EXCHANGES = 2;
@@ -78,7 +78,8 @@ function readUserText(message: Extract<AgentMessage, { role: "user" }>): string 
   }
   const content = message.content;
   if (typeof content === "string") {
-    return content.length <= MAX_CONTEXT_CHARS && detectImageReferences(content).length === 0
+    return content.length <= MAX_DECISION_CONTEXT_CHARS &&
+      detectImageReferences(content).length === 0
       ? stripUserEnvelopeForDisplay(content).trim()
       : undefined;
   }
@@ -88,7 +89,7 @@ function readUserText(message: Extract<AgentMessage, { role: "user" }>): string 
   let chars = 0;
   const parts: string[] = [];
   for (const block of content) {
-    if (block.type !== "text" || (chars += block.text.length) > MAX_CONTEXT_CHARS) {
+    if (block.type !== "text" || (chars += block.text.length) > MAX_DECISION_CONTEXT_CHARS) {
       return undefined;
     }
     parts.push(block.text);
@@ -117,7 +118,7 @@ export function prepareDecisionContext(params: {
   if (params.currentInputExcluded) {
     return skip("excluded-context");
   }
-  if (params.latestRequest.length > MAX_CONTEXT_CHARS) {
+  if (params.latestRequest.length > MAX_DECISION_CONTEXT_CHARS) {
     return skip("context-too-large");
   }
   if (detectImageReferences(params.latestRequest).length > 0) {
@@ -163,7 +164,8 @@ export function prepareDecisionContext(params: {
         errors += reply.isError ? 1 : 0;
       } else if (reply.role === "assistant") {
         const content = reply.content;
-        const contentLimit = typeof content === "string" ? MAX_CONTEXT_CHARS : MAX_CONTENT_BLOCKS;
+        const contentLimit =
+          typeof content === "string" ? MAX_DECISION_CONTEXT_CHARS : MAX_CONTENT_BLOCKS;
         if (content.length > contentLimit) {
           excluded = true;
           continue;
@@ -178,7 +180,7 @@ export function prepareDecisionContext(params: {
           }
         }
         if (
-          chars > MAX_CONTEXT_CHARS ||
+          chars > MAX_DECISION_CONTEXT_CHARS ||
           hasMedia(reply) ||
           reply.openclawDelivery?.mediaUrls?.length
         ) {
@@ -224,7 +226,7 @@ export function prepareDecisionContext(params: {
       ...(returned ? { toolResults: { returned, errors } } : {}),
     };
     const size = exchange.user.length + exchange.assistant.length;
-    if (facts.contextChars + size > MAX_CONTEXT_CHARS) {
+    if (facts.contextChars + size > MAX_DECISION_CONTEXT_CHARS) {
       if (recentConversation.length === 0) {
         return skip("context-too-large");
       }

@@ -28,7 +28,7 @@ function config(optIn = true, model: string | undefined = "fixture/model"): Open
 }
 const answer = (probabilityTrue = 0.1): DecisionOutcome => ({
   status: "ok",
-  provenance: { providerId: "fixture", rubricVersion: "6", runtimeGeneration: "test" },
+  provenance: { providerId: "fixture", rubricVersion: "7", runtimeGeneration: "test" },
   result: {
     model: "model",
     answers: {
@@ -125,19 +125,25 @@ describe("Decision tool prefilter admission", () => {
           missing_request_context: {
             type: "boolean",
             instructions: expect.stringContaining("`latestRequest`"),
-            criteria: { true: expect.any(String), false: expect.any(String) },
+            criteria: {
+              true: expect.stringContaining("exact prior-conversation content"),
+              false: expect.any(String),
+            },
           },
           next_response_needs_tools: {
             type: "boolean",
-            instructions: expect.stringContaining("`latestRequest`"),
-            criteria: { true: expect.any(String), false: expect.any(String) },
+            instructions: expect.stringContaining("Resolve labels, numbers"),
+            criteria: {
+              true: expect.stringContaining("go with option A"),
+              false: expect.any(String),
+            },
           },
         },
       },
       {
         agentId: "main",
         purpose: "tool-prefilter.semantic-gate",
-        rubricVersion: "6",
+        rubricVersion: "9",
         timeoutMs: 500,
         signal: input.signal,
       },
@@ -146,6 +152,43 @@ describe("Decision tool prefilter admission", () => {
     );
     expect(input.assertActive).toHaveBeenCalledTimes(2);
   });
+  it("passes bounded prompt-build fields verbatim and structurally labeled", async () => {
+    const promptBuildFields = {
+      systemPrompt: "  replacement system  ",
+      prependContext: "prefix\ncontext",
+      appendContext: "suffix ",
+      prependSystemContext: " system prefix ",
+      appendSystemContext: "system suffix\n",
+    };
+    const input = { ...params(), promptBuildFields };
+
+    expect(await evaluateAttemptDecisionToolPrefilter(input)).toMatchObject({
+      shouldPruneTools: true,
+    });
+    expect(mocks.evaluate.mock.calls[0]?.[0]).toMatchObject({
+      state: { beforePromptBuild: promptBuildFields },
+      questions: {
+        missing_request_context: { instructions: expect.stringContaining("beforePromptBuild") },
+        next_response_needs_tools: { instructions: expect.stringContaining("beforePromptBuild") },
+      },
+    });
+  });
+
+  it("retains the baseline tool surface instead of truncating oversized prompt-build fields", async () => {
+    expect(
+      await evaluateAttemptDecisionToolPrefilter({
+        ...params(),
+        messages: [],
+        promptBuildFields: { appendContext: "x".repeat(8_000) },
+      }),
+    ).toMatchObject({
+      shouldPruneTools: false,
+      status: "skipped",
+      reason: "prompt-build-context-too-large",
+    });
+    expect(mocks.evaluate).not.toHaveBeenCalled();
+  });
+
   it.each([0.35, 0.9])("retains tools at probability %s", async (probability) => {
     mocks.evaluate.mockResolvedValue(answer(probability));
     expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({

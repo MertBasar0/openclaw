@@ -211,12 +211,8 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
   assertHostActive?.();
   const hasPendingActionInstructions = Boolean(
     // Authorized enrichment runs after policy; do not pre-empt its required actions.
-    input.hookRunner?.hasHooks("before_prompt_build", hookCtx) ||
-    hookResult?.prependContext?.trim() ||
-    hookResult?.appendContext?.trim() ||
-    hookResult?.systemPrompt?.trim() ||
-    hookResult?.prependSystemContext?.trim() ||
-    hookResult?.appendSystemContext?.trim() ||
+    input.hookRunner?.hasAuthorizedPromptBuildHooks(hookCtx) ||
+    hookResult?.hasPendingNonPromptBuildContext ||
     input.orphanRepair?.messageEntry ||
     leasedSteering,
   );
@@ -252,6 +248,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
       agentId: input.sessionAgentId,
       userMessage: effectivePrompt,
       messages: promptBuildMessages,
+      promptBuildFields: hookResult?.decisionPromptBuildFields,
       currentInputExcluded: Boolean(
         attempt.images?.length ||
         attempt.media?.length ||
