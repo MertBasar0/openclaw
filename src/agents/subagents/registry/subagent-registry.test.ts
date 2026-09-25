@@ -790,12 +790,14 @@ describe("subagent registry seam flow", () => {
     expect(mocks.runSubagentAnnounceFlow).not.toHaveBeenCalled();
 
     resetGatewayWorkAdmission();
-    await vi.advanceTimersByTimeAsync(1_000);
-    await waitForFast(() => expect(mocks.runSubagentAnnounceFlow).toHaveBeenCalledOnce());
-    await waitForFast(() => {
-      const entry = findRequesterRun(runId);
-      expect(entry?.cleanupCompletedAt).toBeTypeOf("number");
-    });
+    const settleRootWork = observeRootWork();
+    try {
+      await vi.advanceTimersByTimeAsync(1_000);
+    } finally {
+      await settleRootWork();
+    }
+    expect(mocks.runSubagentAnnounceFlow).toHaveBeenCalledOnce();
+    expect(findRequesterRun(runId)?.cleanupCompletedAt).toBeTypeOf("number");
   });
 
   it("keeps killed session timing root-admitted after task finalization", async () => {
