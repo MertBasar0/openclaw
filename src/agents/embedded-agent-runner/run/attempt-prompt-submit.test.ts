@@ -25,7 +25,6 @@ import {
   createCompactionHandlers,
   createResourceLoader,
 } from "../../sessions/agent-session-loop-resource-loader.test-support.js";
-import { agentSessionQueuePromptContext } from "../../sessions/agent-session-prompting.js";
 import {
   createCompactionRequestBudget,
   estimateCompactedRequestTokens,
@@ -42,13 +41,11 @@ import {
   getActiveEmbeddedRunSnapshot,
   setActiveEmbeddedRun,
 } from "../runs.js";
-import {
-  clearEmbeddedSessionPromptStates,
-  getEmbeddedSessionPromptState,
-} from "../session-prompt-state.js";
+import { clearEmbeddedSessionPromptStates } from "../session-prompt-state.js";
 import { prepareEmbeddedAttemptPromptAssembly } from "./attempt-prompt-build.js";
 import { forgetPromptBuildDrainCacheForRun } from "./attempt-prompt-helpers.js";
 import { submitEmbeddedAttemptPrompt } from "./attempt-prompt-submit.js";
+import { createBaseInput, createSession, sessionId } from "./attempt-prompt-submit.test-support.js";
 import { prepareEmbeddedAttemptSessionBoundary } from "./attempt-session-prepare.js";
 import {
   buildRuntimeContextCustomMessage,
@@ -57,171 +54,14 @@ import {
 
 registerAgentSessionLoopTestLifecycle();
 
-const sessionId = "attempt-prompt-submit-test";
 type PromptActiveSession = Parameters<typeof submitEmbeddedAttemptPrompt>[0]["promptActiveSession"];
 type PromptOptions = Parameters<PromptActiveSession>[1];
-
-function createSession() {
-  const state = {
-    messages: [{ role: "user", content: "transcript prompt", timestamp: 1 }] as AgentMessage[],
-  };
-  const baseStreamFn: StreamFn = () => {
-    throw new Error("stream function should not be called directly");
-  };
-  const originalTransformContext = async (messages: AgentMessage[]) => messages;
-  const agent = {
-    state,
-    streamFn: baseStreamFn,
-    transformContext: originalTransformContext,
-    reset: () => {
-      state.messages = [];
-    },
-  };
-  const activeSession = {
-    isCompacting: false,
-    [agentSessionQueuePromptContext]: vi.fn(() => () => undefined),
-    get messages() {
-      return state.messages;
-    },
-    agent,
-  };
-  return { activeSession, baseStreamFn, originalTransformContext };
-}
-
-function createBaseInput() {
-  const sessionPromptState = getEmbeddedSessionPromptState(sessionId);
-  return {
-    attempt: { sessionId },
-    appendContext: "append context",
-    contextTokenBudget: 8_000,
-    images: [] as ImageContent[],
-    modelPrompt: "model prompt",
-    onFinalPromptText: vi.fn(),
-    onSteeringAcknowledged: vi.fn(),
-    persistToolResultProjections: vi.fn(async () => {}),
-    prependContext: "prepend context",
-    runtimeOnly: false,
-    sessionPromptState,
-    systemPrompt: "system prompt",
-    toolResultAggregateMaxChars: 8_000,
-    toolResultMaxChars: 4_000,
-    toolResultPromptProjectionState: sessionPromptState.toolResults,
-    trajectoryRecorder: null,
-    transcriptLeafId: null,
-    transcriptPrompt: "transcript prompt",
-  };
-}
 
 afterEach(() => {
   clearEmbeddedSessionPromptStates([sessionId]);
 });
 
 describe("submitEmbeddedAttemptPrompt", () => {
-  it("observes only foreground dispatch and keeps compaction out of restoration", async () => {
-    const { activeSession } = createSession();
-    const captures: Context[] = [];
-    const stream: StreamFn = (_model, context) => {
-      captures.push(context);
-      return createAssistantResultStream(createAssistant(testModel, []));
-    };
-    activeSession.agent.streamFn = stream;
-    const tools = [
-      { name: "message", description: "required", parameters: { type: "object" as const } },
-    ];
-    let changed = false;
-    const prepare = vi.fn(() =>
-      changed ? Promise.resolve(() => ({ tools, systemPrompt: "restored" })) : undefined,
-    );
-    const observe = vi.fn();
-    await submitEmbeddedAttemptPrompt({
-      ...createBaseInput(),
-      activeSession,
-      onPrimaryModelRequest: observe,
-      preparePrimaryModelRequest: prepare,
-      promptActiveSession: async (_prompt, options) => {
-        const request = (systemPrompt: string) =>
-          activeSession.agent.streamFn(testModel, { messages: [], tools: [], systemPrompt }, {});
-        await request("preflight");
-        expect(observe).not.toHaveBeenCalled();
-        expect(prepare).not.toHaveBeenCalled();
-        options?.preflightResult?.(true);
-        await request("filtered");
-        prepare.mockClear();
-        changed = true;
-        activeSession.isCompacting = true;
-        await request("compaction");
-        expect(prepare).not.toHaveBeenCalled();
-        activeSession.isCompacting = false;
-        await request("filtered");
-      },
-    });
-    expect(captures.map(({ tools, systemPrompt }) => ({ tools, systemPrompt }))).toEqual([
-      { tools: [], systemPrompt: "preflight" },
-      { tools: [], systemPrompt: "filtered" },
-      { tools: [], systemPrompt: "compaction" },
-      { tools, systemPrompt: "restored" },
-    ]);
-    expect(prepare).toHaveBeenCalledOnce();
-    expect(observe).toHaveBeenCalledExactlyOnceWith([]);
-    expect(activeSession.agent.streamFn).toBe(stream);
-  });
-
-  it("rechecks authority after awaiting restoration, before callbacks or dispatch", async () => {
-    const { activeSession } = createSession();
-    const stream = vi.fn<StreamFn>();
-    activeSession.agent.streamFn = stream;
-    let active = true;
-    const reader = vi.fn(() => ({ tools: [], systemPrompt: "restored" }));
-    const observe = vi.fn();
-    await expect(
-      submitEmbeddedAttemptPrompt({
-        ...createBaseInput(),
-        activeSession,
-        onPrimaryModelRequest: observe,
-        assertHostActive: () => {
-          if (!active) throw new Error("authority closed");
-        },
-        preparePrimaryModelRequest: async () => {
-          active = false;
-          return reader;
-        },
-        promptActiveSession: async (_prompt, options) => {
-          options?.preflightResult?.(true);
-          await activeSession.agent.streamFn(testModel, { messages: [] }, {});
-        },
-      }),
-    ).rejects.toThrow("authority closed");
-    expect(reader).not.toHaveBeenCalled();
-    expect(observe).not.toHaveBeenCalled();
-    expect(stream).not.toHaveBeenCalled();
-  });
-
-  it.each(["preflight", "aborted"])(
-    "does not report applied filtering for %s-only submission",
-    async (kind) => {
-      const { activeSession } = createSession();
-      const observe = vi.fn();
-      const execute = submitEmbeddedAttemptPrompt({
-        ...createBaseInput(),
-        activeSession,
-        onPrimaryModelRequest: observe,
-        promptActiveSession: async (_prompt, options) => {
-          options?.preflightResult?.(kind !== "preflight");
-          if (kind === "aborted") {
-            await activeSession.agent.streamFn(
-              testModel,
-              { messages: [] },
-              { signal: AbortSignal.abort(new Error("cancelled")) },
-            );
-          }
-        },
-      });
-      if (kind === "aborted") await expect(execute).rejects.toThrow("cancelled");
-      else await execute;
-      expect(observe).not.toHaveBeenCalled();
-    },
-  );
-
   it("replaces queued context without charging it twice or changing user overlap credit", () => {
     const user = {
       role: "user" as const,

@@ -147,8 +147,11 @@ describe("Decision prefilter policy", () => {
       ]) {
         const outcome = answer();
         const answers = { ...outcome.result.answers };
-        if (value) answers[id] = value;
-        else delete answers[id];
+        if (value) {
+          answers[id] = value;
+        } else {
+          delete answers[id];
+        }
         mocks.evaluate.mockResolvedValue({ ...outcome, result: { ...outcome.result, answers } });
         expect((await evaluateAttemptDecisionToolPrefilter(params())).shouldPruneTools).toBe(
           value?.type === "boolean" && value.probabilityTrue < 0.35,

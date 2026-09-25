@@ -31,6 +31,10 @@ import { cleanupEmbeddedAttemptResources } from "./attempt-subscription-cleanup.
 import type { MidTurnPrecheckRequest } from "./midturn-precheck.js";
 
 const hoisted = getHoisted();
+function useHooks(hooks: Parameters<typeof createHookRunnerWithRegistry>[0]) {
+  hoisted.getGlobalHookRunnerMock.mockReturnValue(createHookRunnerWithRegistry(hooks).runner);
+}
+
 const embeddedSessionId = "embedded-session";
 const seedMessage = { role: "user", content: "seed", timestamp: 1 } as AgentMessage;
 const doneMessage = { role: "assistant", content: "done", timestamp: 2 } as unknown as AgentMessage;
@@ -1075,11 +1079,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
         prependContext: "dynamic hook context",
         appendContext: "dynamic hook tail",
       }));
-      hoisted.getGlobalHookRunnerMock.mockReturnValue(
-        createHookRunnerWithRegistry([
-          { hookName: "before_prompt_build", handler: runBeforePromptBuild },
-        ]).runner,
-      );
+      useHooks([{ hookName: "before_prompt_build", handler: runBeforePromptBuild }]);
       const seen: {
         modelMessages?: unknown[];
         preprocessedModelMessages?: unknown[];
@@ -1143,11 +1143,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       prependContext: "dynamic hook context",
       appendContext: "dynamic hook tail",
     }));
-    hoisted.getGlobalHookRunnerMock.mockReturnValue(
-      createHookRunnerWithRegistry([
-        { hookName: "before_prompt_build", handler: runBeforePromptBuild },
-      ]).runner,
-    );
+    useHooks([{ hookName: "before_prompt_build", handler: runBeforePromptBuild }]);
     hoisted.sessionManager.getLeafEntry.mockReturnValueOnce({
       id: "orphan-leaf",
       parentId: "parent-leaf",
@@ -1215,11 +1211,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       prependContext: "provider-side context",
     }));
     const seen: { modelInputPrompt?: string; modelMessages?: AgentMessage[] } = {};
-    hoisted.getGlobalHookRunnerMock.mockReturnValue(
-      createHookRunnerWithRegistry([
-        { hookName: "before_prompt_build", handler: runBeforePromptBuild },
-      ]).runner,
-    );
+    useHooks([{ hookName: "before_prompt_build", handler: runBeforePromptBuild }]);
     hoisted.sessionManager.getLeafEntry.mockReturnValueOnce({
       id: "orphan-leaf",
       parentId: "parent-leaf",
@@ -1808,11 +1800,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       prependContext: recalledMemoryContext,
       appendContext: "dynamic hook tail",
     }));
-    hoisted.getGlobalHookRunnerMock.mockReturnValue(
-      createHookRunnerWithRegistry([
-        { hookName: "before_prompt_build", handler: runBeforePromptBuild },
-      ]).runner,
-    );
+    useHooks([{ hookName: "before_prompt_build", handler: runBeforePromptBuild }]);
     const seen: {
       modelMessages?: unknown[];
       prompt?: string;
@@ -1891,11 +1879,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       prependContext: "dynamic hook context",
       appendContext: "dynamic hook tail",
     }));
-    hoisted.getGlobalHookRunnerMock.mockReturnValue(
-      createHookRunnerWithRegistry([
-        { hookName: "before_prompt_build", handler: runBeforePromptBuild },
-      ]).runner,
-    );
+    useHooks([{ hookName: "before_prompt_build", handler: runBeforePromptBuild }]);
 
     const result = await createContextEngineAttemptRunner({
       contextEngine: createContextEngineBootstrapAndAssemble(),
@@ -2056,11 +2040,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       prependContext: "dynamic hook context",
       appendContext: "dynamic hook tail",
     }));
-    hoisted.getGlobalHookRunnerMock.mockReturnValue(
-      createHookRunnerWithRegistry([
-        { hookName: "before_prompt_build", handler: runBeforePromptBuild },
-      ]).runner,
-    );
+    useHooks([{ hookName: "before_prompt_build", handler: runBeforePromptBuild }]);
 
     const result = await createContextEngineAttemptRunner({
       contextEngine: createContextEngineBootstrapAndAssemble(),
@@ -2172,15 +2152,13 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
       outcome: "block" as const,
       reason: "Blocked by test policy.",
     }));
-    hoisted.getGlobalHookRunnerMock.mockReturnValue(
-      createHookRunnerWithRegistry([
-        {
-          hookName: "before_agent_run",
-          pluginId: "test-policy",
-          handler: runBeforeAgentRun,
-        },
-      ]).runner,
-    );
+    useHooks([
+      {
+        hookName: "before_agent_run",
+        pluginId: "test-policy",
+        handler: runBeforeAgentRun,
+      },
+    ]);
 
     const result = await createContextEngineAttemptRunner({
       contextEngine: createContextEngineBootstrapAndAssemble(),
@@ -2436,9 +2414,7 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
 
   it("passes the boundary-stamped current prompt to llm_input hooks", async () => {
     const runLlmInput = vi.fn(async () => {});
-    hoisted.getGlobalHookRunnerMock.mockReturnValue(
-      createHookRunnerWithRegistry([{ hookName: "llm_input", handler: runLlmInput }]).runner,
-    );
+    useHooks([{ hookName: "llm_input", handler: runLlmInput }]);
 
     await createContextEngineAttemptRunner({
       contextEngine: createContextEngineBootstrapAndAssemble(),
@@ -2464,12 +2440,10 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     const afterTurn = vi.fn(async () => {});
     const runBeforePromptBuild = vi.fn(async () => ({ prependContext: "hook context" }));
     const runLlmInput = vi.fn(async () => {});
-    hoisted.getGlobalHookRunnerMock.mockReturnValue(
-      createHookRunnerWithRegistry([
-        { hookName: "before_prompt_build", handler: runBeforePromptBuild },
-        { hookName: "llm_input", handler: runLlmInput },
-      ]).runner,
-    );
+    useHooks([
+      { hookName: "before_prompt_build", handler: runBeforePromptBuild },
+      { hookName: "llm_input", handler: runLlmInput },
+    ]);
     const seen: { prompt?: string; messages?: unknown[]; systemPrompt?: string } = {};
 
     const result = await createContextEngineAttemptRunner({

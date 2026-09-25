@@ -151,7 +151,6 @@ const hoisted = vi.hoisted((): AttemptSpawnWorkspaceHoisted => {
   }));
   const resolveSkillsPromptForRunMock = vi.fn(() => "");
   const supportsModelToolsMock = vi.fn<(model?: unknown) => boolean>(() => true);
-  const getGlobalHookRunnerMock = vi.fn<typeof getGlobalHookRunner>(() => null);
   const initializeGlobalHookRunnerMock = vi.fn();
   const runContextEngineMaintenanceMock = vi.fn(async (_params?: unknown) => undefined);
   const detectAndLoadPromptImagesMock = vi.fn(async () => ({
@@ -224,7 +223,7 @@ const hoisted = vi.hoisted((): AttemptSpawnWorkspaceHoisted => {
     resolveEmbeddedRunSkillEntriesMock,
     resolveSkillsPromptForRunMock,
     supportsModelToolsMock,
-    getGlobalHookRunnerMock,
+    getGlobalHookRunnerMock: vi.fn<typeof getGlobalHookRunner>(() => null),
     initializeGlobalHookRunnerMock,
     runContextEngineMaintenanceMock,
     detectAndLoadPromptImagesMock,

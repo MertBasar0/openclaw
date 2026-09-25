@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import type { PluginHookBeforePromptBuildResult } from "../../../plugins/hook-before-agent-start.types.js";
 import type { PluginHookAgentContext } from "../../../plugins/hook-types.js";
 import { createHookRunner } from "../../../plugins/hooks.js";
+import { matchesTranscriptEvent } from "../../../sessions/transcript-visible-record.js";
 import { prepareSystemAgentRunAdmission } from "../../admitted-run-context.js";
 import { buildAgentRunTerminalReplySnapshot } from "../../agent-run-terminal-reply.js";
 import {
@@ -275,6 +276,7 @@ it("injects complete lifecycle results into requester prompts and acknowledges o
     getLatestRunForChildSession: () => null,
     suppressAnnounceForSteerRestart: () => false,
     resolveSubagentTask: () => ({ lookup: "available" }),
+    resolveSubagentTaskAsync: async () => ({ lookup: "available" }),
     shouldEmitEndedHookForRun: () => false,
     emitSubagentEndedHookForRun: vi.fn(async () => {}),
     emitSubagentProgressEndedForRun: vi.fn(async () => {}),
@@ -330,7 +332,9 @@ it("injects complete lifecycle results into requester prompts and acknowledges o
   const storedCompletion = structuredClone(first.completion);
   announceTesting.setDepsForTest({
     findTranscriptEvent: async ({ sessionId }, match) => {
-      const event = transcripts.get(sessionId)?.findLast(match);
+      const event = transcripts
+        .get(sessionId)
+        ?.findLast((candidate) => matchesTranscriptEvent(candidate, match));
       return event === undefined ? undefined : { event };
     },
   });
