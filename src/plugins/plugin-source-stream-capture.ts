@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { copyFileDescriptorSync } from "@openclaw/fs-safe/advanced";
 import { openRootFileSync, readFileWindowFullySync } from "../infra/boundary-file-read.js";
 
 // Bounded chunk size for streaming large plugin source files during capture/verification;
@@ -42,9 +43,10 @@ function openPluginSourceFile(source: string, boundary: string) {
 
 /**
  * Streams a boundary-checked source file to `target` in bounded chunks, computing its SHA-256
- * content hash incrementally — without ever holding the whole file in memory. Callers that also
- * maintain a cross-file artifact digest feed it separately via {@link capturePluginSourceDigest}
- * against the written `target` (identical bytes, one shared code path for every copied entry).
+ * content hash incrementally — without ever holding the whole file in memory. fs-safe's copier
+ * owns complete writes: it retries short writes and rejects zero progress, so a returned hash
+ * always describes bytes that fully reached `target`. Callers that also maintain a cross-file
+ * artifact digest feed it separately via {@link capturePluginSourceDigest} against `target`.
  */
 export function capturePluginSourceFile(params: {
   source: string;
@@ -53,18 +55,13 @@ export function capturePluginSourceFile(params: {
 }): { length: number; contentHash: string } {
   const opened = openPluginSourceFile(params.source, params.boundary);
   try {
-    const length = opened.stat.size;
     const contentHash = createHash("sha256");
     const targetFd = fs.openSync(params.target.path, "w", params.target.mode);
+    let length: number;
     try {
-      drainFileInChunks(
-        opened.fd,
-        (chunk) => {
-          contentHash.update(chunk);
-          fs.writeSync(targetFd, chunk);
-        },
-        length,
-      );
+      length = copyFileDescriptorSync(opened.fd, targetFd, {
+        onChunk: (chunk) => contentHash.update(chunk),
+      });
     } finally {
       fs.closeSync(targetFd);
     }

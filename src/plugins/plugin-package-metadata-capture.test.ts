@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { capturePluginGenerationArtifact } from "./plugin-generation-artifact.js";
 import {
   findPluginCapturedPackage,
   pluginSourceStatIdentity,
@@ -21,11 +22,11 @@ import {
 const MULTI_CHUNK_BYTES = 3 * 1024 * 1024 + 777;
 
 function multiChunkFixture(): Buffer {
-  // A fixed, non-repeating pattern (not zero-filled) so a truncated or reordered
-  // stream would change the hash instead of accidentally matching.
+  // Include higher index bytes so successive chunks differ and reordering
+  // or repeating a chunk changes the hash instead of accidentally matching.
   const content = Buffer.allocUnsafe(MULTI_CHUNK_BYTES);
   for (let index = 0; index < content.length; index++) {
-    content[index] = (index * 2654435761) & 0xff;
+    content[index] = (index ^ (index >>> 8) ^ (index >>> 16)) & 0xff;
   }
   return content;
 }
@@ -122,6 +123,19 @@ describe("streaming plugin source capture (issue #155728)", () => {
     return spy.mock.calls.map((call) => call[3] as number);
   }
 
+  // Real short writes through the buffer overload, including within the final chunk.
+  function writeHalfOfEachRequest() {
+    const realWriteSync = fs.writeSync;
+    const writeShortChunk = (
+      fd: number,
+      buffer: NodeJS.ArrayBufferView,
+      offset = 0,
+      length = buffer.byteLength - offset,
+      position: number | null = null,
+    ) => realWriteSync(fd, buffer, offset, Math.ceil(length / 2), position);
+    return vi.spyOn(fs, "writeSync").mockImplementation(writeShortChunk as typeof fs.writeSync);
+  }
+
   it("streams a multi-chunk source file to its target without a whole-buffer read", () => {
     const boundary = temp.make("plugin-stream-source-");
     const source = path.join(boundary, "asset.bin");
@@ -146,7 +160,112 @@ describe("streaming plugin source capture (issue #155728)", () => {
 
     expect(result.length).toBe(content.length);
     expect(result.contentHash).toBe(createHash("sha256").update(content).digest("hex"));
-    expect(fs.readFileSync(target)).toEqual(content);
+    expect(fs.readFileSync(target).equals(content)).toBe(true);
+  });
+
+  it("writes each chunk completely after short writes", () => {
+    const boundary = temp.make("plugin-stream-short-write-source-");
+    const source = path.join(boundary, "asset.bin");
+    const content = multiChunkFixture();
+    fs.writeFileSync(source, content);
+    const target = path.join(temp.make("plugin-stream-short-write-target-"), "asset.bin");
+    writeHalfOfEachRequest();
+
+    const result = capturePluginSourceFile({
+      source,
+      boundary,
+      target: { path: target, mode: 0o700 },
+    });
+
+    const captured = fs.readFileSync(target);
+    expect(captured.length).toBe(content.length);
+    expect(captured.equals(content)).toBe(true);
+    expect(result.length).toBe(content.length);
+    expect(result.contentHash).toBe(createHash("sha256").update(content).digest("hex"));
+    expect(result.contentHash).toBe(createHash("sha256").update(captured).digest("hex"));
+    const digest = createHash("sha256");
+    capturePluginSourceDigest(target, digest, result.length);
+    expect(digest.digest("hex")).toBe(expectedWholeBufferDigestHex(content));
+    if (process.platform !== "win32") {
+      expect(fs.statSync(target).mode & 0o777).toBe(0o700 & ~process.umask());
+    }
+  });
+
+  it.each(["zero progress", "ENOSPC"])(
+    "fails and closes both descriptors on %s after a short write",
+    (failure) => {
+      const boundary = temp.make("plugin-stream-write-error-source-");
+      const source = path.join(boundary, "asset.bin");
+      const content = Buffer.from("plugin source bytes that cannot be silently truncated");
+      fs.writeFileSync(source, content);
+      const target = path.join(temp.make("plugin-stream-write-error-target-"), "asset.bin");
+      const noSpaceError = Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+      const realWriteSync = fs.writeSync;
+      const writePrefix = (
+        fd: number,
+        buffer: NodeJS.ArrayBufferView,
+        offset = 0,
+        _length?: number,
+        position: number | null = null,
+      ) => realWriteSync(fd, buffer, offset, 17, position);
+      const writeSyncSpy = vi
+        .spyOn(fs, "writeSync")
+        .mockImplementationOnce(writePrefix as typeof fs.writeSync)
+        .mockImplementationOnce(() => {
+          if (failure === "ENOSPC") {
+            throw noSpaceError;
+          }
+          return 0;
+        })
+        .mockImplementation(() => {
+          throw new Error("Unexpected retry after write failure");
+        });
+      const readSyncSpy = vi.spyOn(fs, "readSync");
+
+      expect(() =>
+        capturePluginSourceFile({ source, boundary, target: { path: target, mode: 0o600 } }),
+      ).toThrow(
+        failure === "ENOSPC"
+          ? expect.objectContaining({ code: "ENOSPC", message: noSpaceError.message })
+          : "file write made no progress",
+      );
+
+      expect(writeSyncSpy).toHaveBeenCalledTimes(2);
+      const targetFd = writeSyncSpy.mock.calls[0]![0];
+      const sourceFd = readSyncSpy.mock.calls[0]![0];
+      for (const fd of [sourceFd, targetFd]) {
+        expect(() => fs.fstatSync(fd)).toThrow(expect.objectContaining({ code: "EBADF" }));
+      }
+      expect(fs.readFileSync(target)).toEqual(content.subarray(0, 17));
+      expect(fs.readFileSync(source)).toEqual(content);
+    },
+  );
+
+  it("keeps generation artifacts complete through short writes and rejects zero progress", () => {
+    const source = temp.make("plugin-stream-artifact-");
+    const content = multiChunkFixture();
+    fs.writeFileSync(path.join(source, "index.cjs"), "exports.value = 1;");
+    fs.writeFileSync(path.join(source, "native.bin"), content);
+    const capture = () => {
+      const artifact = capturePluginGenerationArtifact(source);
+      try {
+        return {
+          bytes: fs.readFileSync(path.join(artifact.rootDir, "native.bin")),
+          sourceDigest: artifact.sourceDigest,
+        };
+      } finally {
+        artifact.dispose();
+      }
+    };
+    const expected = capture();
+    const writeSyncSpy = writeHalfOfEachRequest();
+
+    const shortWritten = capture();
+    expect(shortWritten.bytes.equals(content)).toBe(true);
+    expect(shortWritten.sourceDigest).toBe(expected.sourceDigest);
+
+    writeSyncSpy.mockReturnValue(0);
+    expect(() => capturePluginGenerationArtifact(source)).toThrow("file write made no progress");
   });
 
   it("feeds an artifact digest without a whole-buffer read, for a fresh or re-aliased entry", () => {
