@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createAdmittedRunOperatorAuthority } from "../agents/admitted-run-context.js";
 import { prepareOperatorModelPolicy } from "../agents/operator-model-policy.js";
+import { createDecisionTool } from "../agents/tools/decision-tool.js";
 import { withGatewayToolCallerIdentity } from "../agents/tools/gateway-caller-context.js";
 import {
   clearRuntimeConfigSnapshot,
@@ -634,6 +635,7 @@ describe("fault settlement and generation health", () => {
   ] as const)(
     "keeps $settlement caller deadlines out of shared health while preserving $failureReason accounting",
     async ({ settlement, failureReason }) => {
+      setRuntimeConfigSnapshot(config);
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
       try {
         const deadlineStarted = Array.from({ length: 3 }, () => createDeferredCore());
@@ -671,9 +673,12 @@ describe("fault settlement and generation health", () => {
           });
         }
 
-        expect(await host.run({ ...options(), purpose: "decision_evaluate" })).toMatchObject({
-          status: "ok",
-        });
+        const explicit = await createDecisionTool("main", { config })!.execute(
+          "after-optional-deadlines",
+          batch,
+          options().signal,
+        );
+        expect(explicit.details).toMatchObject({ status: "ok" });
         expect(evaluate).toHaveBeenCalledTimes(4);
         expect(providerHost.inspect(config)).toMatchObject({
           activeRequests: 0,

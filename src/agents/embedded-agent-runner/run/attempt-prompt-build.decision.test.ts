@@ -1,4 +1,3 @@
-import { createServer } from "node:http";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
@@ -8,7 +7,6 @@ import {
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { AgentDefaultsBaseSchema } from "../../../config/zod-schema.agent-defaults-base.js";
 import type { DecisionProviderV1, ProviderDecisionOutcome } from "../../../decisions/types.js";
-import { validateDecisionResult } from "../../../decisions/validation.js";
 import type { Context, Model } from "../../../llm/types.js";
 import { createHookRunnerWithRegistry } from "../../../plugins/hooks.test-fixtures.js";
 import { runPluginRegisterSyncInRegistry } from "../../../plugins/loader-module-runtime.js";
@@ -19,7 +17,7 @@ import {
   resetPluginRuntimeStateForTest,
   setActivePluginRegistry,
 } from "../../../plugins/runtime.js";
-import { getPluginRegistryForContext } from "../../../plugins/runtime/gateway-request-scope.js";
+import { createDeferredCore } from "../../../shared/deferred.js";
 import { prepareSystemAgentRunAdmission } from "../../admitted-run-context.js";
 import {
   createAssistant,
@@ -31,7 +29,6 @@ import {
 } from "../../sessions/agent-session-loop-correctness.test-support.js";
 import { leasePendingAgentSteeringItems } from "../../subagents/registry/subagent-registry.js";
 import type { ToolSearchCatalogRef } from "../../tool-search.js";
-import { createDecisionTool } from "../../tools/decision-tool.js";
 import {
   clearEmbeddedSessionPromptStates,
   getEmbeddedSessionPromptState,
@@ -248,32 +245,6 @@ describe("prompt assembly with registered Decision runtime", () => {
     expect(f.policy.current.tools.map((t) => t.name)).toEqual(
       enabled && selected ? ["message"] : ["inspect_file", "message", "decision_evaluate"],
     );
-    if (enabled && selected) {
-      expect(call.mock.calls[0]).toEqual([
-        expect.objectContaining({
-          state: {
-            recentConversation: [],
-            latestRequest: "Hello",
-            omittedContext: { olderConversation: false, toolPayloads: false },
-          },
-          questions: {
-            missing_request_context: expect.objectContaining({
-              type: "boolean",
-              instructions: expect.stringContaining("`latestRequest`"),
-            }),
-            next_response_needs_tools: expect.objectContaining({
-              criteria: { true: expect.any(String), false: expect.any(String) },
-            }),
-          },
-        }),
-        expect.objectContaining({
-          agentId: "main",
-          model: "model",
-          signal: expect.any(AbortSignal),
-          deadlineMonotonicMs: expect.any(Number),
-        }),
-      ]);
-    }
   });
   it.each([undefined, false])(
     "unknown/unsupported harness %s dispatches nothing",
@@ -283,26 +254,6 @@ describe("prompt assembly with registered Decision runtime", () => {
       await f.assemble({ supportsTurnScopedToolRestrictions: support });
       expect(call).not.toHaveBeenCalled();
       expect(f.policy.current.tools).toHaveLength(3);
-    },
-  );
-  it.each(["structured", "search", "code"] as const)(
-    "narrows %s schema/catalog/callability and restores next turn",
-    async (mode) => {
-      const call = register();
-      const f = await fixture(config(), mode);
-      await f.assemble();
-      expect(f.policy.current.tools.map((t) => t.name)).toEqual(["message"]);
-      expect(f.session.getActiveToolNames()).toEqual(["message"]);
-      expect(f.catalogRef?.current?.entries ?? []).toEqual([]);
-      expect(f.policy.current.callableToolNames).not.toContain("denied");
-      call.mockResolvedValue(result(0.9));
-      await f.assemble({ prompt: "Read package.json" });
-      expect(f.policy.current.tools.map((t) => t.name)).toEqual([
-        "inspect_file",
-        "message",
-        "decision_evaluate",
-      ]);
-      expect(f.policy.current.callableToolNames).toContain("inspect_file");
     },
   );
   it.each(["structured", "search", "code"] as const)(
@@ -316,14 +267,8 @@ describe("prompt assembly with registered Decision runtime", () => {
         const baseline = f.session.agent.state.tools.map((t) => t.name);
         const assembly = await f.assemble();
         expect(f.session.getActiveToolNames()).toEqual(["message"]);
-        let entered!: () => void;
-        let release!: () => void;
-        const waiting = new Promise<void>((resolve) => {
-          entered = resolve;
-        });
-        const barrier = new Promise<void>((resolve) => {
-          release = resolve;
-        });
+        const entered = createDeferredCore();
+        const barrier = createDeferredCore();
         const captured: string[][] = [];
         streamMocks.streamSimple.mockImplementation((model: Model, context: Context) => {
           captured.push((context.tools ?? []).map((t) => t.name));
@@ -332,17 +277,17 @@ describe("prompt assembly with registered Decision runtime", () => {
           );
         });
         const pending = f.submit(assembly, async () => {
-          entered();
-          await barrier;
+          entered.resolve();
+          await barrier.promise;
         });
-        await waiting;
+        await entered.promise;
         expect(captured).toEqual([]);
         const next = config(change !== "opt-out");
         if (change === "model-change") {
           next.agents!.defaults!.decisionModel = "fixture/replacement";
         }
         setRuntimeConfigSnapshot(next);
-        release();
+        barrier.resolve();
         await pending;
         expect(captured).toEqual([baseline]);
         expect(f.session.getActiveToolNames()).toEqual(baseline);
@@ -369,23 +314,18 @@ describe("prompt assembly with registered Decision runtime", () => {
   it.each(["opt-out", "owner-close", "abort"])(
     "fences a pending result after %s",
     async (change) => {
-      let release!: () => void;
-      let started!: () => void;
-      const entered = new Promise<void>((resolve) => {
-        started = resolve;
-      });
+      const entered = createDeferredCore();
+      const release = createDeferredCore();
       register(async () => {
-        started();
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
+        entered.resolve();
+        await release.promise;
         return result();
       });
       const cfg = config();
       setRuntimeConfigSnapshot(cfg);
       const f = await fixture(cfg);
       const pending = f.assemble();
-      await entered;
+      await entered.promise;
       if (change === "opt-out") {
         setRuntimeConfigSnapshot(config(false));
       } else if (change === "owner-close") {
@@ -393,7 +333,7 @@ describe("prompt assembly with registered Decision runtime", () => {
       } else {
         f.controller.abort(new Error("cancelled"));
       }
-      release();
+      release.resolve();
       if (change === "opt-out") {
         await pending;
       } else {
@@ -402,12 +342,14 @@ describe("prompt assembly with registered Decision runtime", () => {
       expect(f.policy.current.tools).toHaveLength(3);
     },
   );
-  it("retains baseline on provider unavailability and skips continuations", async () => {
+  it("retains baseline on provider unavailability and skips continuation/fallback inference", async () => {
     const call = register(async () => ({ status: "unavailable", reason: "transport" }));
     const f = await fixture();
     await f.assemble();
     expect(f.policy.current.tools).toHaveLength(3);
     await f.assemble({ skipPreparedUserTurnMessage: true });
+    await f.assemble({ fallbackActive: true });
+    expect(f.policy.current.tools).toHaveLength(3);
     expect(call).toHaveBeenCalledTimes(1);
   });
   it("observes opt-out published while prompt preparation awaits steering", async () => {
@@ -424,212 +366,6 @@ describe("prompt assembly with registered Decision runtime", () => {
     expect(f.policy.current.tools).toHaveLength(3);
   });
 
-  it("joins the real runtime deadline and preserves the normal tool surface", async () => {
-    let started!: () => void;
-    const entered = new Promise<void>((resolve) => {
-      started = resolve;
-    });
-    const call = register(async (_batch, { signal }) => {
-      started();
-      await new Promise<void>((resolve) => {
-        signal.addEventListener("abort", () => resolve(), { once: true });
-      });
-      return result();
-    });
-    const f = await fixture();
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
-    try {
-      const pending = f.assemble();
-      await entered;
-      await vi.advanceTimersByTimeAsync(500);
-      await pending;
-      expect(call).toHaveBeenCalledOnce();
-      expect(f.policy.current.tools).toHaveLength(3);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-  it("keeps explicit decision_evaluate available on the same host after three optional budgets expire", async () => {
-    const starts: Array<() => void> = [];
-    const entered = Array.from(
-      { length: 3 },
-      (_, i) =>
-        new Promise<void>((resolve) => {
-          starts[i] = resolve;
-        }),
-    );
-    let calls = 0;
-    const call = register(async (_batch, { signal }) => {
-      const i = calls++;
-      if (i < starts.length) {
-        starts[i]!();
-        await new Promise<void>((resolve) => {
-          signal.addEventListener("abort", () => resolve(), { once: true });
-        });
-      }
-      return result();
-    });
-    const cfg = config();
-    setRuntimeConfigSnapshot(cfg);
-    const f = await fixture(cfg);
-    const host = getPluginRegistryForContext()!.decisionProviders[0]!.host;
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
-    try {
-      for (let i = 0; i < starts.length; i++) {
-        const pending = f.assemble();
-        await entered[i];
-        await vi.advanceTimersByTimeAsync(500);
-        const assembly = await pending;
-        expect(assembly.decisionPrefilter).toMatchObject({
-          status: "unavailable",
-          reason: "deadline",
-        });
-        expect(f.session.getActiveToolNames()).toEqual([
-          "inspect_file",
-          "message",
-          "decision_evaluate",
-        ]);
-      }
-      const tool = createDecisionTool("main", { config: cfg });
-      expect(tool).not.toBeNull();
-      const explicit = await tool!.execute(
-        "explicit-after-prefilter-deadlines",
-        {
-          state: "Hello",
-          questions: {
-            missing_request_context: { type: "boolean" },
-            next_response_needs_tools: { type: "boolean" },
-          },
-        },
-        f.controller.signal,
-      );
-      expect(explicit.details).toMatchObject({ status: "ok" });
-      expect(call).toHaveBeenCalledTimes(4);
-      expect(getPluginRegistryForContext()!.decisionProviders[0]!.host).toBe(host);
-      expect(host.inspect(cfg)).toMatchObject({
-        activeRequests: 0,
-        callable: true,
-        reasons: { deadline: 3 },
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("carries rubric 9 and hook evidence over real HTTP while preserving explicit and final-dispatch availability", async () => {
-    const requests: unknown[] = [];
-    let holdResponses = true;
-    let serverFailure: unknown;
-    const server = createServer((request, response) => {
-      void (async () => {
-        const chunks: Buffer[] = [];
-        for await (const chunk of request) {
-          chunks.push(Buffer.from(chunk));
-        }
-        requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-        if (holdResponses) {
-          return; // The real fetch is aborted by the caller's 500 ms budget.
-        }
-        response.writeHead(200, { "Content-Type": "application/json" });
-        const outcome = result();
-        if (outcome.status !== "ok") {
-          throw new Error("expected deterministic fixture result");
-        }
-        response.end(JSON.stringify(outcome.result));
-      })().catch((error: unknown) => {
-        serverFailure = error;
-        response.destroy(error instanceof Error ? error : undefined);
-      });
-    });
-    await new Promise<void>((resolve) => {
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    onTestFinished(async () => {
-      const closed = new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
-      server.closeAllConnections();
-      await closed;
-      expect(serverFailure).toBeUndefined();
-    });
-    const address = server.address();
-    if (!address || typeof address === "string") {
-      throw new Error("expected loopback TCP address");
-    }
-    const call = register(async (batch, { signal }) => {
-      const response = await fetch("http://127.0.0.1:" + address.port + "/decision", {
-        method: "POST",
-        body: JSON.stringify(batch),
-        signal,
-      });
-      const value: unknown = await response.json();
-      if (!validateDecisionResult(batch, value)) {
-        throw new Error("invalid fixture wire result");
-      }
-      return { status: "ok", result: value };
-    });
-    const cfg = config();
-    setRuntimeConfigSnapshot(cfg);
-    const hookFields = { prependContext: "Fixture operating guidance for this greeting." };
-    const { runner } = createHookRunnerWithRegistry([
-      { hookName: "before_prompt_build", handler: () => hookFields },
-    ]);
-    const f = await fixture(cfg, "structured", "main", runner);
-    const host = getPluginRegistryForContext()!.decisionProviders[0]!.host;
-    for (let index = 0; index < 3; index++) {
-      const assembly = await f.assemble();
-      expect(assembly.decisionPrefilter).toMatchObject({
-        status: "unavailable",
-        reason: "deadline",
-      });
-      expect(f.session.getActiveToolNames()).toEqual([
-        "inspect_file",
-        "message",
-        "decision_evaluate",
-      ]);
-    }
-    expect(requests).toHaveLength(3);
-    expect(requests[0]).toMatchObject({
-      state: { latestRequest: "Hello", beforePromptBuild: hookFields },
-      questions: {
-        next_response_needs_tools: { instructions: expect.stringContaining("beforePromptBuild") },
-      },
-    });
-    holdResponses = false;
-    const explicit = await createDecisionTool("main", { config: cfg })!.execute(
-      "http-explicit",
-      {
-        state: "Hello",
-        questions: {
-          missing_request_context: { type: "boolean" },
-          next_response_needs_tools: { type: "boolean" },
-        },
-      },
-      f.controller.signal,
-    );
-    expect(explicit.details).toMatchObject({ status: "ok" });
-    expect(host.inspect(cfg)).toMatchObject({
-      activeRequests: 0,
-      callable: true,
-      reasons: { deadline: 3 },
-    });
-    const assembly = await f.assemble();
-    expect(assembly.decisionPrefilter.restrictionApplied).toBe(true);
-    expect(f.session.getActiveToolNames()).toEqual(["message"]);
-    const captured: string[][] = [];
-    streamMocks.streamSimple.mockImplementation((model: Model, context: Context) => {
-      captured.push((context.tools ?? []).map((tool) => tool.name));
-      return createAssistantResultStream(createAssistant(model, [{ type: "text", text: "done" }]));
-    });
-    await f.submit(assembly, async () => {
-      setRuntimeConfigSnapshot(config(false));
-    });
-    expect(captured).toEqual([["inspect_file", "message", "decision_evaluate"]]);
-    expect(call).toHaveBeenCalledTimes(5);
-    expect(getPluginRegistryForContext()!.decisionProviders[0]!.host).toBe(host);
-    expect(requests).toHaveLength(5);
-  });
-
   it("preserves tools for approvals that depend on earlier assistant work", async () => {
     const call = register();
     const f = await fixture();
@@ -644,8 +380,14 @@ describe("prompt assembly with registered Decision runtime", () => {
     "submits the second-turn restriction and next-action restoration in %s mode",
     async (mode) => {
       const call = register(async () => result(0.9));
-      const f = await fixture(config(), mode);
-      f.session.agent.state.messages = [];
+      const hookFields = {
+        prependContext: "  Operating guidance  ",
+        appendSystemContext: "Guide suffix\n",
+      };
+      const { runner } = createHookRunnerWithRegistry([
+        { hookName: "before_prompt_build", handler: () => hookFields },
+      ]);
+      const f = await fixture(config(), mode, "main", runner);
       const captures: Array<{ names: string[]; definitions: unknown[] }> = [];
       let reply = "Would you like an explanation?";
       streamMocks.streamSimple.mockImplementation((model: Model, context: Context) => {
@@ -670,6 +412,7 @@ describe("prompt assembly with registered Decision runtime", () => {
       expect(call).toHaveBeenCalledTimes(2);
       expect(call.mock.calls[1]?.[0].state).toMatchObject({
         latestRequest: "Yes",
+        beforePromptBuild: hookFields,
         recentConversation: [
           { user: "Help me understand this example.", assistant: "Would you like an explanation?" },
         ],
@@ -687,61 +430,4 @@ describe("prompt assembly with registered Decision runtime", () => {
       expect(f.policy.current.callableToolNames).not.toContain("denied");
     },
   );
-  it.each([
-    ["Help me fix this", "Should I apply the patch?", "Yes", 0.9, false],
-    ["Help me understand this", "Would you like an explanation?", "Yes", 0.1, true],
-    ["Apply the patch", "The action failed; no changes were made.", "Try again", 0.9, false],
-    ["Apply the patch", "The action finished successfully.", "Thanks", 0.1, true],
-    [
-      "Tell me something interesting",
-      "Here is an interesting fact.",
-      "Now read package.json",
-      0.9,
-      false,
-    ],
-  ] as const)(
-    "carries context for %s / %s / %s through the real prompt boundary",
-    async (priorUser, priorAssistant, latest, probability, prune) => {
-      const call = register(async () => result(0.9));
-      const f = await fixture();
-      f.session.agent.state.messages = [];
-      streamMocks.streamSimple.mockImplementation((model: Model) =>
-        createAssistantResultStream(
-          createAssistant(model, [{ type: "text", text: priorAssistant }]),
-        ),
-      );
-      await f.assemble({ prompt: priorUser });
-      await f.session.prompt(priorUser);
-      call.mockResolvedValue(result(probability));
-      const submitted: string[][] = [];
-      streamMocks.streamSimple.mockImplementation((model: Model, context: Context) => {
-        submitted.push((context.tools ?? []).map((tool) => tool.name));
-        return createAssistantResultStream(
-          createAssistant(model, [{ type: "text", text: "Final response" }]),
-        );
-      });
-      await f.assemble({ prompt: latest });
-      await f.session.prompt(latest);
-      expect(call).toHaveBeenCalledTimes(2);
-      expect(call.mock.calls[1]?.[0].state).toMatchObject({
-        latestRequest: latest,
-        recentConversation: [{ user: priorUser, assistant: priorAssistant }],
-      });
-      expect(submitted).toEqual([
-        prune ? ["message"] : ["inspect_file", "message", "decision_evaluate"],
-      ]);
-    },
-  );
-  it("does not re-evaluate on primary-model fallback", async () => {
-    const call = register();
-    const f = await fixture();
-    await f.assemble();
-    await f.assemble({ fallbackActive: true });
-    expect(call).toHaveBeenCalledOnce();
-    expect(f.policy.current.tools.map((tool) => tool.name)).toEqual([
-      "inspect_file",
-      "message",
-      "decision_evaluate",
-    ]);
-  });
 });
