@@ -14,7 +14,7 @@ import { detectImageReferences } from "./images.js";
 
 // Projection limits, not a tokenizer or provider admission estimate. Never cut a
 // request/proposal to fit: omit only whole older exchanges, or retain tools.
-export const MAX_DECISION_CONTEXT_CHARS = 6_000;
+const MAX_DECISION_CONTEXT_CHARS = 6_000;
 const MAX_SCAN_MESSAGES = 64;
 const MAX_CONTENT_BLOCKS = 64;
 const MAX_EXCHANGES = 2;

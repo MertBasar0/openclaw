@@ -127,16 +127,32 @@ awaited results. This helper is not an authority token or a cancellation owner.
 
 ### Conversational tool filtering
 
+**Upgrade behavior:** the existing saved `decisionAssistance: true` is opt-in
+intent for future automatic Decision experiments. When this consumer is installed,
+it can run on eligible turns for an agent with an effective Decision model; the
+preference does not select a new provider or grant tool authority. Operators who
+do not want automatic evaluation can turn the preference off or clear that
+agent’s Decision model. The transferred evidence and costs are described below.
+
 The prefilter sends the complete current request and a deterministic, bounded
 projection of recent conversation to the owning agent’s configured Decision
 provider. It retains the nearest complete user/assistant exchange and, when it
 fits, one additional exchange in chronological order. Resolved output from
 ordinary `before_prompt_build` hooks is also sent verbatim in labeled fields when
 present: `prependContext`, `appendContext`, `systemPrompt`,
-`prependSystemContext`, and `appendSystemContext`. The combined request, history,
-and hook output must fit an internal limit of 6,000 text characters. It is never
-truncated to force classification; oversized, malformed, missing, or otherwise
-unsuitable essential context retains normal tools. A genuinely fresh session is
+`prependSystemContext`, and `appendSystemContext`. Two internal text bounds apply:
+
+- The latest request plus retained user/assistant exchange text is limited to
+  **6,000 UTF-16 code units**. Only whole older exchanges may be omitted.
+- That conversation text plus all five verbatim hook-field values must fit
+  **8,000 UTF-16 code units** in total. Oversized hook fields are not truncated.
+
+These are JavaScript string-length bounds on the evidence text, not a bound on
+serialized JSON, UTF-8 wire bytes, or tokens. Field names, JSON escaping, omission
+facts, tool-result counts, and the fixed rubric add serialization overhead.
+The current request and essential context are never cut to force classification;
+oversized, malformed, missing, or otherwise unsuitable essential context retains
+normal tools. A genuinely fresh session is
 evaluated using the current request alone. Existing incomplete history is not
 treated as a fresh session; missing referents and uncertainty must retain tools.
 
@@ -165,7 +181,12 @@ while using the provider-neutral Decision contract; it makes no provider-specifi
 requests or calibrated-correctness guarantees. There is
 no model-aware input estimator, automatic trimming retry, or second provider.
 Ordinary unavailable results, including a deadline or actual provider input
-rejection, keep the normal tool surface. Cancellation, closed authority, and contract errors
+rejection, keep the normal tool surface. A caller-budget deadline does not count
+as a provider outage or open the shared health circuit, so repeated optional
+prefilter timeouts do not disable explicit `decision_evaluate` requests. Genuine
+provider transport, authentication, and rate-limit failures retain their shared
+health handling; in-flight work still owns its concurrency slot until it settles.
+Cancellation, closed authority, and contract errors
 remain errors rather than starting fallback work. Cold model loading may exceed
 the budget. Classifier estimates are not guarantees that every action request
 will retain its optional tools.
@@ -181,7 +202,10 @@ optional tools on later turns. It uses the existing host tool policy, preserves
 already-required tools without granting denied tools, and keeps submitted schemas,
 discovery, and callability aligned.
 Each subsequent turn starts from its own normal tool baseline. Revoked opt-in or
-changed model selection prevents applying an awaited restriction. No historical
+changed model selection prevents applying an awaited restriction. Eligibility is
+also rechecked at foreground provider dispatch after awaited preparation; a late
+change withdraws only the optional restriction and restores the current permitted
+tool surface while retaining independent hook caps and required tools. No historical
 transcript is rewritten and no native thread is recreated.
 
 With DEBUG logging enabled for the embedded runner, a safe record at the first

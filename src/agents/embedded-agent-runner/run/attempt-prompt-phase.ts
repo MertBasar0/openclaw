@@ -165,9 +165,9 @@ export async function runEmbeddedAttemptPromptPhase(
       systemPromptText,
       runAbortSignal: input.runAbortController.signal,
       setActiveSessionSystemPrompt,
-      applyPromptBuildToolsAllow: (toolsAllow) => {
+      applyPromptBuildToolsAllow: (toolsAllow, decisionIsCurrent) => {
         // Hook authority follows reachable capabilities, not just provider-visible controls.
-        return promptToolPolicy.apply(toolsAllow).callableToolNames;
+        return promptToolPolicy.apply(toolsAllow, decisionIsCurrent).callableToolNames;
       },
       prepareSystemPrompt: async (currentSystemPrompt) => {
         const refresh = await prepared.systemPrompt.prepareToolPrompt?.(
@@ -419,6 +419,24 @@ export async function runEmbeddedAttemptPromptPhase(
           promptState.finalPromptText = prompt;
         },
         assertHostActive: promptAssembly.assertHostActive,
+        preparePrimaryModelRequest: () =>
+          promptToolPolicy.prepareForDispatch(async () => {
+            promptAssembly.decisionPrefilter.restrictionApplied = false;
+            promptAssembly.decisionPrefilter.status = "retained";
+            promptAssembly.decisionPrefilter.reason = "selection-changed";
+            const refresh = await prepared.systemPrompt.prepareToolPrompt?.(
+              promptToolPolicy.current.effectiveTools,
+            );
+            input.runAbortController.signal.throwIfAborted();
+            promptAssembly.assertHostActive?.();
+            if (refresh) {
+              setActiveSessionSystemPrompt(refresh(activeSession.agent.state.systemPrompt));
+            }
+            return () => ({
+              tools: activeSession.agent.state.tools.slice(),
+              systemPrompt: activeSession.agent.state.systemPrompt,
+            });
+          }),
         onPrimaryModelRequest: (tools) => {
           logDecisionToolRequest({
             decision: promptAssembly.decisionPrefilter,

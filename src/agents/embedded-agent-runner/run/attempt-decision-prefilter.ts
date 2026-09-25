@@ -8,11 +8,10 @@ import type { AgentMessage } from "../../runtime/index.js";
 import { log } from "../logger.js";
 import { prepareDecisionContext, type DecisionContextFacts } from "./attempt-decision-context.js";
 
-// Keep the conversation projection itself at 6k, while allowing a modest
-// additional envelope for exact ordinary prompt-build guidance. This fits the
-// built-in diffs guidance plus the deployed lossless-claw recall policy without
-// admitting arbitrarily large hook output.
-const MAX_DECISION_STATE_CHARS = 8_000;
+// UTF-16 code units of conversation text plus verbatim ordinary hook fields.
+// The conversation projection has its own 6k bound; this combined 8k text bound
+// does not count JSON field names/escaping, metadata, questions, or wire bytes.
+const MAX_DECISION_TEXT_CHARS = 8_000;
 
 export type DecisionPromptBuildFields = {
   systemPrompt?: string;
@@ -88,7 +87,7 @@ export async function evaluateAttemptDecisionToolPrefilter(
         0,
       )
     : 0;
-  if (context.facts.contextChars + promptBuildChars > MAX_DECISION_STATE_CHARS) {
+  if (context.facts.contextChars + promptBuildChars > MAX_DECISION_TEXT_CHARS) {
     return {
       shouldPruneTools: false,
       status: "skipped",

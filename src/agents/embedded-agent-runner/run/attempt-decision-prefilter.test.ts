@@ -189,6 +189,54 @@ describe("Decision tool prefilter admission", () => {
     expect(mocks.evaluate).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["ascii exact", "x".repeat(6_000), "h".repeat(2_000), true, undefined],
+    [
+      "combined overflow",
+      "x".repeat(6_000),
+      "h".repeat(2_001),
+      false,
+      "prompt-build-context-too-large",
+    ],
+    ["projection overflow", "x".repeat(6_001), "", false, "context-too-large"],
+    ["astral exact", "🙂".repeat(3_000), "🙂".repeat(1_000), true, undefined],
+    [
+      "astral overflow",
+      "🙂".repeat(3_000),
+      "🙂".repeat(1_000) + "x",
+      false,
+      "prompt-build-context-too-large",
+    ],
+    ["JSON expansion", "x".repeat(6_000), String.fromCharCode(34).repeat(2_000), true, undefined],
+  ] as const)(
+    "enforces separate UTF-16 text bounds: %s",
+    async (_label, request, hooks, admitted, reason) => {
+      const promptBuildFields = {
+        prependContext: hooks.slice(0, 1_000),
+        appendSystemContext: hooks.slice(1_000),
+      };
+      const outcome = await evaluateAttemptDecisionToolPrefilter({
+        ...params(),
+        userMessage: request,
+        messages: [],
+        promptBuildFields,
+      });
+      expect(outcome.shouldPruneTools).toBe(admitted);
+      if (!admitted) {
+        expect(outcome.reason).toBe(reason);
+        expect(mocks.evaluate).not.toHaveBeenCalled();
+      } else {
+        const batch = mocks.evaluate.mock.calls[0]?.[0];
+        expect(batch?.state).toMatchObject({
+          latestRequest: request,
+          beforePromptBuild: promptBuildFields,
+        });
+        // The bounded strings are preserved, even when encoding/framing is larger.
+        expect(JSON.stringify(batch?.state).length).toBeGreaterThan(request.length + hooks.length);
+      }
+    },
+  );
+
   it.each([0.35, 0.9])("retains tools at probability %s", async (probability) => {
     mocks.evaluate.mockResolvedValue(answer(probability));
     expect(await evaluateAttemptDecisionToolPrefilter(params())).toMatchObject({

@@ -66,6 +66,7 @@ export function createPromptBuildToolPolicy<
     ? measureDecisionToolSurface(params.readModelTools, params.forceToolNames)
     : undefined;
   let toolsAllow: string[] | undefined;
+  let decisionIsCurrent: (() => boolean) | undefined;
   const current = {
     activeToolNames: [...baseline.activeToolNames],
     callableToolNames: [...baseline.activeToolNames],
@@ -73,15 +74,36 @@ export function createPromptBuildToolPolicy<
     uncompactedEffectiveTools: params.uncompactedEffectiveTools,
     tools: params.tools,
   };
-  const apply = (nextToolsAllow: string[] | undefined) => {
-    toolsAllow = nextToolsAllow;
-    Object.assign(current, applyPromptBuildToolsAllow({ ...params, baseline, toolsAllow }));
+  const applyCurrent = () => {
+    Object.assign(
+      current,
+      applyPromptBuildToolsAllow({
+        ...params,
+        baseline,
+        toolsAllow: decisionIsCurrent ? [] : toolsAllow,
+      }),
+    );
     params.onApplied?.(current);
     return current;
+  };
+  const apply = (nextToolsAllow: string[] | undefined, nextDecisionIsCurrent?: () => boolean) => {
+    toolsAllow = nextToolsAllow;
+    decisionIsCurrent = nextDecisionIsCurrent;
+    return applyCurrent();
   };
   return {
     current,
     apply,
+    prepareForDispatch: <T>(prepareRestoredPrompt: () => Promise<T>): Promise<T> | undefined => {
+      if (!decisionIsCurrent || decisionIsCurrent()) {
+        return undefined;
+      }
+      // Drop only the optional Decision cap. The current host generation and
+      // independent prompt-hook cap still own what is permitted.
+      decisionIsCurrent = undefined;
+      applyCurrent();
+      return prepareRestoredPrompt();
+    },
     readDecisionBaseline: () => decisionBaseline,
     decisionRequiredNames: params.forceToolNames,
     refresh: () => {
@@ -92,7 +114,7 @@ export function createPromptBuildToolPolicy<
       decisionBaseline = params.readModelTools
         ? measureDecisionToolSurface(params.readModelTools, params.forceToolNames)
         : undefined;
-      return apply(toolsAllow);
+      return applyCurrent();
     },
   };
 }

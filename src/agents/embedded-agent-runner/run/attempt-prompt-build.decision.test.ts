@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
@@ -7,7 +8,9 @@ import {
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { AgentDefaultsBaseSchema } from "../../../config/zod-schema.agent-defaults-base.js";
 import type { DecisionProviderV1, ProviderDecisionOutcome } from "../../../decisions/types.js";
+import { validateDecisionResult } from "../../../decisions/validation.js";
 import type { Context, Model } from "../../../llm/types.js";
+import { createHookRunnerWithRegistry } from "../../../plugins/hooks.test-fixtures.js";
 import { runPluginRegisterSyncInRegistry } from "../../../plugins/loader-module-runtime.js";
 import { createPluginRecord } from "../../../plugins/loader-records.js";
 import { getPluginInstance } from "../../../plugins/plugin-instance-scope.js";
@@ -16,6 +19,7 @@ import {
   resetPluginRuntimeStateForTest,
   setActivePluginRegistry,
 } from "../../../plugins/runtime.js";
+import { getPluginRegistryForContext } from "../../../plugins/runtime/gateway-request-scope.js";
 import { prepareSystemAgentRunAdmission } from "../../admitted-run-context.js";
 import {
   createAssistant,
@@ -27,8 +31,14 @@ import {
 } from "../../sessions/agent-session-loop-correctness.test-support.js";
 import { leasePendingAgentSteeringItems } from "../../subagents/registry/subagent-registry.js";
 import type { ToolSearchCatalogRef } from "../../tool-search.js";
+import { createDecisionTool } from "../../tools/decision-tool.js";
+import {
+  clearEmbeddedSessionPromptStates,
+  getEmbeddedSessionPromptState,
+} from "../session-prompt-state.js";
 import { prepareEmbeddedAttemptPromptAssembly } from "./attempt-prompt-build.js";
 import { forgetPromptBuildDrainCacheForRun } from "./attempt-prompt-helpers.js";
+import { submitEmbeddedAttemptPrompt } from "./attempt-prompt-submit.js";
 import { createPromptBuildToolPolicy } from "./attempt-prompt-support.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
 
@@ -96,6 +106,7 @@ async function fixture(
   cfg = config(),
   mode: "structured" | "search" | "code" = "structured",
   agentId = "main",
+  hookRunner: Parameters<typeof prepareEmbeddedAttemptPromptAssembly>[0]["hookRunner"] = null,
 ) {
   const runId = "prefilter-" + ++sequence;
   const tools = ["inspect_file", "message", "decision_evaluate"].map((name) => ({
@@ -147,6 +158,7 @@ async function fixture(
   onTestFinished(() => {
     admission.close();
     forgetPromptBuildDrainCacheForRun(runId);
+    clearEmbeddedSessionPromptStates([runId]);
   });
   const controller = new AbortController();
   const attempt: EmbeddedRunAttemptParams = {
@@ -175,18 +187,51 @@ async function fixture(
       attempt: { ...attempt, ...overrides },
       activeSession: session,
       sessionManager,
-      hookRunner: null,
+      hookRunner,
       hookAgentId: agentId,
       diagnosticTrace: { traceId: "11111111111111111111111111111111" },
       isRawModelRun: false,
       sessionAgentId: agentId,
       runtimeModel: testModel.id,
       systemPromptText: "System",
-      applyPromptBuildToolsAllow: (allow) => policy.apply(allow).callableToolNames,
+      applyPromptBuildToolsAllow: (allow, decisionIsCurrent) =>
+        policy.apply(allow, decisionIsCurrent).callableToolNames,
       setActiveSessionSystemPrompt: () => {},
       setLeasedSteering: () => {},
     });
-  return { assemble, session, policy, catalogRef, controller, admission, attempt };
+  const submit = async (
+    assembly: Awaited<ReturnType<typeof assemble>>,
+    persistToolResultProjections: () => Promise<void>,
+  ) => {
+    const state = getEmbeddedSessionPromptState(runId);
+    return submitEmbeddedAttemptPrompt({
+      attempt,
+      activeSession: session,
+      contextTokenBudget: 8000,
+      images: [],
+      modelPrompt: assembly.effectivePrompt,
+      transcriptPrompt: assembly.effectivePrompt,
+      systemPrompt: session.agent.state.systemPrompt,
+      runtimeOnly: false,
+      sessionPromptState: state,
+      toolResultPromptProjectionState: state.toolResults,
+      toolResultMaxChars: 4000,
+      toolResultAggregateMaxChars: 8000,
+      transcriptLeafId: null,
+      trajectoryRecorder: null,
+      onFinalPromptText: () => {},
+      onSteeringAcknowledged: () => {},
+      assertHostActive: assembly.assertHostActive,
+      persistToolResultProjections,
+      preparePrimaryModelRequest: () =>
+        policy.prepareForDispatch(async () => () => ({
+          tools: session.agent.state.tools.slice(),
+          systemPrompt: session.agent.state.systemPrompt,
+        })),
+      promptActiveSession: (prompt, options) => session.prompt(prompt, options),
+    });
+  };
+  return { assemble, submit, session, policy, catalogRef, controller, admission, attempt };
 }
 
 describe("prompt assembly with registered Decision runtime", () => {
@@ -260,6 +305,60 @@ describe("prompt assembly with registered Decision runtime", () => {
       expect(f.policy.current.callableToolNames).toContain("inspect_file");
     },
   );
+  it.each(["structured", "search", "code"] as const)(
+    "withdraws the Decision cap at final %s dispatch after a late config change",
+    async (mode) => {
+      for (const change of ["opt-out", "model-change"] as const) {
+        register();
+        const cfg = config();
+        setRuntimeConfigSnapshot(cfg);
+        const f = await fixture(cfg, mode);
+        const baseline = f.session.agent.state.tools.map((t) => t.name);
+        const assembly = await f.assemble();
+        expect(f.session.getActiveToolNames()).toEqual(["message"]);
+        let entered!: () => void;
+        let release!: () => void;
+        const waiting = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const captured: string[][] = [];
+        streamMocks.streamSimple.mockImplementation((model: Model, context: Context) => {
+          captured.push((context.tools ?? []).map((t) => t.name));
+          return createAssistantResultStream(
+            createAssistant(model, [{ type: "text", text: "done" }]),
+          );
+        });
+        const pending = f.submit(assembly, async () => {
+          entered();
+          await barrier;
+        });
+        await waiting;
+        expect(captured).toEqual([]);
+        const next = config(change !== "opt-out");
+        if (change === "model-change") {
+          next.agents!.defaults!.decisionModel = "fixture/replacement";
+        }
+        setRuntimeConfigSnapshot(next);
+        release();
+        await pending;
+        expect(captured).toEqual([baseline]);
+        expect(f.session.getActiveToolNames()).toEqual(baseline);
+        expect(f.policy.current.callableToolNames).toContain("inspect_file");
+        expect(f.policy.current.callableToolNames).not.toContain("denied");
+        expect(f.policy.current.tools.map((t) => t.name)).toContain("message");
+        if (f.catalogRef) {
+          expect(f.catalogRef.current?.entries.map((e) => e.name)).toEqual([
+            "decision_evaluate",
+            "inspect_file",
+          ]);
+        }
+      }
+    },
+  );
+
   it("keeps another agent's empty override independent", async () => {
     const call = register();
     const quiet = await fixture(config(), "structured", "quiet");
@@ -350,6 +449,187 @@ describe("prompt assembly with registered Decision runtime", () => {
       vi.useRealTimers();
     }
   });
+  it("keeps explicit decision_evaluate available on the same host after three optional budgets expire", async () => {
+    const starts: Array<() => void> = [];
+    const entered = Array.from(
+      { length: 3 },
+      (_, i) =>
+        new Promise<void>((resolve) => {
+          starts[i] = resolve;
+        }),
+    );
+    let calls = 0;
+    const call = register(async (_batch, { signal }) => {
+      const i = calls++;
+      if (i < starts.length) {
+        starts[i]!();
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      }
+      return result();
+    });
+    const cfg = config();
+    setRuntimeConfigSnapshot(cfg);
+    const f = await fixture(cfg);
+    const host = getPluginRegistryForContext()!.decisionProviders[0]!.host;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      for (let i = 0; i < starts.length; i++) {
+        const pending = f.assemble();
+        await entered[i];
+        await vi.advanceTimersByTimeAsync(500);
+        const assembly = await pending;
+        expect(assembly.decisionPrefilter).toMatchObject({
+          status: "unavailable",
+          reason: "deadline",
+        });
+        expect(f.session.getActiveToolNames()).toEqual([
+          "inspect_file",
+          "message",
+          "decision_evaluate",
+        ]);
+      }
+      const tool = createDecisionTool("main", { config: cfg });
+      expect(tool).not.toBeNull();
+      const explicit = await tool!.execute(
+        "explicit-after-prefilter-deadlines",
+        {
+          state: "Hello",
+          questions: {
+            missing_request_context: { type: "boolean" },
+            next_response_needs_tools: { type: "boolean" },
+          },
+        },
+        f.controller.signal,
+      );
+      expect(explicit.details).toMatchObject({ status: "ok" });
+      expect(call).toHaveBeenCalledTimes(4);
+      expect(getPluginRegistryForContext()!.decisionProviders[0]!.host).toBe(host);
+      expect(host.inspect(cfg)).toMatchObject({
+        activeRequests: 0,
+        callable: true,
+        reasons: { deadline: 3 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("carries rubric 9 and hook evidence over real HTTP while preserving explicit and final-dispatch availability", async () => {
+    const requests: unknown[] = [];
+    let holdResponses = true;
+    let serverFailure: unknown;
+    const server = createServer((request, response) => {
+      void (async () => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.from(chunk));
+        }
+        requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        if (holdResponses) {
+          return; // The real fetch is aborted by the caller's 500 ms budget.
+        }
+        response.writeHead(200, { "Content-Type": "application/json" });
+        const outcome = result();
+        if (outcome.status !== "ok") {
+          throw new Error("expected deterministic fixture result");
+        }
+        response.end(JSON.stringify(outcome.result));
+      })().catch((error: unknown) => {
+        serverFailure = error;
+        response.destroy(error instanceof Error ? error : undefined);
+      });
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    onTestFinished(async () => {
+      const closed = new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+      server.closeAllConnections();
+      await closed;
+      expect(serverFailure).toBeUndefined();
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("expected loopback TCP address");
+    }
+    const call = register(async (batch, { signal }) => {
+      const response = await fetch("http://127.0.0.1:" + address.port + "/decision", {
+        method: "POST",
+        body: JSON.stringify(batch),
+        signal,
+      });
+      const value: unknown = await response.json();
+      if (!validateDecisionResult(batch, value)) {
+        throw new Error("invalid fixture wire result");
+      }
+      return { status: "ok", result: value };
+    });
+    const cfg = config();
+    setRuntimeConfigSnapshot(cfg);
+    const hookFields = { prependContext: "Fixture operating guidance for this greeting." };
+    const { runner } = createHookRunnerWithRegistry([
+      { hookName: "before_prompt_build", handler: () => hookFields },
+    ]);
+    const f = await fixture(cfg, "structured", "main", runner);
+    const host = getPluginRegistryForContext()!.decisionProviders[0]!.host;
+    for (let index = 0; index < 3; index++) {
+      const assembly = await f.assemble();
+      expect(assembly.decisionPrefilter).toMatchObject({
+        status: "unavailable",
+        reason: "deadline",
+      });
+      expect(f.session.getActiveToolNames()).toEqual([
+        "inspect_file",
+        "message",
+        "decision_evaluate",
+      ]);
+    }
+    expect(requests).toHaveLength(3);
+    expect(requests[0]).toMatchObject({
+      state: { latestRequest: "Hello", beforePromptBuild: hookFields },
+      questions: {
+        next_response_needs_tools: { instructions: expect.stringContaining("beforePromptBuild") },
+      },
+    });
+    holdResponses = false;
+    const explicit = await createDecisionTool("main", { config: cfg })!.execute(
+      "http-explicit",
+      {
+        state: "Hello",
+        questions: {
+          missing_request_context: { type: "boolean" },
+          next_response_needs_tools: { type: "boolean" },
+        },
+      },
+      f.controller.signal,
+    );
+    expect(explicit.details).toMatchObject({ status: "ok" });
+    expect(host.inspect(cfg)).toMatchObject({
+      activeRequests: 0,
+      callable: true,
+      reasons: { deadline: 3 },
+    });
+    const assembly = await f.assemble();
+    expect(assembly.decisionPrefilter.restrictionApplied).toBe(true);
+    expect(f.session.getActiveToolNames()).toEqual(["message"]);
+    const captured: string[][] = [];
+    streamMocks.streamSimple.mockImplementation((model: Model, context: Context) => {
+      captured.push((context.tools ?? []).map((tool) => tool.name));
+      return createAssistantResultStream(createAssistant(model, [{ type: "text", text: "done" }]));
+    });
+    await f.submit(assembly, async () => {
+      setRuntimeConfigSnapshot(config(false));
+    });
+    expect(captured).toEqual([["inspect_file", "message", "decision_evaluate"]]);
+    expect(call).toHaveBeenCalledTimes(5);
+    expect(getPluginRegistryForContext()!.decisionProviders[0]!.host).toBe(host);
+    expect(requests).toHaveLength(5);
+  });
+
   it("preserves tools for approvals that depend on earlier assistant work", async () => {
     const call = register();
     const f = await fixture();

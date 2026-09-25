@@ -80,6 +80,60 @@ afterEach(() => {
 });
 
 describe("runEmbeddedAttemptPromptPhase", () => {
+  it("wires final Decision withdrawal through the policy and system-prompt owners", async () => {
+    const f = createFixture();
+    const ownedSession = f.input.prepared.sessionRuntime.agentSession;
+    const session = ownedSession.activeSession;
+    session.agent.state.systemPrompt = "pruned prompt";
+    session.agent.state.tools = [];
+    let withdrawals = 0;
+    f.input.prepared.promptToolPolicy.prepareForDispatch = (prepare) => {
+      withdrawals++;
+      return prepare();
+    };
+    const refresh = vi.fn((current: string) => current + " / permitted tools");
+    const preparePrompt = vi.fn(async () => refresh);
+    f.input.prepared.systemPrompt.prepareToolPrompt = preparePrompt;
+    vi.mocked(ownedSession.setActiveSessionSystemPrompt).mockImplementation((prompt) => {
+      session.agent.state.systemPrompt = prompt;
+      return prompt;
+    });
+    const ordinaryAssembly = expectDefined(
+      mocks.preparePromptAssembly.getMockImplementation(),
+      "prompt assembly fixture implementation",
+    );
+    mocks.preparePromptAssembly.mockImplementation(async (input) => ({
+      ...(await ordinaryAssembly(input)),
+      decisionPrefilter: {
+        shouldPruneTools: true,
+        restrictionApplied: true,
+        status: "proposed",
+        reason: "conversational",
+        isCurrent: () => false,
+      },
+    }));
+    mocks.submitPrompt.mockImplementation(async (input: PromptSubmissionCall) => {
+      const readContext = await expectDefined(
+        input.preparePrimaryModelRequest?.(),
+        "foreground restoration preparation",
+      );
+      expect(readContext()).toEqual({ tools: [], systemPrompt: "pruned prompt / permitted tools" });
+    });
+    await runEmbeddedAttemptPromptPhase(f.input, f.promptState);
+    expect(f.readState().promptError).toBeNull();
+    expect(withdrawals).toBe(1);
+    expect(preparePrompt).toHaveBeenCalledWith(
+      f.input.prepared.promptToolPolicy.current.effectiveTools,
+    );
+    expect(refresh).toHaveBeenCalledWith("pruned prompt");
+    const assembly = await mocks.preparePromptAssembly.mock.results[0]!.value;
+    expect(assembly.decisionPrefilter).toMatchObject({
+      restrictionApplied: false,
+      status: "retained",
+      reason: "selection-changed",
+    });
+  });
+
   it("observes canonical request prefixes before managed cache consumption and skips compaction", async () => {
     const fixture = createFixture();
     const session = fixture.input.prepared.sessionRuntime.agentSession.activeSession;

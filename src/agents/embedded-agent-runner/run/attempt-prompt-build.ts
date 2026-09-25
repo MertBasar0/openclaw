@@ -117,7 +117,10 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
   runtimeModel: string;
   systemPromptText: string;
   runAbortSignal?: AbortSignal;
-  applyPromptBuildToolsAllow: (toolsAllow: string[] | undefined) => string[];
+  applyPromptBuildToolsAllow: (
+    toolsAllow: string[] | undefined,
+    decisionIsCurrent?: () => boolean,
+  ) => string[];
   prepareSystemPrompt?: (currentSystemPrompt: string) => Promise<string>;
   setActiveSessionSystemPrompt: (systemPrompt: string) => void;
   setLeasedSteering: (lease: EmbeddedAttemptSteeringLease) => void;
@@ -217,7 +220,7 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
     leasedSteering,
   );
 
-  let effectiveToolsAllow = hookResult?.toolsAllow;
+  const effectiveToolsAllow = hookResult?.toolsAllow;
   const guard = preserveExactPrompt
     ? "exact-prompt"
     : !assertHostActive || !activeAbortSignal
@@ -262,13 +265,15 @@ export async function prepareEmbeddedAttemptPromptAssembly(input: {
       supportsTurnScopedToolRestrictions: attempt.supportsTurnScopedToolRestrictions,
     });
     if (decisionPrefilter.shouldPruneTools && decisionPrefilter.isCurrent?.()) {
-      effectiveToolsAllow = [];
       decisionPrefilter.restrictionApplied = true;
     }
   }
   activeAbortSignal?.throwIfAborted();
   assertHostActive?.();
-  const callableToolNames = input.applyPromptBuildToolsAllow(effectiveToolsAllow);
+  const callableToolNames = input.applyPromptBuildToolsAllow(
+    effectiveToolsAllow,
+    decisionPrefilter.restrictionApplied ? decisionPrefilter.isCurrent : undefined,
+  );
   // Regenerate owned capability guidance before composing hook additions, without
   // rerunning hooks or altering already-recorded conversation messages.
   if (input.prepareSystemPrompt) {
