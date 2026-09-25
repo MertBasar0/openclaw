@@ -130,19 +130,22 @@ awaited results. This helper is not an authority token or a cancellation owner.
 The prefilter sends the complete current request and a deterministic, bounded
 projection of recent conversation to the owning agent’s configured Decision
 provider. It retains the nearest complete user/assistant exchange and, when it
-fits, one additional exchange in chronological order, within an internal limit
-of 6,000 text characters. It never cuts the current request or an essential
-assistant proposal to force classification. Omitted older history alone does not
-disable filtering; missing or unsuitable essential context retains normal tools.
-A genuinely fresh session is evaluated using the current request alone. Existing
-incomplete history is not treated as a fresh session; missing referents and
-uncertainty must retain tools.
+fits, one additional exchange in chronological order. Resolved output from
+ordinary `before_prompt_build` hooks is also sent verbatim in labeled fields when
+present: `prependContext`, `appendContext`, `systemPrompt`,
+`prependSystemContext`, and `appendSystemContext`. The combined request, history,
+and hook output must fit an internal limit of 6,000 text characters. It is never
+truncated to force classification; oversized, malformed, missing, or otherwise
+unsuitable essential context retains normal tools. A genuinely fresh session is
+evaluated using the current request alone. Existing incomplete history is not
+treated as a fresh session; missing referents and uncertainty must retain tools.
 
-Only user-visible text and counts of returned/failed tool calls are secondary
-evidence. System/developer instructions, hidden reasoning, raw tool arguments or
-results, internal-event envelopes, and media are not sent. Tool return counts do
-not assert that an action succeeded. Hosted providers receive the bounded recent
-conversation and can incur charges; local providers keep inference local.
+Only user-visible text, counts of returned/failed tool calls, and the listed
+resolved ordinary hook fields are secondary evidence. Other system/developer
+instructions, hidden reasoning, raw tool arguments or results, internal-event
+envelopes, and media are not sent. Tool return counts do not assert that an
+action succeeded. Hosted providers receive this bounded evidence and can incur
+charges; local providers keep inference local.
 Classification adds work before the primary model request and is not a guaranteed
 latency improvement.
 
@@ -168,12 +171,15 @@ the budget. Classifier estimates are not guarantees that every action request
 will retain its optional tools.
 
 Filtering skips raw probes, continuations, internal events, queued steering,
-orphan repair, pending tool work, and turns with prompt-build hooks or added
-instructions. It no longer rejects a turn merely because prior assistant or tool
-messages exist. Complete contextual approvals remain action requests, while a
-conversational acknowledgment can omit optional tools on later turns. It uses
-the existing host tool policy, preserves already-required tools without granting
-denied tools, and keeps submitted schemas, discovery, and callability aligned.
+orphan repair, pending tool work, hook-set `toolsAllow` restrictions, and
+authority-dependent prompt-build hooks that require finalized tools. Ordinary
+prompt-build hooks run normally and their resolved fields can inform the Decision
+evaluation without changing the public hook contract. It no longer rejects a
+turn merely because prior assistant or tool messages exist. Complete contextual
+approvals remain action requests, while a conversational acknowledgment can omit
+optional tools on later turns. It uses the existing host tool policy, preserves
+already-required tools without granting denied tools, and keeps submitted schemas,
+discovery, and callability aligned.
 Each subsequent turn starts from its own normal tool baseline. Revoked opt-in or
 changed model selection prevents applying an awaited restriction. No historical
 transcript is rewritten and no native thread is recreated.
