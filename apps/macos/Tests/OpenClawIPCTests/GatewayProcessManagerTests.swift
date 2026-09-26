@@ -1632,7 +1632,7 @@ struct GatewayProcessManagerTests {
     @Test func `reused launchd gateway gets the cold-start budget before repair`() async throws {
         let port = 19119
         let url = try #require(URL(string: "ws://example.invalid"))
-        // The first health probe stalls past the readiness window, as a cold start after reboot does.
+        // The first health probe never answers while readiness runs, as a cold start after reboot.
         let firstHealthResponse = AsyncTestGate()
         let (_, connection, manager) = self.makeGatewayReadinessFixture(url: url) {
             self.gatewayTask(healthSucceedsAfter: 0, healthResponseGates: [firstHealthResponse])
@@ -1660,8 +1660,12 @@ struct GatewayProcessManagerTests {
                 readinessWindow: 0.2,
                 firstInstallReadinessBudget: 5,
                 hasFreshInstallEvidence: false)
-            // Answer only after the first window has elapsed; ready must come from an extension.
-            try await Task.sleep(for: .milliseconds(350))
+            // launchd is first inspected only after the first probe has timed out at the window, so
+            // answering after that point means ready can only come from an extension.
+            await self.waitForCondition(attempts: 3000) {
+                GatewayLaunchAgentManager.testingDaemonCommandCallsSnapshot()
+                    .contains { $0.first == "status" }
+            }
             firstHealthResponse.open()
             await manager.waitForStartupAttempt()
 
@@ -1758,6 +1762,50 @@ struct GatewayProcessManagerTests {
             await manager.waitForStartupAttempt()
 
             // An extension would adopt 4243 and time out with repair evidence after the budget.
+            #expect(manager.status == .failed("Gateway did not become ready in time"))
+            #expect(!manager._testHasLaunchAgentReadinessFailure())
+
+            await connection.shutdown()
+        }
+    }
+
+    @Test func `reused launchd PID replaced during its grace loses the grace`() async throws {
+        let port = 19122
+        let url = try #require(URL(string: "ws://example.invalid"))
+        let (_, connection, manager) = self.makeGatewayReadinessFixture(url: url) {
+            GatewayTestWebSocketTask()
+        }
+
+        // 4242 earns the first extension; launchd then reports its replacement 4243.
+        try await self.withLaunchAgentEnvironment(
+            port: port,
+            statusPayloads: [
+                self.loadedGatewayStatus(port: port, pid: 4242),
+                self.loadedGatewayStatus(port: port, pid: 4243),
+                self.loadedGatewayStatus(port: port, pid: 4243),
+            ])
+        {
+            manager.setTestingLastFailureReason(nil)
+            manager._testClearLaunchAgentReadinessFailure()
+            manager._testClearLaunchAgentInstallEvidence()
+            await PortGuardian.shared.setTestingDescriptor(nil, forPort: port)
+            defer {
+                manager.setTestingLastFailureReason(nil)
+                manager._testClearLaunchAgentReadinessFailure()
+                manager._testClearLaunchAgentInstallEvidence()
+            }
+
+            manager._testStartLaunchdGatewayReadiness(
+                port: port,
+                pid: 4242,
+                readinessWindow: 0.05,
+                firstInstallReadinessBudget: 5,
+                hasFreshInstallEvidence: false)
+            await manager.waitForStartupAttempt()
+
+            // Standing grace would skip the second check and probe 4242 until the 5s budget.
+            #expect(GatewayLaunchAgentManager.testingDaemonCommandCallsSnapshot()
+                .filter { $0.first == "status" }.count == 3)
             #expect(manager.status == .failed("Gateway did not become ready in time"))
             #expect(!manager._testHasLaunchAgentReadinessFailure())
 
