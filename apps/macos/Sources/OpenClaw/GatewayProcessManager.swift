@@ -881,7 +881,7 @@ extension GatewayProcessManager {
     private func observeLaunchdGatewayReadiness(
         context: GatewayReadinessContext,
         readinessWindow: TimeInterval = 6,
-        // Fresh installs keep probing through the same first-run migration budget as the CLI.
+        // Fresh installs and unchanged launchd PIDs keep probing through the CLI's migration budget.
         firstInstallReadinessBudget: TimeInterval = GatewayLaunchAgentManager.startupMigrationTolerance) async
     {
         let terminal = await self.observeGatewayReadiness(
@@ -1036,14 +1036,18 @@ extension GatewayProcessManager {
         if !requiresLaunchdProof {
             return (self.isCurrentGatewayReadiness(context), readinessPID)
         }
-        guard self.launchAgentFreshInstallGeneration == context.generation,
-              self.isCurrentGatewayReadiness(context)
+        // A launchd PID this app did not install (started at login after a reboot, or by a repair)
+        // has no install evidence, but while that same PID still owns the port it is the same cold
+        // start. It gets the same bounded budget; otherwise its first window arms a forced repair
+        // that SIGTERMs every slow start.
+        guard self.isCurrentGatewayReadiness(context),
+              self.launchAgentFreshInstallGeneration == context.generation || readinessPID != nil
         else { return (false, nil) }
         guard let reusablePID = await self.reusableLaunchdPIDOwningPort(port: context.port) else {
             return (false, nil)
         }
-        let allowed = self.launchAgentFreshInstallGeneration == context.generation &&
-            self.isCurrentGatewayReadiness(context)
+        let allowed = self.isCurrentGatewayReadiness(context) &&
+            (self.launchAgentFreshInstallGeneration == context.generation || reusablePID == readinessPID)
         return (allowed, allowed ? reusablePID : nil)
     }
 
@@ -1503,20 +1507,22 @@ extension GatewayProcessManager {
         port: Int,
         pid: Int32,
         readinessWindow: TimeInterval,
-        firstInstallReadinessBudget: TimeInterval)
+        firstInstallReadinessBudget: TimeInterval,
+        hasFreshInstallEvidence: Bool = true)
     {
         self.desiredActive = true
         self.status = .starting
         self.gatewayStartGeneration &+= 1
         let generation = self.gatewayStartGeneration
-        self.launchAgentInstallGeneration = generation
-        self.launchAgentFreshInstallGeneration = generation
+        // Without install evidence this models a PID launchd started on its own, e.g. at login.
+        self.launchAgentInstallGeneration = hasFreshInstallEvidence ? generation : nil
+        self.launchAgentFreshInstallGeneration = hasFreshInstallEvidence ? generation : nil
         let context = self.gatewayReadinessContext(
             purpose: .launchd,
             port: port,
             generation: generation,
             readinessPID: pid,
-            launchAgentInstalled: true)
+            launchAgentInstalled: hasFreshInstallEvidence)
         self.beginGatewayStartTask(generation: generation) { [weak self] in
             await self?.observeLaunchdGatewayReadiness(
                 context: context,
