@@ -39,10 +39,7 @@ registerModelControlsEnglish();
 
 type SessionActionAccess = ReturnType<typeof readChatSessionActionAccess>;
 type SessionAction = keyof SessionActionAccess;
-type SessionActionCallbacks = Pick<
-  ChatProps,
-  "onAbort" | "onClearHistory" | "onForkMessage" | "onRewindMessage"
->;
+type SessionActionCallbacks = Pick<ChatProps, "onAbort" | "onForkMessage" | "onRewindMessage">;
 
 type PendingPermissionChange = {
   expectedSessionId?: string;
@@ -138,6 +135,7 @@ export function renderChatPaneComposerControls(params: {
   permissionAccess: SessionMethodAccess;
   canSelectFull: boolean;
   onModelSetup: () => void;
+  onProviderSettings?: (provider: string) => void;
   onModelAccounts?: () => void;
 }): {
   composerControls: NonNullable<ChatProps["composerControls"]>;
@@ -154,6 +152,7 @@ export function renderChatPaneComposerControls(params: {
     permissionAccess,
     canSelectFull,
     onModelSetup,
+    onProviderSettings,
     onModelAccounts,
   } = params;
   const sessionKey = state.sessionKey;
@@ -296,6 +295,7 @@ export function renderChatPaneComposerControls(params: {
           stream: state.chatStream,
           onRequestUpdate: () => state.requestUpdate?.(),
           onModelSetup,
+          onProviderSettings,
           onFastModeSelect: (next, targetSessionKey) =>
             effortAccess.allowed && canPatch({ fastMode: null }, targetSessionKey)
               ? switchChatFastMode(state, next, targetSessionKey)
@@ -418,7 +418,6 @@ export function createChatPaneSessionActionCallbacks(params: {
   onAbort: () => void;
   onRewind: (entryId: string) => Promise<boolean>;
   onFork: (entryId: string) => Promise<void>;
-  onReset: () => void;
 }): SessionActionCallbacks {
   const { state } = params;
   const client = state.client;
@@ -495,13 +494,6 @@ export function createChatPaneSessionActionCallbacks(params: {
       : undefined,
     onForkMessage: access.fork.allowed
       ? (entryId) => (requireCurrent("fork") ? params.onFork(entryId) : undefined)
-      : undefined,
-    onClearHistory: access.reset.allowed
-      ? () => {
-          if (requireCurrent("reset")) {
-            params.onReset();
-          }
-        }
       : undefined,
   };
 }

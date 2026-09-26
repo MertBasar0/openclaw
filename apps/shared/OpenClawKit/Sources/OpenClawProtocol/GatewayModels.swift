@@ -140,6 +140,17 @@ public enum PluginApprovalSeverity: String, Codable, Sendable {
     case critical = "critical"
 }
 
+public enum PluginUiCapability: String, Codable, Sendable {
+    case page = "page"
+    case navigation = "navigation"
+    case panel = "panel"
+    case action = "action"
+    case accessory = "accessory"
+    case widget = "widget"
+    case replacement = "replacement"
+    case linkReader = "link-reader"
+}
+
 public enum ProgressCardStepStatus: String, Codable, Sendable {
     case pending = "pending"
     case inProgress = "in_progress"
@@ -6174,6 +6185,8 @@ public struct DesktopObserveResult: Codable, Sendable {
     public let wspath: String
     public let expiresatms: Int
     public let control: Bool
+    public let audio: [String: AnyCodable]?
+    public let audiounavailablereason: String?
     public let canresize: Bool?
     public let vncpassword: String?
     public let auth: String?
@@ -6184,6 +6197,8 @@ public struct DesktopObserveResult: Codable, Sendable {
         wspath: String,
         expiresatms: Int,
         control: Bool,
+        audio: [String: AnyCodable]? = nil,
+        audiounavailablereason: String? = nil,
         canresize: Bool? = nil,
         vncpassword: String? = nil,
         auth: String? = nil,
@@ -6193,6 +6208,8 @@ public struct DesktopObserveResult: Codable, Sendable {
         self.wspath = wspath
         self.expiresatms = expiresatms
         self.control = control
+        self.audio = audio
+        self.audiounavailablereason = audiounavailablereason
         self.canresize = canresize
         self.vncpassword = vncpassword
         self.auth = auth
@@ -6204,6 +6221,8 @@ public struct DesktopObserveResult: Codable, Sendable {
         case wspath = "wsPath"
         case expiresatms = "expiresAtMs"
         case control
+        case audio
+        case audiounavailablereason = "audioUnavailableReason"
         case canresize = "canResize"
         case vncpassword = "vncPassword"
         case auth
@@ -10486,6 +10505,7 @@ public struct PluginControlUiModule: Codable, Sendable {
     public let name: String
     public let revision: String
     public let entryurl: String
+    public let uicapabilities: [PluginUiCapability]?
     public let styles: [String]
 
     public init(
@@ -10493,12 +10513,14 @@ public struct PluginControlUiModule: Codable, Sendable {
         name: String,
         revision: String,
         entryurl: String,
+        uicapabilities: [PluginUiCapability]? = nil,
         styles: [String])
     {
         self.pluginid = pluginid
         self.name = name
         self.revision = revision
         self.entryurl = entryurl
+        self.uicapabilities = uicapabilities
         self.styles = styles
     }
 
@@ -10507,6 +10529,7 @@ public struct PluginControlUiModule: Codable, Sendable {
         case name
         case revision
         case entryurl = "entryUrl"
+        case uicapabilities = "uiCapabilities"
         case styles
     }
 }
@@ -11456,18 +11479,22 @@ public struct PluginsRefreshResult: Codable, Sendable {
 
 public struct PluginsReloadParams: Codable, Sendable {
     public let plugins: [PluginReloadTarget]
+    public let waitfordrain: Bool?
     public let acknowledgecapabilities: [String: AnyCodable]?
 
     public init(
         plugins: [PluginReloadTarget],
+        waitfordrain: Bool? = nil,
         acknowledgecapabilities: [String: AnyCodable]? = nil)
     {
         self.plugins = plugins
+        self.waitfordrain = waitfordrain
         self.acknowledgecapabilities = acknowledgecapabilities
     }
 
     private enum CodingKeys: String, CodingKey {
         case plugins
+        case waitfordrain = "waitForDrain"
         case acknowledgecapabilities = "acknowledgeCapabilities"
     }
 }
@@ -22871,6 +22898,7 @@ public struct ToolCatalogEntry: Codable, Sendable {
     public let risk: AnyCodable?
     public let tags: [String]?
     public let fulldescription: String?
+    public let parameters: [[String: AnyCodable]]?
     public let defaultprofiles: [AnyCodable]
 
     public init(
@@ -22883,6 +22911,7 @@ public struct ToolCatalogEntry: Codable, Sendable {
         risk: AnyCodable? = nil,
         tags: [String]? = nil,
         fulldescription: String? = nil,
+        parameters: [[String: AnyCodable]]? = nil,
         defaultprofiles: [AnyCodable])
     {
         self.id = id
@@ -22894,6 +22923,7 @@ public struct ToolCatalogEntry: Codable, Sendable {
         self.risk = risk
         self.tags = tags
         self.fulldescription = fulldescription
+        self.parameters = parameters
         self.defaultprofiles = defaultprofiles
     }
 
@@ -22907,6 +22937,7 @@ public struct ToolCatalogEntry: Codable, Sendable {
         case risk
         case tags
         case fulldescription = "fullDescription"
+        case parameters
         case defaultprofiles = "defaultProfiles"
     }
 }
@@ -26502,6 +26533,7 @@ public struct FailedSessionPlacement: Codable, Sendable {
     public let terminalatms: Int?
     public let recoveryerror: String
     public let recoveryaction: String?
+    public let retryonsend: Bool?
 
     public init(
         state: String,
@@ -26523,7 +26555,8 @@ public struct FailedSessionPlacement: Codable, Sendable {
         terminalreason: String? = nil,
         terminalatms: Int? = nil,
         recoveryerror: String,
-        recoveryaction: String? = nil)
+        recoveryaction: String? = nil,
+        retryonsend: Bool? = nil)
     {
         self.state = state
         self.generation = generation
@@ -26545,6 +26578,7 @@ public struct FailedSessionPlacement: Codable, Sendable {
         self.terminalatms = terminalatms
         self.recoveryerror = recoveryerror
         self.recoveryaction = recoveryaction
+        self.retryonsend = retryonsend
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -26568,6 +26602,7 @@ public struct FailedSessionPlacement: Codable, Sendable {
         case terminalatms = "terminalAtMs"
         case recoveryerror = "recoveryError"
         case recoveryaction = "recoveryAction"
+        case retryonsend = "retryOnSend"
     }
 }
 

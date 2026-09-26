@@ -4,7 +4,6 @@ import {
   formatErrorMessage,
   type EmbeddedRunAttemptParamsV2 as EmbeddedRunAttemptParams,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
-import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   CODEX_APP_SERVER_UNSUBSCRIBE_TIMEOUT_MS,
   CodexAppServerUnsafeSubscriptionError,
@@ -13,7 +12,6 @@ import {
 } from "./attempt-client-cleanup.js";
 import { unsubscribeCodexAppServerLiveThread } from "./client-runtime.js";
 import { CodexAppServerRpcError, type CodexAppServerClient } from "./client.js";
-import type { CodexAppServerRuntimeOptions } from "./config.js";
 import { buildCodexAppServerConnectionFingerprint } from "./plugin-app-cache-key.js";
 import {
   checkCodexThreadAppAvailability,
@@ -22,20 +20,16 @@ import {
 import {
   assertCodexThreadForkResponse,
   assertCodexThreadStartResponse,
+  readSupervisionResponseThreadId,
 } from "./protocol-validators.js";
-import type {
-  CodexDynamicToolSpec,
-  CodexThread,
-  CodexThreadForkParams,
-  CodexTurnEnvironmentParams,
-  JsonObject,
-} from "./protocol.js";
+import type { CodexDynamicToolSpec, CodexThread, CodexThreadForkParams } from "./protocol.js";
 import type {
   CodexAppServerBindingIdentity,
   CodexAppServerBindingStore,
   CodexAppServerPendingSupervisionBranch,
   CodexAppServerThreadBinding,
 } from "./session-binding.js";
+import type { CodexThreadConfigurationOptions } from "./thread-configuration-options.js";
 import {
   CodexThreadBindingConflictError,
   CodexThreadStartRequestError,
@@ -51,9 +45,11 @@ import {
   resolveCodexThreadApprovalsReviewer,
 } from "./thread-requests.js";
 import { projectBoundedCodexThreadHistory } from "./transcript-mirror.js";
-import type { CodexNativeWebSearchSupport } from "./web-search.js";
 
-type PendingSupervisionMaterializationParams = {
+type PendingSupervisionMaterializationParams = Omit<
+  CodexThreadConfigurationOptions,
+  "model" | "modelProvider"
+> & {
   client: CodexAppServerClient;
   abandonClient: () => Promise<void>;
   bindingStore: CodexAppServerBindingStore;
@@ -64,21 +60,9 @@ type PendingSupervisionMaterializationParams = {
   attempt: EmbeddedRunAttemptParams;
   cwd: string;
   dynamicTools: CodexDynamicToolSpec[];
-  appServer: CodexAppServerRuntimeOptions;
-  developerInstructions?: string;
-  skillsInstructions?: string;
-  config?: JsonObject;
-  shellEnvironment?: Readonly<Record<string, string>>;
-  shellPathPrepend?: readonly string[];
-  disableLoginShell?: boolean;
-  nativeCodeModeEnabled?: boolean;
-  nativeProviderWebSearchSupport?: CodexNativeWebSearchSupport;
-  nativeCodeModeOnlyEnabled?: boolean;
-  webSearchAllowed?: boolean;
   hostSystemAgentActive: boolean;
   restrictedToolSurface: boolean;
   restrictedToolSurfaceInheritedMcpServerNames: string[];
-  environmentSelection?: CodexTurnEnvironmentParams[];
   signal?: AbortSignal;
   provisionalAppIds?: readonly string[];
   throwIfAborted: () => void;
@@ -621,11 +605,6 @@ function requireDistinctSupervisionThreadId(params: {
     );
   }
   return threadId;
-}
-
-function readSupervisionResponseThreadId(value: unknown): unknown {
-  const thread = isRecord(value) ? value.thread : undefined;
-  return isRecord(thread) ? thread.id : undefined;
 }
 
 async function recoverPendingSupervisionArtifacts(

@@ -1,11 +1,6 @@
-/**
- * Shared diff computation utilities for the edit tool.
- * Used by both edit.ts (for execution) and tool-execution.ts (for preview rendering).
- */
+/** Pure file edit planning and shared display/unified-patch receipts. */
 
-import { constants } from "node:fs";
-import { access, readFile } from "node:fs/promises";
-import { createPatch, FILE_HEADERS_ONLY, structuredPatch, type StructuredPatchHunk } from "diff";
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { levenshteinDistance } from "../../../shared/levenshtein-distance.js";
 import { normalizeToLF } from "../../line-endings.js";
 import {
@@ -13,7 +8,7 @@ import {
   applyReplacementsPreservingLineEndings,
   type TextReplacement,
 } from "./edit-replacements.js";
-import { resolveLocalPathToCwd, resolveToCwd } from "./path-utils.js";
+import { prepareFileDiff, type FileDiff } from "./file-diff.js";
 
 interface FuzzyBoundary {
   /** Original offset when the normalized boundary begins a replacement. */
@@ -183,7 +178,7 @@ export interface Edit {
   newText: string;
 }
 
-export class EditNoChangeError extends Error {
+class EditNoChangeError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "EditNoChangeError";
@@ -197,7 +192,6 @@ interface MatchedEdit extends TextReplacement {
 interface AppliedEdits {
   baseContent: string;
   newContent: string;
-  replacementBaseContent: string;
   replacements: MatchedEdit[];
 }
 
@@ -272,7 +266,7 @@ function fuzzyFindText(
 }
 
 /** Strip UTF-8 BOM if present, return both the BOM (if any) and the text without it */
-export function stripBom(content: string): { bom: string; text: string } {
+function stripBom(content: string): { bom: string; text: string } {
   return content.startsWith("\uFEFF")
     ? { bom: "\uFEFF", text: content.slice(1) }
     : { bom: "", text: content };
@@ -302,23 +296,10 @@ interface EditCandidate {
   score: number;
 }
 
-function truncateCandidateText(text: string, maxChars: number): string {
-  if (text.length <= maxChars) {
-    return text;
-  }
-  const cut =
-    maxChars > 0 &&
-    /[\uD800-\uDBFF]/.test(text.charAt(maxChars - 1)) &&
-    /[\uDC00-\uDFFF]/.test(text.charAt(maxChars))
-      ? maxChars - 1
-      : maxChars;
-  return text.slice(0, cut);
-}
-
 function getBoundedLines(text: string, maxLines: number, maxScanChars: number): string[] {
-  return truncateCandidateText(text, maxScanChars)
+  return truncateUtf16Safe(text, maxScanChars)
     .split("\n", maxLines)
-    .map((line) => truncateCandidateText(line, EDIT_CANDIDATE_MAX_LINE_CHARS));
+    .map((line) => truncateUtf16Safe(line, EDIT_CANDIDATE_MAX_LINE_CHARS));
 }
 
 function scoreCandidate(expected: string, candidate: string): number {
@@ -510,15 +491,13 @@ function applyEdits(normalizedContent: string, edits: Edit[], path: string): App
   const fuzzyFile: FuzzyNormalizedFile | undefined = needsFuzzyMapping
     ? { text: normalizeForFuzzyMatch(normalizedContent), boundaries: undefined }
     : undefined;
-  const replacementBaseContent = normalizedContent;
-
   const matchedEdits: MatchedEdit[] = [];
   for (const [i, edit] of normalizedEdits.entries()) {
     const matchResult = fuzzyFindText(normalizedContent, edit.oldText, fuzzyFile);
     const occurrences =
       fuzzyFile && matchResult.usedFuzzyMatch
         ? countOccurrences(fuzzyFile.text, edit.oldText)
-        : countExactOccurrences(replacementBaseContent, edit.oldText);
+        : countExactOccurrences(normalizedContent, edit.oldText);
     if (occurrences > 1) {
       throw getDuplicateError(path, i, normalizedEdits.length, occurrences);
     }
@@ -551,31 +530,20 @@ function applyEdits(normalizedContent: string, edits: Edit[], path: string): App
     }
   }
 
-  const baseContent = normalizedContent;
-  const newContent = applyReplacements(replacementBaseContent, matchedEdits);
+  const newContent = applyReplacements(normalizedContent, matchedEdits);
 
-  if (baseContent === newContent) {
+  if (normalizedContent === newContent) {
     throw getNoChangeError(path, normalizedEdits.length);
   }
 
   return {
-    baseContent,
+    baseContent: normalizedContent,
     newContent,
-    replacementBaseContent,
     replacements: matchedEdits,
   };
 }
 
-function applyEditsToNormalizedContent(
-  normalizedContent: string,
-  edits: Edit[],
-  path: string,
-): { baseContent: string; newContent: string } {
-  const { baseContent, newContent } = applyEdits(normalizedContent, edits, path);
-  return { baseContent, newContent };
-}
-
-export function applyEditsPreservingLineEndings(
+function applyEditsPreservingLineEndings(
   originalContent: string,
   edits: Edit[],
   path: string,
@@ -583,7 +551,7 @@ export function applyEditsPreservingLineEndings(
   const applied = applyEdits(normalizeToLF(originalContent), edits, path);
   const finalContent = applyReplacementsPreservingLineEndings(
     originalContent,
-    applied.replacementBaseContent,
+    applied.baseContent,
     applied.replacements,
   );
   if (normalizeToLF(finalContent) !== applied.newContent) {
@@ -596,73 +564,6 @@ export function applyEditsPreservingLineEndings(
   };
 }
 
-/** Generate a standard unified patch. */
-export function generateUnifiedPatch(
-  path: string,
-  oldContent: string,
-  newContent: string,
-  contextLines = 4,
-): string {
-  return createPatch(path, oldContent, newContent, undefined, undefined, {
-    context: contextLines,
-    headerOptions: FILE_HEADERS_ONLY,
-  });
-}
-
-/**
- * Generate a display-oriented diff string with line numbers and context.
- * Returns both the diff string and the first changed line number (in the new file).
- * Prepared hunks must describe these exact contents with the requested context.
- */
-export function generateDiffString(
-  oldContent: string,
-  newContent: string,
-  contextLines = 4,
-  preparedHunks?: StructuredPatchHunk[],
-): { diff: string; firstChangedLine: number | undefined } {
-  const hunks =
-    preparedHunks ??
-    structuredPatch("", "", oldContent, newContent, undefined, undefined, {
-      context: contextLines,
-    }).hunks;
-  const oldLineCount = oldContent.split("\n").length;
-  const newLineCount = newContent.split("\n").length;
-  const lastNewLine = newContent === "" ? 0 : newLineCount - Number(newContent.endsWith("\n"));
-  const maxLineNum = Math.max(oldLineCount, newLineCount);
-  const lineNumWidth = String(maxLineNum).length;
-  const ellipsis = ` ${"".padStart(lineNumWidth, " ")} ...`;
-  const output: string[] = [];
-  let firstChangedLine: number | undefined;
-
-  for (const [hunkIndex, hunk] of hunks.entries()) {
-    if (hunkIndex > 0 || hunk.newStart > 1) {
-      output.push(ellipsis);
-    }
-
-    let oldLineNum = hunk.oldStart;
-    let newLineNum = hunk.newStart;
-    for (const line of hunk.lines) {
-      const prefix = line[0];
-      if (prefix === "\\") {
-        continue;
-      }
-      if (firstChangedLine === undefined && prefix !== " ") {
-        firstChangedLine = newLineNum;
-      }
-      const lineNum = prefix === "-" ? oldLineNum : newLineNum;
-      output.push(`${prefix}${String(lineNum).padStart(lineNumWidth, " ")} ${line.slice(1)}`);
-      oldLineNum += prefix === "+" ? 0 : 1;
-      newLineNum += prefix === "-" ? 0 : 1;
-    }
-
-    if (hunkIndex === hunks.length - 1 && hunk.newStart + hunk.newLines <= lastNewLine) {
-      output.push(ellipsis);
-    }
-  }
-
-  return { diff: output.join("\n"), firstChangedLine };
-}
-
 export interface EditDiffResult {
   diff: string;
   firstChangedLine: number | undefined;
@@ -672,14 +573,14 @@ export interface EditDiffError {
   error: string;
 }
 
-export function validateNoOpEditTargets(
+function validateNoOpEditTargets(
   normalizedContent: string,
   noOpEdits: Edit[],
   realEdits: Edit[],
   path: string,
 ): void {
   if (noOpEdits.length > 0) {
-    applyEditsToNormalizedContent(
+    applyEdits(
       normalizedContent,
       noOpEdits.map((edit) => ({ oldText: edit.oldText, newText: "" })),
       path,
@@ -689,7 +590,7 @@ export function validateNoOpEditTargets(
     normalizedContent.includes(normalizeToLF(edit.oldText)),
   );
   if (exactNoOpEdits.length > 0 && realEdits.length > 0) {
-    applyEditsToNormalizedContent(
+    applyEdits(
       normalizedContent,
       [...exactNoOpEdits, ...realEdits].map((edit) => ({
         oldText: edit.oldText,
@@ -700,7 +601,7 @@ export function validateNoOpEditTargets(
   }
 }
 
-export function splitNoOpEdits(
+function splitNoOpEdits(
   normalizedContent: string,
   edits: Edit[],
   path: string,
@@ -709,11 +610,7 @@ export function splitNoOpEdits(
   const realEdits: Edit[] = [];
   for (const edit of edits) {
     if (edit.oldText === edit.newText) {
-      applyEditsToNormalizedContent(
-        normalizedContent,
-        [{ oldText: edit.oldText, newText: "" }],
-        path,
-      );
+      applyEdits(normalizedContent, [{ oldText: edit.oldText, newText: "" }], path);
       noOpEdits.push(edit);
     } else {
       realEdits.push(edit);
@@ -722,65 +619,40 @@ export function splitNoOpEdits(
   return { noOpEdits, realEdits };
 }
 
-/**
- * Compute the diff for one or more edit operations without applying them.
- * Used for preview rendering in the TUI before the tool executes.
- */
-export async function computeEditsDiff(
-  path: string,
-  edits: Edit[],
-  cwd: string,
-  operations?: {
-    readFile: (absolutePath: string) => Promise<Buffer | string>;
-    access: (absolutePath: string) => Promise<void>;
-  },
-  resolvePath = operations ? resolveToCwd : resolveLocalPathToCwd,
-): Promise<EditDiffResult | EditDiffError> {
-  const absolutePath = resolvePath(path, cwd);
+export type FileEditPlan =
+  | { changed: false; message: string }
+  | { changed: true; content: string; editCount: number; receipt: FileDiff };
 
+export function prepareFileEdit(content: string, edits: Edit[], path: string): FileEditPlan {
   try {
-    // Check if file exists and is readable
-    try {
-      if (operations) {
-        await operations.access(absolutePath);
-      } else {
-        await access(absolutePath, constants.R_OK);
-      }
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error && "code" in error
-          ? `Error code: ${String(error.code)}`
-          : String(error);
-      return { error: `Could not edit file: ${path}. ${errorMessage}.` };
-    }
-
-    // Read the file
-    const rawContentResult = operations
-      ? await operations.readFile(absolutePath)
-      : await readFile(absolutePath, "utf-8");
-    const rawContent =
-      typeof rawContentResult === "string" ? rawContentResult : rawContentResult.toString("utf-8");
-
-    // Strip BOM before matching (LLM won't include invisible BOM in oldText)
-    const { text: content } = stripBom(rawContent);
-    const normalizedContent = normalizeToLF(content);
-    const { noOpEdits, realEdits } = splitNoOpEdits(normalizedContent, edits, path);
-    validateNoOpEditTargets(normalizedContent, noOpEdits, realEdits, path);
+    const { bom, text } = stripBom(content);
+    const normalized = normalizeToLF(text);
+    const { noOpEdits, realEdits } = splitNoOpEdits(normalized, edits, path);
+    validateNoOpEditTargets(normalized, noOpEdits, realEdits, path);
     if (realEdits.length === 0) {
-      return { diff: "", firstChangedLine: undefined };
+      return {
+        changed: false,
+        message: `No changes made to ${path}. The replacement text is identical to the original.`,
+      };
     }
-    const { baseContent, newContent } = applyEditsToNormalizedContent(
-      normalizedContent,
+    const { baseContent, newContent, finalContent } = applyEditsPreservingLineEndings(
+      text,
       realEdits,
       path,
     );
-
-    // Generate the diff
-    return generateDiffString(baseContent, newContent);
-  } catch (err) {
-    if (err instanceof EditNoChangeError) {
-      return { diff: "", firstChangedLine: undefined };
+    const receipt = prepareFileDiff(path, baseContent, newContent);
+    if (!receipt) {
+      throw new Error("Unbounded edit diff did not produce a patch");
     }
-    return { error: err instanceof Error ? err.message : String(err) };
+    return { changed: true, content: bom + finalContent, editCount: realEdits.length, receipt };
+  } catch (error) {
+    // Worker failures erase Error subclasses; no-change is a successful planning outcome.
+    if (error instanceof EditNoChangeError) {
+      return {
+        changed: false,
+        message: `No changes made to ${path}. The replacement produced identical content.`,
+      };
+    }
+    throw error;
   }
 }

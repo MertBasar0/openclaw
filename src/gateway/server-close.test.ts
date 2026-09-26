@@ -1832,7 +1832,7 @@ describe("createGatewayCloseHandler", () => {
       boundaryNewlines: 0,
       separatorLength: 0,
     };
-    run.deltaLastBroadcastText = "par";
+    chatRunState.takeBufferDelta("run-1", "par");
     run.agentText = {
       assistant: {
         lastSentAt: Date.now(),
@@ -1895,7 +1895,7 @@ describe("createGatewayCloseHandler", () => {
     expect(chatRunState.runs.get("run-1")?.buffer).toBeUndefined();
     expect(chatRunState.runs.get("run-1")?.deltaSentAt).toBeUndefined();
     expect(chatRunState.runs.get("run-1")?.assistantScope).toBeUndefined();
-    expect(chatRunState.runs.get("run-1")?.deltaLastBroadcastText).toBeUndefined();
+    expect(chatRunState.runs.get("run-1")?.display).toBeUndefined();
     expect(chatRunState.runs.get("run-1")?.agentText).toBeUndefined();
     expect(
       mocks.logWarn.mock.calls.some(([message]) =>
