@@ -3,6 +3,7 @@ import { constants as fsConstants, type Dirent, type Stats } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { replaceFileAtomicSync } from "@openclaw/fs-safe/atomic";
 import { filterStringRecord, isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString as readOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { parse as parseYaml } from "yaml";
@@ -11,10 +12,10 @@ import { hasErrnoCode } from "./errors.js";
 import { resolveInstallWorkTimeoutMs } from "./install-mode-options.js";
 import type { NpmSpecResolution } from "./install-source-utils.js";
 import { JsonFileReadError, readJson, readJsonIfExists, writeJson } from "./json-files.js";
+import { resolveNpmCommand } from "./npm-command.js";
 import { createManagedNpmPeerPlanArgs } from "./npm-managed-peer-plan.js";
 import type { ParsedRegistryNpmSpec } from "./npm-registry-spec.js";
 import { resolveOpenClawPackageRootSync } from "./openclaw-root.js";
-import { replaceFileAtomicSync } from "./replace-file.js";
 import { createSafeNpmInstallEnv } from "./safe-package-install.js";
 import { UPDATE_NETWORK_TIMEOUT_MS } from "./update-network-budget.js";
 
@@ -967,8 +968,7 @@ export async function repairManagedNpmRootOpenClawPeer(params: {
   }
 
   const command = params.runCommand ?? runCommandWithTimeout;
-  const npmArgs = [
-    "npm",
+  const npmArgs = resolveNpmCommand([
     hasManifestDependency ? "uninstall" : "prune",
     "--loglevel=error",
     "--legacy-peer-deps",
@@ -976,7 +976,7 @@ export async function repairManagedNpmRootOpenClawPeer(params: {
     "--no-audit",
     "--no-fund",
     ...(hasManifestDependency ? ["openclaw"] : []),
-  ];
+  ]);
   try {
     const result = await command(npmArgs, {
       cwd: params.npmRoot,

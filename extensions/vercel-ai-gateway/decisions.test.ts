@@ -83,6 +83,137 @@ describe("vercel ai gateway decision provider", () => {
     });
   });
 
+  it("does not dispatch when preparation exhausts the monotonic deadline before timers run", async () => {
+    globalThis.fetch = vi.fn();
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    let reads = 0;
+    const provider = createVercelAiGatewayDecisionProvider(() => {
+      if (++reads === 2) {
+        now = 2000;
+      }
+      return { apiKey: "test-key", revision: 1 };
+    });
+    const context = createContext({ deadlineMonotonicMs: 1000 });
+
+    await expect(provider.evaluate(batch, context)).resolves.toEqual({
+      status: "unavailable",
+      reason: "transport",
+    });
+    expect(reads).toBe(2);
+    expect(context.signal.aborted).toBe(false);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { reported: "typesafe-ai/jev-1.13.0", expected: "typesafe-ai/jev-1.13.0" },
+    { reported: undefined, expected: "typesafe-ai/jev" },
+  ])(
+    "preserves reported model $reported, falling back only when absent",
+    async ({ reported, expected }) => {
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            model: reported,
+            answers: { bool_q: { type: "boolean", probability: 0.8 } },
+          }),
+        ),
+      );
+      const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+
+      await expect(
+        provider.evaluate(
+          { state: "evidence", questions: { bool_q: batch.questions.bool_q! } },
+          createContext(),
+        ),
+      ).resolves.toEqual({
+        status: "ok",
+        result: {
+          model: expected,
+          answers: { bool_q: { type: "boolean", probabilityTrue: 0.8 } },
+        },
+      });
+    },
+  );
+
+  it.each([
+    { name: "null", model: null },
+    { name: "empty", model: "" },
+    { name: "blank", model: " " },
+    { name: "non-string", model: 42 },
+    { name: "oversized", model: "m".repeat(257) },
+  ])(
+    "rejects a $name reported model instead of hiding it behind the requested alias",
+    async ({ model }) => {
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            model,
+            answers: { bool_q: { type: "boolean", probability: 0.8 } },
+          }),
+        ),
+      );
+      const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+
+      await expect(
+        provider.evaluate(
+          { state: "evidence", questions: { bool_q: batch.questions.bool_q! } },
+          createContext(),
+        ),
+      ).resolves.toEqual({
+        status: "unavailable",
+        reason: "invalid-response",
+      });
+    },
+  );
+
+  it.each([
+    {
+      name: "extra question",
+      answers: {
+        "0": { type: "boolean", probability: 0.8 },
+        unexpected: { type: "boolean", probability: 0.9 },
+      },
+    },
+    { name: "array instead of answer map", answers: [{ type: "boolean", probability: 0.8 }] },
+  ])("rejects an $name before projecting answers", async ({ answers }) => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ answers })));
+    const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+
+    await expect(
+      provider.evaluate(
+        { state: "evidence", questions: { "0": { type: "boolean", instructions: "Check" } } },
+        createContext(),
+      ),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
+    });
+  });
+
+  it("rejects extra score positions rather than dropping probability mass", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          answers: {
+            score_q: { type: "score", score: 0.7, probabilities: { "0": 0.1, "1": 0.2, "2": 0.7 } },
+          },
+        }),
+      ),
+    );
+    const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+
+    await expect(
+      provider.evaluate(
+        { state: "evidence", questions: { score_q: { type: "score", criteria: ["low", "high"] } } },
+        createContext(),
+      ),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
+    });
+  });
+
   it("successfully evaluates boolean, choice, and score questions with confidence and usage, passing host validation", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(

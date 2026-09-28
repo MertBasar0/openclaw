@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
 import { GATEWAY_SERVICE_RUNTIME_PID_ENV } from "../daemon/constants.js";
+import * as postCoreCapability from "../infra/update-post-core-capability.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { VERSION } from "../version.js";
 import {
@@ -50,7 +51,10 @@ import {
   updateCommand,
 } from "./update-cli-modules.test-support.js";
 import { pluginSyncResult } from "./update-cli/update-cli-config.test-support.js";
-import { writeOpenClawPackageFixture } from "./update-cli/update-cli-package.test-support.js";
+import {
+  writeGitUpdateResultFixture,
+  writeOpenClawPackageFixture,
+} from "./update-cli/update-cli-package.test-support.js";
 
 await vi.hoisted(() => import("./update-cli-mocks.test-support.js"));
 
@@ -94,6 +98,7 @@ describe("update-cli", () => {
   });
 
   it("isolates stale handoff values at the post-core CLI spawn boundary", async () => {
+    vi.spyOn(postCoreCapability, "supportsPostCoreExecutor").mockResolvedValueOnce(false);
     vi.mocked(resolveGatewayInstallEntrypoint).mockResolvedValueOnce(FRESH_POST_UPDATE_ENTRYPOINT);
     readPackageVersion.mockResolvedValueOnce(null);
 
@@ -234,8 +239,7 @@ describe("update-cli", () => {
       entrySource: "export {};\n",
     });
     mockGitUpdateAfterMutation(
-      makeOkUpdateResult({
-        mode: "git",
+      await writeGitUpdateResultFixture({
         root,
         before: { sha: "old-caller-sha", version: "2026.4.26" },
         after: { sha: "new-caller-sha", version: VERSION },

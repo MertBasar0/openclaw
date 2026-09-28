@@ -31,6 +31,8 @@ import {
   type JsonObject,
   type JsonValue,
 } from "./protocol.js";
+import { isCodexResponsesOAuthRun } from "./responses-oauth.js";
+import type { CodexThreadConfigurationOptions } from "./thread-configuration-options.js";
 import { fingerprintJsonObject } from "./thread-fingerprints.js";
 import {
   CODEX_NATIVE_PERSONALITY_NONE,
@@ -165,26 +167,6 @@ export type CodexThreadConfigurationContext = CodexThreadPromptContext &
     | "scheduledRuntimeAuthority"
   >;
 
-type CodexThreadConfigurationOptions = {
-  cwd?: string;
-  dynamicTools?: CodexDynamicToolSpec[];
-  appServer: CodexAppServerRuntimeOptions;
-  developerInstructions?: string;
-  skillsInstructions?: string;
-  config?: JsonObject;
-  nativeCodeModeEnabled?: boolean;
-  nativeProviderWebSearchSupport?: CodexNativeWebSearchSupport;
-  nativeCodeModeOnlyEnabled?: boolean;
-  webSearchAllowed?: boolean;
-  environmentSelection?: CodexTurnEnvironmentParams[];
-  model?: string | null;
-  modelProvider?: string | null;
-  hostSystemAgentActive?: boolean;
-  restrictedToolSurfaceInheritedMcpServerNames?: readonly string[];
-  shellEnvironment?: Readonly<Record<string, string>>;
-  disableLoginShell?: boolean;
-};
-
 /** Common deterministic start/resume/fork fields; no run resources or unsupported setters. */
 export function buildCodexThreadConfiguration(
   params: CodexThreadConfigurationContext,
@@ -202,17 +184,8 @@ export function buildCodexThreadConfiguration(
       ? { serviceTier: options.appServer.serviceTier }
       : {}),
     config: buildCodexRuntimeThreadConfigForRun(params, options.config, {
-      nativeCodeModeEnabled: options.nativeCodeModeEnabled,
-      nativeProviderWebSearchSupport: options.nativeProviderWebSearchSupport,
-      nativeCodeModeOnlyEnabled: options.nativeCodeModeOnlyEnabled,
+      ...options,
       directOnlyToolNamespaces: resolveDirectOnlyToolNamespaces(options.dynamicTools),
-      webSearchAllowed: options.webSearchAllowed,
-      appServer: options.appServer,
-      hostSystemAgentActive: options.hostSystemAgentActive,
-      restrictedToolSurfaceInheritedMcpServerNames:
-        options.restrictedToolSurfaceInheritedMcpServerNames,
-      shellEnvironment: options.shellEnvironment,
-      disableLoginShell: options.disableLoginShell,
     }),
     // Catalog-owned collaboration messages replace caller collaboration instructions
     // (codex-rs/core/src/context/world_state/collaboration_mode.rs), so the skill
@@ -230,21 +203,14 @@ export function buildThreadStartParams(
   options: CodexThreadConfigurationOptions & { cwd: string; dynamicTools: CodexDynamicToolSpec[] },
 ): CodexThreadStartParams {
   const resolvedModelProvider = resolveCodexAppServerModelProvider({
+    ...params,
     homeScope: options.appServer.start.homeScope,
-    provider: params.provider,
-    authProfileId: params.authProfileId,
-    authProfileStore: params.authProfileStore,
-    agentDir: params.agentDir,
-    config: params.config,
   });
   const modelSelection = resolveCodexAppServerRequestModelSelection({
+    ...params,
     homeScope: options.appServer.start.homeScope,
     model: options.model ?? params.modelId,
     modelProvider: options.modelProvider ?? resolvedModelProvider,
-    authProfileId: params.authProfileId,
-    authProfileStore: params.authProfileStore,
-    agentDir: params.agentDir,
-    config: params.config,
   });
   return {
     model: modelSelection.model,
@@ -279,22 +245,17 @@ export function buildThreadResumeParams(
   const modelSelection = options.preserveNativeModel
     ? undefined
     : resolveCodexAppServerRequestModelSelection({
+        ...params,
         homeScope: options.appServer.start.homeScope,
         model: options.model ?? params.modelId,
         modelProvider:
           options.modelProvider ??
           resolveCodexAppServerModelProvider({
+            ...params,
             homeScope: options.appServer.start.homeScope,
-            provider: params.provider,
             authProfileId: options.authProfileId ?? params.authProfileId,
-            authProfileStore: params.authProfileStore,
-            agentDir: params.agentDir,
-            config: params.config,
           }),
         authProfileId: options.authProfileId ?? params.authProfileId,
-        authProfileStore: params.authProfileStore,
-        agentDir: params.agentDir,
-        config: params.config,
       });
   return {
     threadId: options.threadId,
@@ -411,6 +372,7 @@ export function buildCodexRuntimeThreadConfigForRun(
     hostSystemAgentActive?: boolean;
     restrictedToolSurfaceInheritedMcpServerNames?: readonly string[];
     shellEnvironment?: Readonly<Record<string, string>>;
+    shellPathPrepend?: readonly string[];
     disableLoginShell?: boolean;
   } = {},
 ): JsonObject {
@@ -437,7 +399,7 @@ export function buildCodexRuntimeThreadConfigForRun(
   const webSearchConfig = resolveCodexWebSearchPlan({
     config: params.config,
     disableTools: params.disableTools,
-    nativeToolSurfaceEnabled: options.nativeCodeModeEnabled,
+    nativeToolSurfaceEnabled: isCodexResponsesOAuthRun(params) || options.nativeCodeModeEnabled,
     nativeProviderWebSearchSupport: options.nativeProviderWebSearchSupport,
     webSearchAllowed: options.webSearchAllowed,
   }).threadConfig;
@@ -449,6 +411,19 @@ export function buildCodexRuntimeThreadConfigForRun(
     mergeCodexThreadConfigs(
       baseConfig,
       options.appServer?.networkProxy?.configPatch,
+      isCodexResponsesOAuthRun(params)
+        ? {
+            ...CODEX_DELEGATION_DISABLED_THREAD_CONFIG,
+            "features.apps": false,
+            "features.plugins": false,
+            "features.image_generation": false,
+            "features.memories": false,
+            "features.skill_search": false,
+            "orchestrator.skills.enabled": false,
+            "orchestrator.mcp.enabled": false,
+            "skills.bundled.enabled": false,
+          }
+        : undefined,
       params.pluginHarnessToolPolicySafeDeniedTools?.includes("image_generate")
         ? { "features.image_generation": false }
         : undefined,
@@ -461,7 +436,7 @@ export function buildCodexRuntimeThreadConfigForRun(
       messageOnlySourceReply || params.pluginHarnessToolPolicyRestricted === true
         ? buildRestrictedToolConfigPatch(
             restrictedToolSurfaceMcpServerNames,
-            Boolean(params.scheduledRuntimeAuthority),
+            Boolean(params.scheduledRuntimeAuthority) && !isCodexResponsesOAuthRun(params),
           )
         : buildCodexRingZeroThreadConfigPatch(
             params,
@@ -481,6 +456,7 @@ export function buildCodexRuntimeThreadConfigForRun(
     contextConfig,
     options.shellEnvironment,
     options.disableLoginShell,
+    options.shellPathPrepend,
   );
 }
 

@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.27.0
 
-FROM node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
@@ -28,6 +28,7 @@ COPY extensions ./extensions
 COPY patches ./patches
 COPY scripts/postinstall-bundled-plugins.mjs scripts/preinstall-package-manager-warning.mjs scripts/prepare-git-hooks.mjs scripts/windows-cmd-helpers.mjs scripts/check-install-dependency-ownership.mjs ./scripts/
 COPY scripts/lib/package-dist-imports.mjs ./scripts/lib/package-dist-imports.mjs
+COPY scripts/lib/javascript-statements.mjs ./scripts/lib/javascript-statements.mjs
 COPY scripts/lib/package-lifecycle-marker.mjs ./scripts/lib/package-lifecycle-marker.mjs
 COPY scripts/lib/fs-safe-prebuild.mjs ./scripts/lib/fs-safe-prebuild.mjs
 RUN --mount=type=cache,id=openclaw-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \

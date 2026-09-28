@@ -57,6 +57,7 @@ type VercelEvaluationRawAnswer =
     };
 
 type VercelEvaluationResponseBody = {
+  model?: string;
   answers?: Record<string, VercelEvaluationRawAnswer>;
   usage?: {
     inputTokens?: number;
@@ -130,7 +131,7 @@ export function createVercelAiGatewayDecisionProvider(
         providerOptions: {},
       });
 
-      const assertCurrentCredentials = () => {
+      const assertCurrentRequest = () => {
         context.signal.throwIfAborted();
         const current = getConfig();
         if (
@@ -142,6 +143,11 @@ export function createVercelAiGatewayDecisionProvider(
             "Credentials withdrawn or modified prior to dispatch",
           );
         }
+        signal?.throwIfAborted();
+        // Preparation can exhaust the budget before the abort timer gets a turn.
+        if (performance.now() >= context.deadlineMonotonicMs) {
+          throw new Error("Vercel AI Gateway decision deadline expired before dispatch");
+        }
       };
 
       try {
@@ -149,7 +155,7 @@ export function createVercelAiGatewayDecisionProvider(
           withTrustedEnvProxyGuardedFetchMode({
             url: endpoint,
             fetchImpl: globalThis.fetch,
-            beforeRequest: assertCurrentCredentials,
+            beforeRequest: assertCurrentRequest,
             init: {
               method: "POST",
               headers: {
@@ -223,7 +229,11 @@ export function createVercelAiGatewayDecisionProvider(
           !data ||
           typeof data !== "object" ||
           !data.answers ||
-          typeof data.answers !== "object"
+          typeof data.answers !== "object" ||
+          Array.isArray(data.answers) ||
+          Object.keys(data.answers).length !== Object.keys(batch.questions).length ||
+          (data.model !== undefined &&
+            (typeof data.model !== "string" || !data.model.trim() || data.model.length > 256))
         ) {
           return { status: "unavailable", reason: "invalid-response" };
         }
@@ -318,7 +328,8 @@ export function createVercelAiGatewayDecisionProvider(
               rawAnswer.score > question.criteria.length - 1 ||
               !probsRecord ||
               typeof probsRecord !== "object" ||
-              Array.isArray(probsRecord)
+              Array.isArray(probsRecord) ||
+              Object.keys(probsRecord).length !== question.criteria.length
             ) {
               return { status: "unavailable", reason: "invalid-response" };
             }
@@ -368,7 +379,7 @@ export function createVercelAiGatewayDecisionProvider(
         return {
           status: "ok",
           result: {
-            model,
+            model: data.model ?? model,
             answers,
             ...(usage ? { usage } : {}),
           },

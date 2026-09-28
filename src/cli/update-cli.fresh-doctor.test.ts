@@ -40,7 +40,6 @@ import {
   runDaemonInstall,
   runExec,
   runPostCorePluginConvergenceSpy,
-  runUtf8CommandWithTimeout,
   updateCommand,
   updateGitCheckout,
 } from "./update-cli-modules.test-support.js";
@@ -49,6 +48,8 @@ import {
   mockPostCoreConvergenceOnce,
 } from "./update-cli/update-cli-config.test-support.js";
 import { registerForegroundFailureRecoveryTests } from "./update-cli/update-cli-failure-recovery.test-support.js";
+import { writeGitUpdateResultFixture } from "./update-cli/update-cli-package.test-support.js";
+import * as runtimeRecovery from "./update-cli/update-command-runtime-recovery.test-support.js";
 
 await vi.hoisted(() => import("./update-cli-mocks.test-support.js"));
 
@@ -72,9 +73,8 @@ describe("update-cli", () => {
 
   it("respawns into the updated git root before requested channel persistence", async () => {
     const { entrypoints } = setupUpdatedRootRefresh({
-      gatewayUpdateImpl: async (root) =>
-        makeOkUpdateResult({
-          mode: "git",
+      gatewayUpdateImpl: (root) =>
+        writeGitUpdateResultFixture({
           root,
           before: { sha: "old-sha", version: "2026.4.26" },
           after: { sha: "new-sha", version: VERSION },
@@ -102,9 +102,8 @@ describe("update-cli", () => {
 
   it("carries explicit capability consent into post-core plugin convergence", async () => {
     const { entrypoints } = setupUpdatedRootRefresh({
-      gatewayUpdateImpl: async (root) =>
-        makeOkUpdateResult({
-          mode: "git",
+      gatewayUpdateImpl: (root) =>
+        writeGitUpdateResultFixture({
           root,
           before: { sha: "old-sha", version: "2026.4.26" },
           after: { sha: "new-sha", version: VERSION },
@@ -204,18 +203,6 @@ describe("update-cli", () => {
   ])(
     "finalizes downgrade to $targetVersion with target writer=$fresh",
     async ({ targetVersion, fresh }) => {
-      const runWorker = expectDefined(
-        vi.mocked(runUtf8CommandWithTimeout).getMockImplementation(),
-        "worker transport is initialized",
-      );
-      vi.mocked(runUtf8CommandWithTimeout).mockImplementation((argv, options) => {
-        if (argv.includes("--check")) {
-          return Promise.reject(
-            new Error("Older target does not contain the migration-continuation worker"),
-          );
-        }
-        return runWorker(argv, options);
-      });
       candidateValidation.mockImplementation(async (options) =>
         reportCandidateSteps(options, {
           status: "ok",
@@ -407,7 +394,10 @@ describe("update-cli", () => {
   it("runs updated plugin migrations for a plugin-only current-process update", async () => {
     // This path exercises delegated Doctor ownership, independent of repository build artifacts.
     vi.spyOn(doctorChild, "inspectUpdateDoctorChildSupport").mockResolvedValue(true);
-    mockGitUpdateAfterMutation(makeOkUpdateResult({ after: { version: VERSION } }));
+    readPackageVersion.mockResolvedValue(VERSION);
+    vi.mocked(updateGitCheckout).mockResolvedValue(
+      runtimeRecovery.currentGitCoreFixture(process.cwd(), VERSION).outcome,
+    );
     vi.mocked(resolveGatewayInstallEntrypoint).mockResolvedValueOnce(
       "/tmp/openclaw-updated-entry.mjs",
     );
