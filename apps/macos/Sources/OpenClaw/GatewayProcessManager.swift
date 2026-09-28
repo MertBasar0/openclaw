@@ -881,14 +881,16 @@ extension GatewayProcessManager {
     private func observeLaunchdGatewayReadiness(
         context: GatewayReadinessContext,
         readinessWindow: TimeInterval = 6,
-        // Fresh installs and unchanged launchd PIDs keep probing through the CLI's migration budget.
-        firstInstallReadinessBudget: TimeInterval = GatewayLaunchAgentManager.startupMigrationTolerance) async
+        // Fresh installs keep probing through the same first-run migration budget as the CLI.
+        firstInstallReadinessBudget: TimeInterval = GatewayLaunchAgentManager.startupMigrationTolerance,
+        reusedLaunchdReadinessBudget: TimeInterval = GatewayLaunchAgentManager.reusedLaunchdColdStartTolerance) async
     {
+        let freshInstall = self.launchAgentFreshInstallGeneration == context.generation
         let terminal = await self.observeGatewayReadiness(
             context: context,
             deadlinePolicy: .migration(
                 window: readinessWindow,
-                tolerance: firstInstallReadinessBudget),
+                tolerance: freshInstall ? firstInstallReadinessBudget : reusedLaunchdReadinessBudget),
             clock: self.readinessClock)
         _ = await self.publishGatewayReadinessTerminal(terminal, context: context)
     }
@@ -1039,8 +1041,8 @@ extension GatewayProcessManager {
         }
         // A launchd PID this app did not install (started at login after a reboot, or by a repair)
         // has no install evidence, but while that same PID still owns the port it is the same cold
-        // start. It gets the same bounded budget; otherwise its first window arms a forced repair
-        // that SIGTERMs every slow start.
+        // start. It keeps probing through its own bounded budget; otherwise its first window arms a
+        // forced repair that SIGTERMs every slow start.
         guard self.isCurrentGatewayReadiness(context),
               self.launchAgentFreshInstallGeneration == context.generation || readinessPID != nil
         else { return (false, nil, false) }
@@ -1501,6 +1503,7 @@ extension GatewayProcessManager {
         pid: Int32,
         readinessWindow: TimeInterval,
         firstInstallReadinessBudget: TimeInterval,
+        reusedLaunchdReadinessBudget: TimeInterval? = nil,
         hasFreshInstallEvidence: Bool = true)
     {
         self.desiredActive = true
@@ -1520,7 +1523,8 @@ extension GatewayProcessManager {
             await self?.observeLaunchdGatewayReadiness(
                 context: context,
                 readinessWindow: readinessWindow,
-                firstInstallReadinessBudget: firstInstallReadinessBudget)
+                firstInstallReadinessBudget: firstInstallReadinessBudget,
+                reusedLaunchdReadinessBudget: reusedLaunchdReadinessBudget ?? firstInstallReadinessBudget)
         }
     }
 }

@@ -1685,6 +1685,65 @@ struct GatewayProcessManagerTests {
         }
     }
 
+    @Test func `reused launchd gateway outlasting the first-run budget is not repaired`() async throws {
+        let port = 19123
+        let url = try #require(URL(string: "ws://example.invalid"))
+        // Every health probe hangs until the gate opens, as a reboot cold start slower than a first run.
+        let healthResponse = AsyncTestGate()
+        let (_, connection, manager) = self.makeGatewayReadinessFixture(url: url) {
+            self.gatewayTask(
+                healthSucceedsAfter: 0,
+                healthResponseGates: Array(repeating: healthResponse, count: 200))
+        }
+
+        try await self.withLaunchAgentEnvironment(
+            port: port,
+            statusPayload: self.loadedGatewayStatus(port: port))
+        {
+            manager.setTestingLastFailureReason(nil)
+            manager._testClearLaunchAgentReadinessFailure()
+            manager._testClearLaunchAgentInstallEvidence()
+            let descriptor = self.gatewayDescriptor(pid: 4242)
+            await PortGuardian.shared.setTestingDescriptor(descriptor, forPort: port)
+            defer {
+                manager.setTestingLastFailureReason(nil)
+                manager._testClearLaunchAgentReadinessFailure()
+                manager._testClearLaunchAgentInstallEvidence()
+            }
+
+            _ = try await connection.request(method: "status", params: nil, retryTransportFailures: false)
+            manager._testStartLaunchdGatewayReadiness(
+                port: port,
+                pid: 4242,
+                readinessWindow: 0.05,
+                firstInstallReadinessBudget: 0.2,
+                reusedLaunchdReadinessBudget: 5,
+                hasFreshInstallEvidence: false)
+            // launchd is inspected once per extended deadline, so the sixth inspection is at 0.3s:
+            // past the first-run budget. With that budget the attempt would already have failed.
+            await self.waitForCondition(attempts: 3000) {
+                GatewayLaunchAgentManager.testingDaemonCommandCallsSnapshot()
+                    .count(where: { $0.first == "status" }) >= 6
+            }
+            healthResponse.open()
+            await manager.waitForStartupAttempt()
+
+            #expect(manager.status == .running(details: "pid 4242"))
+            #expect(manager.lastFailureReason == nil)
+            #expect(!manager._testHasLaunchAgentReadinessFailure())
+
+            GatewayLaunchAgentManager.clearTestingDaemonCommandCalls()
+            _ = await manager._testEnableLaunchAgentIfNeeded(
+                bundlePath: "/Applications/OpenClaw.app",
+                port: port)
+            #expect(GatewayLaunchAgentManager.testingDaemonCommandCallsSnapshot()
+                .filter { $0.first == "install" }.isEmpty)
+
+            await connection.shutdown()
+            await PortGuardian.shared.setTestingDescriptor(nil, forPort: port)
+        }
+    }
+
     @Test func `reused launchd gateway still repairs after its bounded budget`() async throws {
         let port = 19120
         let url = try #require(URL(string: "ws://example.invalid"))
