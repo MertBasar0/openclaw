@@ -7,6 +7,7 @@ import {
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { AgentDefaultsBaseSchema } from "../../../config/zod-schema.agent-defaults-base.js";
 import type { DecisionProviderV1, ProviderDecisionOutcome } from "../../../decisions/types.js";
+import * as operatorInvocation from "../../../gateway/operator-invocation-authority.js";
 import type { Context, Model } from "../../../llm/types.js";
 import { createHookRunnerWithRegistry } from "../../../plugins/hooks.test-fixtures.js";
 import { runPluginRegisterSyncInRegistry } from "../../../plugins/loader-module-runtime.js";
@@ -352,19 +353,39 @@ describe("prompt assembly with registered Decision runtime", () => {
     expect(f.policy.current.tools).toHaveLength(3);
     expect(call).toHaveBeenCalledTimes(1);
   });
-  it("observes opt-out published while prompt preparation awaits steering", async () => {
-    const call = register();
-    const cfg = config();
-    setRuntimeConfigSnapshot(cfg);
-    const f = await fixture(cfg);
-    vi.mocked(leasePendingAgentSteeringItems).mockImplementationOnce(async () => {
-      setRuntimeConfigSnapshot(config(false));
-      return undefined;
-    });
-    await f.assemble({ sessionKey: "agent:main:consent-transition" });
-    expect(call).not.toHaveBeenCalled();
-    expect(f.policy.current.tools).toHaveLength(3);
-  });
+  it.each(["steering", "operator"] as const)(
+    "observes opt-out published while %s preparation awaits",
+    async (boundary) => {
+      let revoked = false;
+      const call = register();
+      const cfg = config();
+      setRuntimeConfigSnapshot(cfg);
+      const f = await fixture(cfg);
+      if (boundary === "steering") {
+        vi.mocked(leasePendingAgentSteeringItems).mockImplementationOnce(async () => {
+          setRuntimeConfigSnapshot(config(false));
+          revoked = true;
+          return undefined;
+        });
+      } else {
+        const original = operatorInvocation.captureAmbientGatewayOperatorAuthority;
+        const capture = vi
+          .spyOn(operatorInvocation, "captureAmbientGatewayOperatorAuthority")
+          .mockImplementationOnce(async (params) => {
+            const authority = await original(params);
+            expect(call.mock.calls.length, "operator barrier must precede provider I/O").toBe(0);
+            setRuntimeConfigSnapshot(config(false));
+            revoked = true;
+            return authority;
+          });
+        onTestFinished(() => capture.mockRestore());
+      }
+      await f.assemble({ sessionKey: "agent:main:consent-transition" });
+      expect(revoked).toBe(true);
+      expect(call).not.toHaveBeenCalled();
+      expect(f.policy.current.tools).toHaveLength(3);
+    },
+  );
 
   it("preserves tools for approvals that depend on earlier assistant work", async () => {
     const call = register();

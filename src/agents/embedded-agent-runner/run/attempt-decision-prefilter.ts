@@ -97,6 +97,17 @@ export async function evaluateAttemptDecisionToolPrefilter(
   }
   const started = log.isEnabled("debug") ? performance.now() : undefined;
   const selection = resolveDecisionModelSetting(config, params.agentId);
+  const isCurrent = () => {
+    params.signal.throwIfAborted();
+    params.assertActive();
+    const current = readConfig();
+    const currentSelection = resolveDecisionModelSetting(current, params.agentId);
+    return (
+      isDecisionAssistanceEligible(current, params.agentId) &&
+      currentSelection?.provider === selection?.provider &&
+      currentSelection?.model === selection?.model
+    );
+  };
   const outcome = await evaluateDecisionInRegistry(
     {
       state: {
@@ -140,18 +151,9 @@ export async function evaluateAttemptDecisionToolPrefilter(
     },
     getPluginRegistryForContext(),
     config,
+    undefined,
+    isCurrent,
   );
-  const isCurrent = () => {
-    params.signal.throwIfAborted();
-    params.assertActive();
-    const current = readConfig();
-    const currentSelection = resolveDecisionModelSetting(current, params.agentId);
-    return (
-      isDecisionAssistanceEligible(current, params.agentId) &&
-      currentSelection?.provider === selection?.provider &&
-      currentSelection?.model === selection?.model
-    );
-  };
   const facts = {
     context: context.facts,
     ...(started === undefined ? {} : { latencyMs: Math.max(0, performance.now() - started) }),
