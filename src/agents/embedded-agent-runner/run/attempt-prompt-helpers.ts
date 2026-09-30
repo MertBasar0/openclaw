@@ -29,17 +29,17 @@ import { normalizeContextTokenBudget } from "../utils.js";
 import type { DecisionPromptBuildFields } from "./attempt-decision-prefilter.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
 
+export type ResolvedPromptBuildHookResult = PluginHookBeforePromptBuildResult & {
+  decisionPromptBuildFields?: DecisionPromptBuildFields;
+  hasPendingNonPromptBuildContext: boolean;
+};
+
 type PromptBuildHookRunner = Pick<HookRunner, "runBeforePromptBuild"> &
   Partial<Pick<HookRunner, "runAgentTurnPrepare" | "runHeartbeatPromptContribution">> & {
     hasHooks: (
       hookName: "agent_turn_prepare" | "heartbeat_prompt_contribution" | "before_prompt_build",
     ) => boolean;
   };
-export type ResolvedPromptBuildHookResult = PluginHookBeforePromptBuildResult & {
-  decisionPromptBuildFields?: DecisionPromptBuildFields;
-  hasPendingNonPromptBuildContext: boolean;
-};
-
 
 // Draining consumes durable injections. Retain them for retries of the same run.
 const PROMPT_BUILD_DRAIN_CACHE_MAX = 256;

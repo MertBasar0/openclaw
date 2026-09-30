@@ -152,7 +152,6 @@ const hoisted = vi.hoisted((): AttemptBaseMocks => {
   );
   const hasCompletedBootstrapTurnMock = vi.fn<() => Promise<boolean>>(async () => false);
   const supportsModelToolsMock = vi.fn<(model?: unknown) => boolean>(() => true);
-  const getGlobalHookRunnerMock = vi.fn<typeof getGlobalHookRunner>(() => null);
   const initializeGlobalHookRunnerMock = vi.fn();
   const runContextEngineMaintenanceMock = vi.fn(async (_params?: unknown) => undefined);
   const detectAndLoadPromptImagesMock = vi.fn(async () => ({
@@ -223,7 +222,7 @@ const hoisted = vi.hoisted((): AttemptBaseMocks => {
     resolveContextInjectionModeMock,
     hasCompletedBootstrapTurnMock,
     supportsModelToolsMock,
-    getGlobalHookRunnerMock,
+    getGlobalHookRunnerMock: vi.fn<typeof getGlobalHookRunner>(() => null),
     initializeGlobalHookRunnerMock,
     runContextEngineMaintenanceMock,
     detectAndLoadPromptImagesMock,

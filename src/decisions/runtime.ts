@@ -148,6 +148,7 @@ export async function evaluateDecisionInRegistry(
       config,
       registry,
       consumerId,
+      isAdmissible,
     );
     if (!rootCaller) {
       signal.throwIfAborted();

@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type { SubsystemLogger } from "../../../logging/subsystem.js";
 import { projectAgentRunAttemptTerminal } from "../../agent-run-terminal-outcome.js";
+import { buildEmbeddedAgentHookContext } from "./agent-hook-context.js";
 import type { prepareEmbeddedAttemptPromptAssembly } from "./attempt-prompt-build.js";
 import type {
   runEmbeddedAttemptPromptPhase,
@@ -81,6 +82,30 @@ type FixturePromptToolPolicy = ReturnType<
 export type PromptPreflightCall = Parameters<typeof prepareEmbeddedAttemptPromptPreflight>[0];
 export type PromptSubmissionCall = Parameters<typeof submitEmbeddedAttemptPrompt>[0];
 
+export function createPromptAssemblyResult(
+  input: AssemblyCall,
+): Awaited<ReturnType<typeof prepareEmbeddedAttemptPromptAssembly>> {
+  return {
+    assertHostActive: undefined,
+    hookCtx: {
+      ...buildEmbeddedAgentHookContext(input.attempt, input.hookAgentId, input.diagnosticTrace),
+      activeProjectKeys: [...(input.attempt.preparedModelRuntime?.activeProjectKeys ?? [])],
+      modelProviderId: input.attempt.model.provider,
+      modelId: input.attempt.model.id,
+      inputProvenance: input.attempt.inputProvenance,
+    },
+    effectivePrompt: input.attempt.prompt,
+    effectiveTranscriptPrompt: input.attempt.prompt,
+    promptBuildPrependContext: undefined,
+    promptBuildAppendContext: undefined,
+    originContext: undefined,
+    heartbeatSummary: undefined,
+    leasedSteering: undefined,
+    transcriptLeafId: null,
+    decisionPrefilter: { shouldPruneTools: false, status: "skipped", reason: "fixture-baseline" },
+  };
+}
+
 export function createFixture({ pendingPrompt = "hello", pendingImageCount = 1 } = {}) {
   mocks.isEnabled.mockReturnValue(false);
   const order: string[] = [];
@@ -124,10 +149,9 @@ export function createFixture({ pendingPrompt = "hello", pendingImageCount = 1 }
     input.applyPromptBuildToolsAllow(undefined);
     input.setLeasedSteering(lease);
     return {
-      hookCtx: {},
+      ...createPromptAssemblyResult(input),
       effectivePrompt: pendingPrompt,
       effectiveTranscriptPrompt: pendingPrompt,
-      decisionPrefilter: { shouldPruneTools: false, status: "skipped", reason: "fixture-baseline" },
       leasedSteering: lease,
       transcriptLeafId: "leaf-1",
     };
