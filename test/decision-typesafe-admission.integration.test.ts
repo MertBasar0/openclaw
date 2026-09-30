@@ -20,7 +20,7 @@ import { clearSecretsRuntimeSnapshotState } from "../src/secrets/runtime-state.j
 import { createDeferredCore } from "../src/shared/deferred.js";
 import { reserveTestPortListener } from "../src/test-utils/port-claims.js";
 
-it("fences mid-load opt-out at TypeSafe's real socket and still permits the next opted-in turn", async () => {
+it("lets admitted TypeSafe work finish after opt-out while preserving independent final-I/O guards", async () => {
   const loading = createDeferredCore();
   const release = createDeferredCore();
   // Only suspend the cold import; the public plugin, client and guarded transport run unchanged.
@@ -104,39 +104,36 @@ it("fences mid-load opt-out at TypeSafe's real socket and still permits the next
     setRuntimeConfigSnapshot(initial);
     const pending = turn(initial);
     await loading.promise;
-    setRuntimeConfigSnapshot(config(false));
+    const disabledConfig = config(false);
+    setRuntimeConfigSnapshot(disabledConfig);
     release.resolve();
-    const revoked = await pending;
-    const revokedRequests = requests;
+    const admitted = await pending;
+    const admittedRequests = requests;
+    const skipped = await turn(disabledConfig);
+    expect(skipped).toMatchObject({ status: "skipped", shouldPruneTools: false });
+    expect(requests).toBe(admittedRequests);
     const allowedConfig = config(true);
     setRuntimeConfigSnapshot(allowedConfig);
     const allowed = await turn(allowedConfig);
     console.info(
       JSON.stringify({
-        revokedRequests,
-        allowedRequests: requests - revokedRequests,
-        revoked: revoked.status,
+        admittedRequests,
+        allowedRequests: requests - admittedRequests,
+        admitted: admitted.status,
+        nextTurn: skipped.status,
         allowed: allowed.status,
       }),
     );
     expect(allowed).toMatchObject({ status: "proposed", shouldPruneTools: true });
-    expect(requests - revokedRequests).toBe(1);
-    expect(revoked).toMatchObject({ shouldPruneTools: false });
-    expect(revokedRequests).toBe(0);
+    expect(requests - admittedRequests).toBe(1);
+    expect(admitted).toMatchObject({ status: "proposed", shouldPruneTools: true });
+    expect(admittedRequests).toBe(1);
 
-    // Hold the existing loopback DNS preparation, not fetch or the provider. The
-    // guard must recheck after this await; restoring config during cleanup cannot
-    // erase the revocation observed at beforeRequest or poison shared health.
+    // Hold real DNS preparation. Labs opt-out permits admitted I/O; independent
+    // guards still reject it. Restoring config during cleanup must not erase an
+    // observed authority failure or poison shared provider health.
     const guardedFetch = ssrfRuntime.fetchWithSsrFGuard;
-    for (const change of [
-      "optout",
-      "optout",
-      "optout",
-      "model",
-      "authority",
-      "provider-config",
-      "secrets",
-    ] as const) {
+    for (const change of ["optout", "model", "authority", "provider-config", "secrets"] as const) {
       const resolving = createDeferredCore();
       const resolved = createDeferredCore();
       const localConfig = config(true);
@@ -206,6 +203,10 @@ it("fences mid-load opt-out at TypeSafe's real socket and still permits the next
         const outcome = await captured;
         if (change === "authority") {
           expect(outcome).toEqual({ error: originalError });
+        } else if (change === "optout") {
+          expect(outcome).toMatchObject({
+            result: { status: "proposed", shouldPruneTools: true },
+          });
         } else {
           expect(outcome).toMatchObject({
             result: {
@@ -216,7 +217,7 @@ it("fences mid-load opt-out at TypeSafe's real socket and still permits the next
             },
           });
         }
-        expect(requests - before).toBe(0);
+        expect(requests - before).toBe(change === "optout" ? 1 : 0);
         if (change === "optout") {
           expect(builder.registry.decisionProviders[0]!.host.inspect(localConfig)).toMatchObject({
             callable: true,

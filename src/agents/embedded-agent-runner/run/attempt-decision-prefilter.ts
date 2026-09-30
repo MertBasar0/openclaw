@@ -103,7 +103,6 @@ export async function evaluateAttemptDecisionToolPrefilter(
     const current = readConfig();
     const currentSelection = resolveDecisionModelSetting(current, params.agentId);
     return (
-      isDecisionAssistanceEligible(current, params.agentId) &&
       currentSelection?.provider === selection?.provider &&
       currentSelection?.model === selection?.model
     );
@@ -153,6 +152,7 @@ export async function evaluateAttemptDecisionToolPrefilter(
     config,
     undefined,
     isCurrent,
+    () => isDecisionAssistanceEligible(readConfig(), params.agentId),
   );
   const facts = {
     context: context.facts,

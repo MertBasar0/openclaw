@@ -42,6 +42,7 @@ export async function evaluateDecisionInRegistry(
   config: OpenClawConfig,
   consumerId?: string,
   isAdmissible?: () => boolean,
+  canDispatch?: () => boolean,
 ): Promise<DecisionOutcome> {
   const options = { ...inputOptions };
   if (
@@ -137,8 +138,9 @@ export async function evaluateDecisionInRegistry(
       signal = AbortSignal.any([modelSignal, lifetime]);
       signal.throwIfAborted();
     }
-    // Automatic consumers re-prove eligibility after preparation, before evidence leaves core.
-    if (isAdmissible && !isAdmissible()) {
+    // Admission-only preferences stop new evaluations after preparation. Do not
+    // pass them to the provider: admitted work retains independent live guards.
+    if ((canDispatch && !canDispatch()) || (isAdmissible && !isAdmissible())) {
       return skipped({ status: "unavailable", reason: "disabled" });
     }
     const result = await entry.host.evaluate(

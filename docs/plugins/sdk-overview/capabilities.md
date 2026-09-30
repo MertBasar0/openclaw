@@ -264,9 +264,12 @@ The provider receives the selected `model` and optional `agentId` in its evaluat
 context. Concurrent agent/model selections share provider health without retiring
 each other. A changed selection fences the affected request before returning it.
 
-For automatic consumers, the host supplies `context.isAdmissible()` to fence both
-consumer eligibility and the provider configuration/credential generation. Providers
-performing external I/O must call it synchronously immediately before sending,
+Automatic consumers check the Labs opt-in at provider dispatch. Disabling it
+stops future evaluations, not already-dispatched work or use of its result. The
+host supplies `context.isAdmissible()` for ongoing consumer authority, model
+selection, and provider configuration/credential generation checks; the Labs
+toggle is not part of those ongoing checks. Providers performing external I/O
+must call it synchronously immediately before sending,
 after any lazy loading, DNS, or other awaited preparation. A false result closes
 that evaluation; a thrown authority assertion is terminal. The host remembers
 either observation across provider cleanup, so revocation cannot become a provider

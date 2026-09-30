@@ -258,7 +258,7 @@ describe("prompt assembly with registered Decision runtime", () => {
     },
   );
   it.each(["structured", "search", "code"] as const)(
-    "withdraws the Decision cap at final %s dispatch after a late config change",
+    "keeps admitted opt-out results but withdraws model changes at final %s dispatch",
     async (mode) => {
       for (const change of ["opt-out", "model-change"] as const) {
         register();
@@ -290,16 +290,18 @@ describe("prompt assembly with registered Decision runtime", () => {
         setRuntimeConfigSnapshot(next);
         barrier.resolve();
         await pending;
-        expect(captured).toEqual([baseline]);
-        expect(f.session.getActiveToolNames()).toEqual(baseline);
-        expect(f.policy.current.callableToolNames).toContain("inspect_file");
+        const expected = change === "opt-out" ? ["message"] : baseline;
+        expect(captured).toEqual([expected]);
+        expect(f.session.getActiveToolNames()).toEqual(expected);
+        expect(f.policy.current.callableToolNames.includes("inspect_file")).toBe(
+          change === "model-change",
+        );
         expect(f.policy.current.callableToolNames).not.toContain("denied");
         expect(f.policy.current.tools.map((t) => t.name)).toContain("message");
         if (f.catalogRef) {
-          expect(f.catalogRef.current?.entries.map((e) => e.name)).toEqual([
-            "decision_evaluate",
-            "inspect_file",
-          ]);
+          expect(f.catalogRef.current?.entries.map((e) => e.name)).toEqual(
+            change === "opt-out" ? [] : ["decision_evaluate", "inspect_file"],
+          );
         }
       }
     },
@@ -313,11 +315,11 @@ describe("prompt assembly with registered Decision runtime", () => {
     expect(quiet.policy.current.tools).toHaveLength(3);
   });
   it.each(["opt-out", "owner-close", "abort"])(
-    "fences a pending result after %s",
+    "handles a pending evaluation after %s",
     async (change) => {
       const entered = createDeferredCore();
       const release = createDeferredCore();
-      register(async () => {
+      const call = register(async () => {
         entered.resolve();
         await release.promise;
         return result();
@@ -337,6 +339,10 @@ describe("prompt assembly with registered Decision runtime", () => {
       release.resolve();
       if (change === "opt-out") {
         await pending;
+        expect(f.policy.current.tools.map((tool) => tool.name)).toEqual(["message"]);
+        // The admitted evaluation survives, but a later turn must not invoke it.
+        await f.assemble({ config: config(false) });
+        expect(call).toHaveBeenCalledTimes(1);
       } else {
         await expect(pending).rejects.toThrow();
       }

@@ -121,9 +121,12 @@ if (!isDecisionAssistanceEligible(preparedConfig, owningAgentId)) {
 ```
 
 Use the existing config publication/refresh lifecycle, not file polling.
-Consumers must stop admitting automatic work after opt-out takes effect and
-revalidate current config, model selection, and live authority before applying
-awaited results. This helper is not an authority token or a cancellation owner.
+Consumers check opt-in again at Decision provider dispatch, after awaited
+preparation. Disabling assistance stops subsequent evaluations from starting;
+already-dispatched evaluations may finish, including provider preparation and
+network I/O, and their results may still be used. Model selection, live authority,
+cancellation, deadlines, and provider/credential validity remain independently
+checked. This helper is not an authority token or a cancellation owner.
 
 ### Conversational tool filtering
 
@@ -201,11 +204,12 @@ approvals remain action requests, while a conversational acknowledgment can omit
 optional tools on later turns. It uses the existing host tool policy, preserves
 already-required tools without granting denied tools, and keeps submitted schemas,
 discovery, and callability aligned.
-Each subsequent turn starts from its own normal tool baseline. Revoked opt-in or
-changed model selection prevents applying an awaited restriction. Eligibility is
-also rechecked at foreground provider dispatch after awaited preparation; a late
-change withdraws only the optional restriction and restores the current permitted
-tool surface while retaining independent hook caps and required tools. No historical
+Each subsequent turn starts from its own normal tool baseline. Opt-out does not
+withdraw a restriction from an already-dispatched Decision evaluation. Changed
+model selection still prevents applying an awaited restriction and is rechecked
+at foreground primary-model dispatch after awaited preparation. That change
+withdraws only the optional restriction and restores the current permitted tool
+surface while retaining independent hook caps and required tools. No historical
 transcript is rewritten and no native thread is recreated.
 
 With DEBUG logging enabled for the embedded runner, a safe record at the first
