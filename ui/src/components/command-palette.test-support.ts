@@ -1,4 +1,4 @@
-import { afterEach, vi } from "vitest";
+import { afterEach, expect, vi } from "vitest";
 import type { SessionsListResult } from "../api/types.ts";
 import { createAgentSelectionCapability } from "../app/agent-selection.ts";
 import { createApplicationConfigCapability } from "../app/config.ts";
@@ -10,6 +10,8 @@ import type {
 import { createAgentIdentityCapability } from "../lib/agents/identity.ts";
 import { createAgentCapability } from "../lib/agents/index.ts";
 import { invalidateChatMetadataStore } from "../lib/chat/chat-metadata-cache.ts";
+import { invalidateCronCatalog } from "../lib/cron/catalog.ts";
+import { modelCatalogEventInvalidation } from "../lib/model-catalog-cache.ts";
 import { createApplicationContextProvider } from "../test-helpers/application-context.ts";
 import {
   createTestGatewayClient,
@@ -20,7 +22,7 @@ import type { CommandPalette } from "./command-palette.ts";
 type GatewayHarness = {
   gateway: ApplicationGateway;
   setConnected: (connected: boolean) => void;
-  emit: (event: string) => void;
+  emit: (event: string, payload?: unknown) => void;
 };
 
 export function createGateway(
@@ -60,6 +62,7 @@ export function createGateway(
     connectionRevision: 0,
     eventLog: [],
     eventLogRevision: 0,
+    loadSelfProfile: async () => null,
     connect: () => undefined,
     setSessionKey: () => undefined,
     start: () => undefined,
@@ -76,16 +79,21 @@ export function createGateway(
   } satisfies ApplicationGateway;
   return {
     gateway,
-    emit(event) {
-      if (event === "config.changed" || event === "chat.metadata.changed") {
-        invalidateChatMetadataStore(client);
+    emit(event, payload = {}) {
+      if (event === "cron" || event === "config.changed") {
+        invalidateCronCatalog(client);
+      }
+      const invalidation = modelCatalogEventInvalidation({ event, payload });
+      if (invalidation) {
+        invalidateChatMetadataStore(client, undefined, undefined, invalidation);
       }
       for (const listener of events) {
-        listener({ type: "event", event, payload: {} });
+        listener({ type: "event", event, payload });
       }
     },
     setConnected(nextConnected) {
       if (!nextConnected) {
+        invalidateCronCatalog(client);
         invalidateChatMetadataStore(client);
       }
       snapshot = {
@@ -166,6 +174,20 @@ export async function enterQuery(palette: CommandPalette, query: string) {
   input.value = query;
   input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
   await palette.updateComplete;
+}
+
+export function expectPalettePromptMode(palette: CommandPalette) {
+  const searchPanel = palette.querySelector('[inert][aria-hidden="true"]');
+  expect(searchPanel).not.toBeNull();
+  const input = palette.querySelector<HTMLTextAreaElement>(".cmd-palette__input")!;
+  expect(input.hasAttribute("aria-controls")).toBe(false);
+  expect(input.hasAttribute("aria-activedescendant")).toBe(false);
+  expect(input.closest("[inert]")).toBeNull();
+  for (const searchElement of palette.querySelectorAll(
+    ".cmd-palette__filters, .cmd-palette__results, .cmd-palette__source-error, .cmd-palette__empty, .cmd-palette__no-results",
+  )) {
+    expect(searchElement.closest('[inert][aria-hidden="true"]')).toBe(searchPanel);
+  }
 }
 
 export function findPaletteOption(palette: CommandPalette, label: string, exact = false) {

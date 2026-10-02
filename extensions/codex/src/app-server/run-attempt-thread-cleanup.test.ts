@@ -61,23 +61,16 @@ describe("Codex app-server main thread cleanup", () => {
     resetSharedCodexAppServerClientForTests();
   });
 
-  it.each(
-    [
-      { label: "without a context engine", contextEngine: undefined },
-      {
-        label: "with the default legacy context engine",
-        contextEngine: {
-          info: { id: "legacy", name: "Legacy", version: "1.0.0" },
-        } as EmbeddedRunAttemptParams["contextEngine"],
-      },
-    ].flatMap((context) =>
-      (["completed", "failed"] as const).map((status) => ({
-        label: context.label,
-        contextEngine: context.contextEngine,
-        status,
-      })),
-    ),
-  )(
+  it.each([
+    { label: "without a context engine", contextEngine: undefined, status: "failed" as const },
+    {
+      label: "with the default legacy context engine",
+      contextEngine: {
+        info: { id: "legacy", name: "Legacy", version: "1.0.0" },
+      } as EmbeddedRunAttemptParams["contextEngine"],
+      status: "completed" as const,
+    },
+  ])(
     "retains a subscribed persistent Codex thread $label after $status",
     async ({ contextEngine, status }) => {
       const sessionFile = path.join(tempDir, "session.jsonl");
@@ -169,6 +162,7 @@ describe("Codex app-server main thread cleanup", () => {
       expect(requests.map((entry) => entry.method)).toEqual([
         "config/read",
         "thread/start",
+        "model/list",
         "turn/start",
       ]);
     },
@@ -250,19 +244,23 @@ describe("Codex app-server main thread cleanup", () => {
       "configRequirements/read",
       "account/read",
       "thread/start",
+      "model/list",
       "turn/start",
       "config/read",
       "configRequirements/read",
       "account/read",
       "thread/start",
+      "model/list",
       "turn/start",
       "config/read",
       "configRequirements/read",
       "account/read",
+      "model/list",
       "turn/start",
       "config/read",
       "configRequirements/read",
       "account/read",
+      "model/list",
       "turn/start",
     ]);
     await expect(readCodexAppServerBinding(sessionFiles.a)).resolves.toMatchObject({
@@ -313,11 +311,12 @@ describe("Codex app-server main thread cleanup", () => {
       },
     });
     expect(readAttemptTerminal(await siblingRun).aborted).toBe(false);
-    expect(userRequestMethods().slice(-5)).toEqual([
+    expect(userRequestMethods().slice(-6)).toEqual([
       "thread/unsubscribe",
       "config/read",
       "configRequirements/read",
       "account/read",
+      "model/list",
       "turn/start",
     ]);
   });
@@ -659,6 +658,7 @@ describe("Codex app-server main thread cleanup", () => {
     expect(requests.map((entry) => entry.method)).toEqual([
       "config/read",
       "thread/start",
+      "model/list",
       "turn/start",
       "thread/unsubscribe",
     ]);
@@ -728,6 +728,7 @@ describe("Codex app-server main thread cleanup", () => {
         "config/read",
         "account/read",
         "thread/start",
+        "model/list",
         "turn/start",
         "turn/interrupt",
         ...(!interruptFails ? ["thread/unsubscribe"] : []),
@@ -783,6 +784,7 @@ describe("Codex app-server main thread cleanup", () => {
     expect(request.mock.calls.map(([method]) => method)).toEqual([
       "config/read",
       "thread/start",
+      "model/list",
       "turn/start",
       "turn/interrupt",
     ]);

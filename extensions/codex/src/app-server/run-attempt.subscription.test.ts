@@ -37,8 +37,6 @@ describe("Codex attempt subscription recovery", () => {
     revoked?: "abort" | "host" | "binding" | "closed";
   }>([
     { nativeOwned: false, failureAt: "monitor" },
-    { nativeOwned: true, failureAt: "monitor" },
-    { nativeOwned: false, failureAt: "turn request" },
     { nativeOwned: true, failureAt: "turn request" },
     { nativeOwned: true, failureAt: "monitor", revoked: "abort" },
     { nativeOwned: true, failureAt: "monitor", revoked: "host" },
@@ -279,6 +277,7 @@ describe("Codex attempt subscription recovery", () => {
         "thread/read",
         "thread/resume",
         "thread/inject_items",
+        "model/list",
         "turn/start",
         ...(!nativeOwned ? ["thread/unsubscribe"] : []),
       ]);

@@ -56,7 +56,7 @@ describe("handleSendChat browser annotation context", () => {
     await handleSendChat(host);
 
     expect(createChatSession).toHaveBeenCalledOnce();
-    expect(host.request).not.toHaveBeenCalledWith("chat.send", expect.anything());
+    expect(host.request.mock.calls.some(([method]) => method === "chat.send")).toBe(false);
   });
 
   it.each(["/stop", "stop", "esc", "abort", "wait", "exit"])(
@@ -77,7 +77,7 @@ describe("handleSendChat browser annotation context", () => {
         runId: "annotation-stop-run",
         sessionKey: "agent:main",
       });
-      expect(host.request).not.toHaveBeenCalledWith("chat.send", expect.anything());
+      expect(host.request.mock.calls.some(([method]) => method === "chat.send")).toBe(false);
     },
   );
 
@@ -105,7 +105,7 @@ describe("handleSendChat browser annotation context", () => {
       expect(host.chatLocalInputHistoryBySession[host.sessionKey]?.[0]?.text).toBe(
         `${command} ${question}`.trim(),
       );
-      expect(host.request).not.toHaveBeenCalledWith("chat.send", expect.anything());
+      expect(host.request.mock.calls.some(([method]) => method === "chat.send")).toBe(false);
     },
   );
 
@@ -310,7 +310,7 @@ describe("handleSendChat browser annotation context", () => {
         .fn()
         .mockResolvedValueOnce({ status: "timeout" })
         .mockResolvedValue({ status: "started" });
-      let workContext = "Stable browser context";
+      let workContext = { page: "chat", title: "Stable browser context" };
       const attachment = createBrowserAnnotationAttachment("delayed", "Stable browser context");
       const replacement = createBrowserAnnotationAttachment("replacement", "New browser context");
       const mentions = [{ profileId: "profile-alex", start: 5, end: 10 }];
@@ -323,11 +323,11 @@ describe("handleSendChat browser annotation context", () => {
         pendingSettingsPatches: { "agent:main": settingsPatch.promise },
       });
 
-      // Annotation context is prepended by the attachment path; Home work context
-      // trails the message so session titles derive from what the person asked.
+      // Browser annotations prepend model text; Home snapshots remain separate
+      // and retain their original value through navigation, delivery, and retry.
       const expected =
         source === "home"
-          ? "🔎 @Alex Use the marked area\n\nStable browser context"
+          ? "🔎 @Alex Use the marked area"
           : "Stable browser context\n\n🔎 @Alex Use the marked area";
       const expectedMentions = [
         {
@@ -347,11 +347,14 @@ describe("handleSendChat browser annotation context", () => {
       host.chatMessage = "@Carol New draft";
       host.chatMentions = [{ profileId: "profile-carol", start: 0, end: 6 }];
       host.chatAttachments = [replacement];
-      workContext = "A different task is now visible";
+      workContext = { page: "chat", title: "A different task is now visible" };
       settingsPatch.resolve(true);
       await send;
 
       expect(findChatSendPayload(host).message).toBe(expected);
+      expect(findChatSendPayload(host).workContext).toEqual(
+        source === "home" ? { page: "chat", title: "Stable browser context" } : undefined,
+      );
       expect(findChatSendPayload(host).mentions).toEqual(expectedMentions);
       expect(host.chatQueue[0]).toMatchObject({ sendState: "failed", text: expected });
       expect(host.chatMessage).toBe("@Carol New draft");

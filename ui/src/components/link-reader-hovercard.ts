@@ -13,6 +13,7 @@ import { anchorFromNavigationEvent, composedParent } from "../lib/navigation-cli
 import { subscribeToSharedRequest } from "../lib/shared-request-subscription.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import "../styles/link-reader-hovercard.css";
+import { linkReaderErrorMessage } from "./link-reader-error.ts";
 import { renderPagePreview, type PageActivation } from "./link-reader-page-preview.ts";
 import {
   parsePreviewResponse,
@@ -21,6 +22,7 @@ import {
   type CacheEntry,
   renderLoading,
   renderPreview,
+  renderPreviewError,
   type LinkPreview,
 } from "./link-reader-preview.ts";
 import {
@@ -75,14 +77,12 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
   private readonly subscriptions = new SubscriptionsController(this);
   constructor() {
     super();
-    this.subscriptions.watch(
+    this.subscriptions.watchStore(
       () => this.pagePreviewContext?.gateway,
-      (gateway, notify) => gateway.subscribe(notify),
       () => this.retirePage(),
     );
-    this.subscriptions.watch(
+    this.subscriptions.watchStore(
       () => this.pagePreviewContext?.config,
-      (config, notify) => config.subscribe(notify),
       () => {
         if (this.client && !this.pagePreviewContext?.config.current.automaticallyFetchFavicons) {
           clearLinkPreviews(this.client);
@@ -107,10 +107,7 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
       return;
     }
     this.invalidatePreviewContext();
-    this.close();
-    this.clearPreviews();
     this.readerDescriptors = value;
-    this.seeds = null;
     this.dispatchEvent(new Event("link-reader-capabilities-changed"));
   }
 
@@ -164,8 +161,6 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
       return;
     }
     this.invalidatePreviewContext();
-    this.close();
-    this.clearPreviews();
     this.gatewayClient = value;
     this.dispatchEvent(new Event("link-reader-capabilities-changed"));
   }
@@ -179,8 +174,6 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
       return;
     }
     this.invalidatePreviewContext();
-    this.close();
-    this.clearPreviews();
     this.selectedAgentId = value;
     this.dispatchEvent(new Event("link-reader-capabilities-changed"));
   }
@@ -193,6 +186,8 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
   private invalidatePreviewContext(): void {
     this.seeds = null;
     this.previewContext = null;
+    this.close();
+    this.clearPreviews();
   }
 
   private syncPreviewContext(): PreviewContext | null {
@@ -326,9 +321,6 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
       }
       return;
     }
-    if (!this.activeAnchor) {
-      return;
-    }
     const anchor = this.activeAnchor;
     const target = this.activeTarget;
     if (!anchor || !target || !this.requestStarted) {
@@ -354,12 +346,9 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
           this.show(anchor, preview);
         }
       },
-      error: () => {
-        const seed = this.seedPreview(target);
-        if (seed && (this.hovercard.card || this.hovercard.held)) {
-          this.show(anchor, seed, true);
-        } else {
-          this.close();
+      error: (error) => {
+        if (this.hovercard.card || this.hovercard.held) {
+          this.show(anchor, this.seedPreview(target), true, linkReaderErrorMessage(error));
         }
       },
     });
@@ -478,10 +467,6 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
       return;
     }
     this.close();
-    // Known session details remain useful while remote enrichment is unavailable.
-    if (this.cachedPreview(target)?.failed && !this.seedPreview(target)) {
-      return;
-    }
     this.allowLoading = Boolean(context?.succeeded && !this.cachedPreview(target));
     this.activeAnchor = anchor;
     this.activeTarget = target;
@@ -491,7 +476,7 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
       attributes: true,
       attributeFilter: ["href"],
     });
-    // Unseeded links stay quiet until this identity has shown useful remote details.
+    // Unseeded links stay quiet while this identity's first request is pending.
     this.hovercard.scheduleOpen(
       delay,
       () => {
@@ -509,7 +494,12 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
     );
   }
 
-  private show(anchor: HTMLAnchorElement, preview?: LinkPreview, seeded = false): void {
+  private show(
+    anchor: HTMLAnchorElement,
+    preview?: LinkPreview,
+    seeded = false,
+    error?: string,
+  ): void {
     const existing = this.hovercard.card;
     const card =
       existing ??
@@ -518,7 +508,9 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
         "link-reader-hovercard",
       );
     if (preview) {
-      renderPreview(card, preview, seeded);
+      renderPreview(card, preview, seeded, error);
+    } else if (error && this.activeTarget) {
+      renderPreviewError(card, this.activeTarget, error);
     } else {
       renderLoading(card);
     }
@@ -733,7 +725,6 @@ export class LinkReaderHovercardProvider extends ReactiveElement {
         .catch((error: unknown) => {
           // Keep short-lived failures cached so repeatedly crossing a broken or
           // private link does not burn the service rate limit.
-          entry.failed = true;
           entry.expiresAt = Date.now() + FAILURE_CACHE_MS;
           this.syncInlineStates();
           throw error;

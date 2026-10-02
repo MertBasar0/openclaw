@@ -2,7 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { setImmediate as yieldImmediate } from "node:timers/promises";
 import type { Transferable } from "node:worker_threads";
-import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
+import {
+  collectErrorGraphCandidates,
+  toErrorObject,
+} from "@openclaw/normalization-core/error-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveAgentDir } from "../agents/agent-scope-config.js";
 import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
@@ -23,6 +26,7 @@ import { createMemoryTranscriptProjectionSource } from "../config/sessions/sessi
 import { withSessionCostUsageWorkerDatabases } from "../config/sessions/session-transcript-worker-runtime.js";
 import { resolveStateDir } from "../config/state-dir.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { getAsyncWorkSignal } from "../shared/async-work-scope.js";
 import type { OpenClawAgentDatabaseOptions } from "../state/openclaw-agent-db-contract.js";
@@ -33,19 +37,23 @@ import {
   resolveOpenClawAgentSqlitePath,
   type OpenClawAgentDatabase,
 } from "../state/openclaw-agent-db.js";
+import type { OpenClawAgentDatabaseExecution } from "../state/openclaw-agent-execution-contract.js";
 import {
   hydrateOpenClawStateWorkerError,
   retainOpenClawStateWorkerErrorPayload,
 } from "../state/openclaw-state-worker-error.js";
 import {
   readSessionCostUsageRollupByteRowsInDatabase,
+  readSessionCostUsageRollupBodyInDatabase,
   type SessionCostUsageRollupSnapshot,
 } from "./session-cost-usage-cache.kernel.js";
 import { prepareSessionCostUsageRefreshLock } from "./session-cost-usage-cache.sqlite.js";
 import {
   createUsageCostResolver,
-  resolveUsageCostPricingFingerprint,
+  prepareUsageCostPricing,
 } from "./session-cost-usage-pricing-context.js";
+import type { UsageCostResolver } from "./session-cost-usage-pricing.js";
+import { openUsageCostRefreshFailures } from "./session-cost-usage-refresh-health.js";
 import {
   UsageCostWorkerReplyError,
   type UsageCostWorkerHostEffects,
@@ -59,6 +67,7 @@ import type { UsageDailyBucket } from "./session-cost-usage.types.js";
 import { withSqliteWorkerCleanupFailure } from "./sqlite-worker-broker-reply.js";
 
 const USAGE_COST_WORKER_TIMEOUT_MS = 5 * 60_000;
+const logger = createSubsystemLogger("usage-cost-cache");
 
 export type PreparedUsageCostWorker = {
   location: UsageCostWorkerLocation;
@@ -123,7 +132,13 @@ export function prepareUsageCostWorker(params: {
     add(toDatabaseOptions(resolveSqliteReadScope({ ...target, env })));
   }
   return {
-    location: { agentId, databasePath, storePath, env },
+    location: {
+      agentId,
+      databasePath,
+      storePath,
+      // Windows preparation uses a Proxy; transfer data needs its resolved root in a plain snapshot.
+      env: { ...env, OPENCLAW_STATE_DIR: env.OPENCLAW_STATE_DIR },
+    },
     config: params.config,
     agentDir: params.agentDir ?? resolveAgentDir(params.config ?? {}, agentId),
     databases: [...databases.values()],
@@ -137,15 +152,13 @@ export function resolveUsageCostWorkerDayBucket(dayBucket?: UsageDailyBucket): U
 }
 
 function restoreWorkerFailure(error: unknown, hostErrors: Map<number, unknown>): unknown {
-  const pending = [error];
-  const seen = new Set<unknown>();
   const restoredOrigins = new Set<number>();
   let result = error;
-  for (const current of pending) {
-    if (seen.has(current)) {
-      continue;
-    }
-    seen.add(current);
+  for (const current of collectErrorGraphCandidates(error, (entry) =>
+    entry instanceof Error
+      ? [entry.cause, ...(entry instanceof AggregateError ? entry.errors : [])]
+      : [],
+  )) {
     if (current instanceof UsageCostWorkerReplyError) {
       const failure = current.failure;
       const remote = new Error(failure.message);
@@ -170,12 +183,6 @@ function restoreWorkerFailure(error: unknown, hostErrors: Map<number, unknown>):
               toErrorObject(restored, "Usage cost worker failed"),
               result,
             );
-    }
-    if (current instanceof Error && current.cause) {
-      pending.push(current.cause);
-    }
-    if (current instanceof AggregateError) {
-      pending.push(...current.errors);
     }
   }
   // Cancellation can retire the worker before an accepted write returns its failure.
@@ -224,6 +231,8 @@ export async function runUsageCostWorker(
     const assertBindingCurrent = (
       binding: (typeof bindings)[number],
       admittedDatabase?: OpenClawAgentDatabase,
+      execution?: OpenClawAgentDatabaseExecution,
+      opening?: boolean,
     ) => {
       const admittedCache =
         admittedDatabase &&
@@ -243,8 +252,17 @@ export async function runUsageCostWorker(
         return;
       }
       const current = fs.statSync(binding.options.path, { bigint: true, throwIfNoEntry: false });
-      if (!binding.identity && current && admittedCache) {
+      const admittedFile =
+        binding === cacheBinding &&
+        execution?.agentId === binding.options.agentId &&
+        execution.path === binding.options.path &&
+        execution.fileIdentity?.physicalIdentity === (current && `${current.dev}:${current.ino}`);
+      if (!binding.identity && current && (admittedCache || admittedFile)) {
         binding.identity = current;
+      }
+      if (!binding.identity && opening && execution && !execution.fileIdentity) {
+        execution.assertCurrent();
+        return;
       }
       if (
         binding.identity
@@ -254,7 +272,11 @@ export async function runUsageCostWorker(
         throw new Error("Usage database changed during worker operation");
       }
     };
-    const assertCurrent = (admittedDatabase?: OpenClawAgentDatabase) => {
+    const assertCurrent = (
+      admittedDatabase?: OpenClawAgentDatabase,
+      execution?: OpenClawAgentDatabaseExecution,
+      opening?: boolean,
+    ) => {
       scope.assertCurrent();
       signal?.throwIfAborted();
       for (const binding of bindings) {
@@ -263,7 +285,7 @@ export async function runUsageCostWorker(
         }
       }
       // Only the lock owner's admitted writer may create a previously absent cache.
-      assertBindingCurrent(cacheBinding, admittedDatabase);
+      assertBindingCurrent(cacheBinding, admittedDatabase, execution, opening);
     };
     const resolveBinding = (target: Pick<SqliteSessionFileMarker, "agentId" | "storePath">) => {
       const options = toDatabaseOptions(resolveSqliteReadScope({ ...target, env: location.env }));
@@ -307,23 +329,30 @@ export async function runUsageCostWorker(
       }
     }
     assertCurrent();
-    const workerOperation: UsageCostWorkerOperation =
-      capturedOperation.kind === "refresh"
-        ? {
-            ...capturedOperation,
-            pricingFingerprint: await resolveUsageCostPricingFingerprint(
-              prepared.config,
-              prepared.agentDir,
-            ),
-          }
-        : capturedOperation;
-    const resolveCost = createUsageCostResolver({
-      config: prepared.config,
-      agentDir: prepared.agentDir,
-    });
+    let workerOperation: UsageCostWorkerOperation;
+    let resolveCost: UsageCostResolver;
+    if (capturedOperation.kind === "refresh") {
+      const pricing = await prepareUsageCostPricing(prepared.config, prepared.agentDir);
+      workerOperation = { ...capturedOperation, pricingFingerprint: pricing.fingerprint() };
+      resolveCost = createUsageCostResolver(prepared, pricing);
+    } else {
+      workerOperation = capturedOperation;
+      resolveCost = createUsageCostResolver(prepared);
+    }
+    const failures = openUsageCostRefreshFailures(location.env);
+    const failureKey = (sessionFile: string) =>
+      JSON.stringify([location.databasePath, sessionFile]);
+    let activeSessionFile: string | undefined;
     const hostErrors = new Map<number, unknown>();
     let errorSequence = 0;
     try {
+      const failureEntries = lock
+        ? await failures.entries().catch((error: unknown) => {
+            logger.warn("Could not read usage refresh failure history", { error });
+            return [];
+          })
+        : [];
+      const failedKeys = new Set(failureEntries.map((entry) => entry.key));
       const result = await scope.run(
         { kind: "usage-cost", location, operation: workerOperation, databases: [] },
         {
@@ -347,6 +376,13 @@ export async function runUsageCostWorker(
               const request = value as UsageCostWorkerHostRequest;
               let output: UsageCostWorkerHostEffects[keyof UsageCostWorkerHostEffects]["output"];
               switch (request.kind) {
+                case "refresh-session":
+                  if (!lock) {
+                    throw new Error("Usage report cannot refresh sessions");
+                  }
+                  activeSessionFile = request.input.sessionFile;
+                  output = undefined;
+                  break;
                 case "pricing":
                   output = request.input.map(resolveCost);
                   break;
@@ -428,6 +464,22 @@ export async function runUsageCostWorker(
                   }
                   break;
                 }
+                case "memory-cache-body": {
+                  const binding = memoryBinding({
+                    agentId: location.agentId,
+                    storePath: location.databasePath,
+                  });
+                  const row = binding.database
+                    ? readSessionCostUsageRollupBodyInDatabase(binding.database.db, request.input)
+                    : undefined;
+                  // Copy native bytes into a standalone allocation before transferring custody.
+                  const blob = row?.blob ? Uint8Array.from(row.blob) : null;
+                  output = row ? { blob } : undefined;
+                  if (blob) {
+                    transferList.push(blob.buffer);
+                  }
+                  break;
+                }
                 case "prune-row":
                   if (!lock) {
                     throw new Error("Usage report cannot prune cache rows");
@@ -455,8 +507,19 @@ export async function runUsageCostWorker(
                     rollupId: request.input.key,
                     previousValueJson: request.input.previousValue,
                     valueJson: request.input.value,
+                    blob: request.input.blob,
                     updatedAt: request.input.updatedAt,
                   });
+                  if (output && failedKeys.has(failureKey(request.input.key))) {
+                    await failures
+                      .delete(failureKey(request.input.key), {
+                        assertCurrent: assertRequestCurrent,
+                      })
+                      .catch((error: unknown) => {
+                        logger.warn("Could not clear usage refresh failure fact", { error });
+                      });
+                  }
+                  activeSessionFile = undefined;
                   break;
                 default:
                   throw new Error("Unknown usage worker host request");
@@ -479,7 +542,27 @@ export async function runUsageCostWorker(
       assertCurrent();
       return result;
     } catch (error) {
-      throw restoreWorkerFailure(error, hostErrors);
+      let failure = restoreWorkerFailure(error, hostErrors);
+      if (activeSessionFile && !signal?.aborted) {
+        try {
+          await failures.register(
+            failureKey(activeSessionFile),
+            {
+              agentId: location.agentId,
+              sessionFile: activeSessionFile,
+              failedAt: Date.now(),
+              reason: "Usage refresh failed; cached totals may be incomplete. Check Gateway logs.",
+            },
+            { assertCurrent },
+          );
+        } catch (healthError) {
+          failure = withSqliteWorkerCleanupFailure(
+            toErrorObject(failure, "Usage refresh failed"),
+            healthError,
+          );
+        }
+      }
+      throw failure;
     }
   });
 }

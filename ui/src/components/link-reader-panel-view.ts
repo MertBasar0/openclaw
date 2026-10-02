@@ -4,7 +4,8 @@ import { t } from "../i18n/index.ts";
 import { createDockPanelLayout } from "./dock-panel-layout.ts";
 import { dockPanelStyles } from "./dock-panel-styles.ts";
 import { icons } from "./icons.ts";
-import { renderLinkReaderContent, linkReaderContentStyles } from "./link-reader-content.ts";
+import { linkReaderContentStyles } from "./link-reader-content.styles.ts";
+import { renderLinkReaderContent } from "./link-reader-content.ts";
 import type { LinkReaderImages } from "./link-reader-images.ts";
 import { linkReaderPanelStyles } from "./link-reader-panel.styles.ts";
 import type { LinkReaderTarget } from "./link-reader-target.ts";
@@ -50,7 +51,8 @@ export function renderReaderButton(
 }
 
 type PanelView =
-  | { status: "idle" | "loading" | "error" }
+  | { status: "idle" | "loading" }
+  | { status: "error"; message: string }
   | { status: "ready"; detail: ControlUiLinkReaderDocument; images?: LinkReaderImages };
 export type ReaderTab = { id: string; history: LinkReaderTarget[]; index: number; view: PanelView };
 export function tabTarget(tab: ReaderTab | undefined): LinkReaderTarget | null {
@@ -78,7 +80,9 @@ export function renderLinkReaderPanelContent(
   if (!available || tab.view.status === "error") {
     return html`<div class="lr-status" role="alert">
       <h2>${t("linkReader.unavailableTitle")}</h2>
-      <p>${!available ? t("linkReader.disconnected") : t("linkReader.unavailable")}</p>
+      <p>
+        ${!available ? t("linkReader.disconnected") : tab.view.status === "error" ? tab.view.message : t("linkReader.unavailable")}
+      </p>
       <button class="lr-retry" type="button" ?disabled=${!available} @click=${refresh}>
         ${t("linkReader.retry")}</button
       ><a href=${target.href} target="_blank" rel="noopener noreferrer" data-link-reader-external

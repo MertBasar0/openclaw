@@ -1,5 +1,4 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { getRetainedLegacyDefaultAgentId } from "../config/legacy.default-agent-owner-state.js";
 import type { OpenClawConfig } from "../config/types.js";
 import { LEGACY_IMPLICIT_AGENT_ID, normalizeAgentId } from "../routing/session-key.js";
 
@@ -108,17 +107,7 @@ export function listAgentIds(cfg: AgentRosterConfig): string[] {
     // Match resolveDefaultAgentId's Plugin SDK compatibility for raw pre-roster configs.
     return [LEGACY_IMPLICIT_AGENT_ID];
   }
-  const seen = new Set<string>();
-  const ids: string[] = [];
-  for (const entry of agents) {
-    const id = normalizeAgentId(entry?.id);
-    if (seen.has(id)) {
-      continue;
-    }
-    seen.add(id);
-    ids.push(id);
-  }
-  return ids;
+  return [...new Set(agents.map((entry) => normalizeAgentId(entry?.id)))];
 }
 
 export function tryResolveSoleAgentId(cfg: AgentRosterConfig): string | undefined {
@@ -147,8 +136,5 @@ export function tryResolveDefaultAgentId(cfg: AgentRosterConfig): string | undef
 
 /** Preserves legacy data locators independently of the configured runtime owner. */
 export function tryResolveLegacyDataOwner(cfg: AgentRosterConfig): string | undefined {
-  const retained = getRetainedLegacyDefaultAgentId(cfg);
-  return retained && listAgentIds(cfg).includes(retained)
-    ? retained
-    : tryResolveDefaultAgentId(cfg);
+  return tryResolveDefaultAgentId(cfg);
 }

@@ -180,16 +180,22 @@ it("publishes only complete preamble pairs and ignores them after final delivery
   }
 });
 
-it.each(["plan before preamble", "plan after preamble", "narration cleared with plan"] as const)(
-  "refreshes a stale preamble to the retained explanation: %s",
-  async (order) => {
+it.each(
+  [false, true].flatMap((commentary) =>
+    (["plan before preamble", "plan after preamble", "narration cleared with plan"] as const).map(
+      (order) => ({ commentary, order }),
+    ),
+  ),
+)(
+  "refreshes a stale preamble to the retained explanation: $order (commentary: $commentary)",
+  async ({ commentary, order }) => {
     vi.useFakeTimers();
     const update = vi.fn();
     const progress = createTestProgressDraftCompositor({
       entry: {
         streaming: {
           mode: "progress",
-          progress: { commentary: true, toolProgress: true, label: false, maxLines: 2 },
+          progress: { commentary, toolProgress: true, label: false, maxLines: 2 },
         },
       },
       update,

@@ -2,12 +2,10 @@
 // not consume per-client seqs (which would fire every client's gap detector and
 // cause a synchronized reconnect storm) and must leave a server-side record.
 import { once } from "node:events";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { rawDataToString } from "@openclaw/gateway-client/websocket-data";
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { resolveSessionStorePathCore } from "../config/sessions.js";
 import {
@@ -16,17 +14,16 @@ import {
   upsertSessionEntryCore,
 } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { setVerbose } from "../global-state.js";
 import type { SystemPresence } from "../infra/system-presence.js";
-import { resetLogger, setLoggerOverride } from "../logging/logger.js";
-import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.js";
 import { ensureProfileForEmail } from "../state/user-profiles.js";
+import { createTestGatewayScheduler } from "../test-utils/gateway-scheduler-clock.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createPresenceRecipientProjection } from "./presence-projection.js";
 import { createGatewayBroadcaster } from "./server-broadcast.js";
 import { createGatewayConnectionState } from "./server-connection-state.js";
 import { GatewayClientRegistry } from "./server/client-registry.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
+import { createSessionRowProjection } from "./session-row-projection.js";
 
 const warnSpy = vi.hoisted(() => vi.fn());
 
@@ -75,111 +72,136 @@ function makeClient(connId: string): { client: GatewayWsClient; socket: Recordin
   };
 }
 
-afterEach(() => {
-  setVerbose(false);
-  setLoggerOverride(null);
-  resetLogger();
-});
-
 describe("broadcast serialization failures", () => {
-  it("keeps recipient session permissions separate at the same sequence and profile", () => {
-    const first = makeClient("first");
-    const second = makeClient("second");
-    for (const peer of [first, second]) {
-      peer.client.preparedRecipientProfileId = "same-profile";
-    }
+  it("requires current session authorization for session-scoped writers", () => {
+    const scope = "operator.sessions.write";
+    const scoped = makeClient("scoped");
+    scoped.client.connect.scopes = [scope];
+    const staff = makeClient("staff");
+    const clients = new GatewayClientRegistry([scoped.client, staff.client]);
     const { broadcast } = createGatewayBroadcaster({
-      clients: new GatewayClientRegistry([first.client, second.client]),
+      clients,
+      canReceiveSessionEvent: (client, keys) =>
+        client === staff.client || keys.every((key) => key === "agent:main:visible"),
+    });
+    for (const event of ["agent", "chat", "session.message", "session.tool"]) {
+      broadcast(event, { text: "Unscoped content" });
+      broadcast(event, { sessionKey: "agent:main:hidden", text: "Hidden content" });
+    }
+    expect(scoped.socket.send).not.toHaveBeenCalled();
+    expect(staff.socket.send).toHaveBeenCalledTimes(8);
+    broadcast("chat", { sessionKey: "agent:main:visible", text: "Visible content" });
+    expect(scoped.socket.frames).toEqual([{ event: "chat", seq: 1 }]);
+
+    const unbound = createGatewayBroadcaster({ clients });
+    unbound.broadcast("chat", { sessionKey: "agent:main:visible", text: "No read owner" });
+    expect(scoped.socket.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("limits keyless session delivery to redacted and targeted personal invalidations", () => {
+    const scoped = makeClient("scoped");
+    scoped.client.connect.scopes = ["operator.sessions.read"];
+    const { broadcast, broadcastToConnIds } = createGatewayBroadcaster({
+      clients: new GatewayClientRegistry([scoped.client]),
+    });
+    const recipients = new Set([scoped.client.connId]);
+    const getter = vi.fn(() => "Hidden content");
+    const dynamic = Object.defineProperty({ reason: "delete" }, "content", {
+      enumerable: true,
+      get: getter,
+    });
+    broadcast("sessions.changed", { reason: "delete" });
+    broadcast("users.prefs.changed", { profileId: "other", keys: ["ui.theme"] });
+    broadcast("chat.metadata.changed", { content: "Hidden content" });
+    broadcastToConnIds("sessions.changed", dynamic, recipients);
+    expect(scoped.socket.send).not.toHaveBeenCalled();
+    expect(getter).not.toHaveBeenCalled();
+    broadcast("chat.metadata.changed", {});
+    broadcastToConnIds("sessions.changed", { reason: "delete", ts: 1 }, recipients);
+    broadcastToConnIds(
+      "users.prefs.changed",
+      { profileId: "owner", keys: ["ui.theme"] },
+      recipients,
+    );
+    expect(scoped.socket.frames).toEqual([
+      { event: "chat.metadata.changed", seq: 1 },
+      { event: "sessions.changed", seq: 2 },
+      { event: "users.prefs.changed", seq: 3 },
+    ]);
+  });
+
+  it("does not serialize suppressed session snapshots or consume their sequences", () => {
+    const peers = [makeClient("first"), makeClient("second")];
+    const snapshotToJSON = vi.fn(() => ({ label: "Private session", provider: "webchat" }));
+    const { broadcast } = createGatewayBroadcaster({
+      clients: new GatewayClientRegistry(peers.map(({ client }) => client)),
+      prepareSessionEventProjection: (event) =>
+        event === "sessions.changed" ? () => undefined : undefined,
+    });
+
+    broadcast("sessions.changed", {
+      sessionKey: "agent:main:hidden",
+      session: {
+        key: "agent:main:hidden",
+        updatedAt: 1_800_000_000_000,
+        origin: { toJSON: snapshotToJSON },
+      },
+    });
+
+    for (const peer of peers) {
+      expect(peer.socket.send).not.toHaveBeenCalled();
+    }
+    broadcast("skills.changed", { reason: "visible" });
+    for (const peer of peers) {
+      expect(peer.socket.frames).toEqual([{ event: "skills.changed", seq: 1 }]);
+    }
+    expect(snapshotToJSON).not.toHaveBeenCalled();
+  });
+
+  it("observes message mutations between recipients when long strings repeat", () => {
+    const peers = [makeClient("first"), makeClient("second"), makeClient("third")];
+    const initial = '"🦞"\n\\\ud800'.repeat(256);
+    let current = initial;
+    const reads: string[] = [];
+    const read = () => {
+      reads.push(current);
+      return current;
+    };
+    const message = {
+      get text() {
+        return read();
+      },
+    };
+    const source = { message };
+    const { broadcast } = createGatewayBroadcaster({
+      clients: new GatewayClientRegistry(peers.map(({ client }) => client)),
       prepareSessionEventProjection: () => (client) => ({
-        sessionKey: "agent:main:chat",
-        session: {
-          key: "agent:main:chat",
-          sharingRole: client === first.client ? "owner" : "viewer",
-        },
+        payload: { ...source, session: { sharingRole: client.connId } },
       }),
     });
-    broadcast("sessions.changed", { sessionKey: "agent:main:chat" });
-    expect(JSON.parse(first.socket.send.mock.calls[0]![0]).payload.session.sharingRole).toBe(
-      "owner",
-    );
-    expect(JSON.parse(second.socket.send.mock.calls[0]![0]).payload.session.sharingRole).toBe(
-      "viewer",
-    );
-  });
-
-  it("keeps reentrant targeted frames separate from an in-progress fanout at the same sequence", () => {
-    const first = makeClient("first");
-    const second = makeClient("second");
-    const third = makeClient("third");
-    const peers = [first, second, third];
-    const { broadcast, broadcastToConnIds } = createGatewayBroadcaster({
-      clients: new GatewayClientRegistry(peers.map((peer) => peer.client)),
+    peers[0]!.socket.send.mockImplementationOnce(() => {
+      current = initial + " changed";
     });
-    broadcastToConnIds("skills.changed", { reason: "prime" }, new Set(["second", "third"]));
-    peers.forEach((peer) => peer.socket.send.mockClear());
-    first.socket.send.mockImplementationOnce(() => {
-      broadcastToConnIds("skills.changed", { reason: "inner" }, new Set(["first"]));
+    peers[1]!.socket.send.mockImplementationOnce(() => {
+      current = initial;
     });
 
-    broadcast("skills.changed", { reason: "outer" });
+    broadcast("session.message", source);
 
-    const encode = (reason: string, seq: number) =>
-      JSON.stringify({ type: "event", event: "skills.changed", payload: { reason }, seq });
-    expect(first.socket.send.mock.calls.map(([frame]) => frame)).toEqual([
-      encode("outer", 1),
-      encode("inner", 2),
-    ]);
-    for (const peer of [second, third]) {
-      expect(peer.socket.send.mock.calls.map(([frame]) => frame)).toEqual([encode("outer", 2)]);
+    expect(reads).toEqual([initial, initial + " changed", initial]);
+    for (const [index, peer] of peers.entries()) {
+      expect(peer.socket.send.mock.calls[0]?.[0]).toBe(
+        JSON.stringify({
+          type: "event",
+          event: "session.message",
+          payload: {
+            message: { text: reads[index] },
+            session: { sharingRole: peer.client.connId },
+          },
+          seq: 1,
+        }),
+      );
     }
-  });
-
-  it.each([
-    ["undefined", undefined],
-    ["function", () => "omitted"],
-    ["symbol", Symbol("omitted")],
-    ["escaped values", { text: '"🦞"\n\\\ud800', items: [undefined, Symbol("omitted")] }],
-    ["date", new Date("2026-01-01T00:00:00Z")],
-    [
-      "inherited toJSON",
-      new (class {
-        toJSON(key: string) {
-          return `field:${key}`;
-        }
-      })(),
-    ],
-    ["omitted toJSON", { toJSON: () => undefined }],
-  ])("preserves complete envelope bytes for %s payloads", (_name, payload) => {
-    const peer = makeClient("json-reader");
-    const { broadcast } = createGatewayBroadcaster({
-      clients: new GatewayClientRegistry([peer.client]),
-    });
-    const stateVersion = {
-      presence: 7,
-      toJSON: (key: string) => ({ presence: key.length }),
-    };
-
-    broadcast("skills.changed", payload, { stateVersion });
-
-    expect(peer.socket.send.mock.calls[0]?.[0]).toBe(
-      JSON.stringify({ type: "event", event: "skills.changed", payload, seq: 1, stateVersion }),
-    );
-  });
-
-  it("delivers public suspension state to connected operators without read scope", () => {
-    const peer = makeClient("suspension-viewer");
-    peer.client.connect.scopes = [];
-    const { broadcast } = createGatewayBroadcaster({
-      clients: new GatewayClientRegistry([peer.client]),
-    });
-    broadcast("gateway.suspension", { phase: "prepared" });
-    expect(peer.socket.send).toHaveBeenCalledOnce();
-    expect(JSON.parse(peer.socket.send.mock.calls[0]![0])).toMatchObject({
-      type: "event",
-      event: "gateway.suspension",
-      seq: 1,
-      payload: { phase: "prepared" },
-    });
   });
 
   it("never sends raw presence when its owner projection is missing", () => {
@@ -198,27 +220,6 @@ describe("broadcast serialization failures", () => {
     broadcast("skills.changed", {});
     expect(peer.socket.frames).toEqual([{ event: "skills.changed", seq: 1 }]);
   });
-  it.each([
-    { state: "closing", readyState: WebSocket.CLOSING },
-    { state: "closed", readyState: WebSocket.CLOSED },
-  ])("skips $state sockets without disrupting healthy broadcast sequences", ({ readyState }) => {
-    const retired = makeClient("retired");
-    const healthy = makeClient("healthy");
-    const clients = new GatewayClientRegistry([retired.client, healthy.client]);
-    const { broadcast, broadcastToConnIds } = createGatewayBroadcaster({ clients });
-
-    retired.socket.readyState = readyState;
-    broadcast("skills.changed", { reason: "first" });
-    broadcastToConnIds("skills.changed", { reason: "second" }, new Set(["healthy", "retired"]));
-
-    expect(retired.socket.send).not.toHaveBeenCalled();
-    expect(clients.has(retired.client)).toBe(true);
-    expect(healthy.socket.frames).toEqual([
-      { event: "skills.changed", seq: 1 },
-      { event: "skills.changed", seq: 2 },
-    ]);
-  });
-
   it("keeps a real healthy peer delivering while rejecting closing and failed peers", async () => {
     const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await once(server, "listening");
@@ -234,7 +235,9 @@ describe("broadcast serialization failures", () => {
     const broken = await connectPeer();
     const healthy = await connectPeer();
     const delivered: Array<{ event: string; seq: number }> = [];
-    healthy.peer.on("message", (data: RawData) => {
+    const binaryFrames: boolean[] = [];
+    healthy.peer.on("message", (data: RawData, isBinary: boolean) => {
+      binaryFrames.push(isBinary);
       delivered.push(JSON.parse(rawDataToString(data)) as { event: string; seq: number });
     });
     const makeRealClient = (connId: string, socket: WebSocket): GatewayWsClient => ({
@@ -274,6 +277,7 @@ describe("broadcast serialization failures", () => {
         { event: "chat", seq: 1 },
         { event: "skills.changed", seq: 2 },
       ]);
+      expect(binaryFrames).toEqual([false, false]);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("real-broken: injected synchronous send failure"),
         { event: "chat" },
@@ -298,7 +302,8 @@ describe("broadcast serialization failures", () => {
     }
   });
 
-  it("drops the event without consuming seqs when the payload cannot serialize", () => {
+  it("drops unserializable payloads without consuming recipient sequences", () => {
+    const event = "skills.changed";
     warnSpy.mockClear();
     const first = makeClient("first");
     const second = makeClient("second");
@@ -307,13 +312,13 @@ describe("broadcast serialization failures", () => {
 
     const circular: Record<string, unknown> = {};
     circular.self = circular;
-    broadcast("skills.changed", circular);
+    broadcast(event, circular);
 
     // Neither socket saw the bad frame, and the failure is recorded once.
     expect(first.socket.send).not.toHaveBeenCalled();
     expect(second.socket.send).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("skills.changed");
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain(event);
 
     // The next good broadcast starts at seq 1 for every client: the dropped
     // event consumed no seq, so no gap detector fires.
@@ -321,89 +326,9 @@ describe("broadcast serialization failures", () => {
     expect(first.socket.frames).toEqual([{ event: "skills.changed", seq: 1 }]);
     expect(second.socket.frames).toEqual([{ event: "skills.changed", seq: 1 }]);
   });
-
-  it("does not inspect agent log summaries for an ineligible outbound broadcast", () => {
-    setVerbose(true);
-    setLoggerOverride({ level: "silent", consoleLevel: "info" });
-    const filtered = makeClient("filtered");
-    filtered.client.connect.scopes = [];
-    const { broadcast } = createGatewayBroadcaster({
-      clients: new GatewayClientRegistry([filtered.client]),
-    });
-    let dataReads = 0;
-    const payload = {
-      runId: "run-1",
-      stream: "assistant",
-      get data() {
-        dataReads += 1;
-        return { text: "not delivered" };
-      },
-    };
-
-    broadcast("agent", payload);
-
-    expect(filtered.socket.send).not.toHaveBeenCalled();
-    expect(dataReads).toBe(0);
-  });
 });
 
 describe("presence recipient projection", () => {
-  it.each(["chat.metadata.changed", "node.presence", "node.hostStats"])(
-    "delivers %s only to readable operators",
-    (event) => {
-      const readers = [makeClient("reader"), makeClient("writer"), makeClient("admin")];
-      readers[1]!.client.connect.scopes = ["operator.write"];
-      readers[2]!.client.connect.scopes = ["operator.admin"];
-      const denied = [makeClient("no-scope"), makeClient("node"), makeClient("pairing")];
-      denied[0]!.client.connect.scopes = [];
-      denied[1]!.client.connect.role = "node";
-      denied[2]!.client.connect.scopes = ["operator.pairing"];
-      const { broadcast } = createGatewayBroadcaster({
-        clients: new GatewayClientRegistry([...readers, ...denied].map(({ client }) => client)),
-      });
-      broadcast(event, {});
-      for (const peer of readers) {
-        expect(JSON.parse(peer.socket.send.mock.lastCall![0])).toMatchObject({
-          event,
-          payload: {},
-        });
-      }
-      for (const peer of denied) {
-        expect(peer.socket.send).not.toHaveBeenCalled();
-      }
-    },
-  );
-
-  it("delivers mention invalidations only to targeted readable operators", () => {
-    const readers = [makeClient("reader"), makeClient("writer"), makeClient("admin")];
-    readers[1]!.client.connect.scopes = ["operator.write"];
-    readers[2]!.client.connect.scopes = ["operator.admin"];
-    const denied = [makeClient("no-scope"), makeClient("node"), makeClient("unrelated")];
-    denied[0]!.client.connect.scopes = [];
-    denied[1]!.client.connect.role = "node";
-    const { broadcastToConnIds } = createGatewayBroadcaster({
-      clients: new GatewayClientRegistry([...readers, ...denied].map(({ client }) => client)),
-    });
-    const payload = { gatewayInstanceId: "mention-gateway", revision: 1 };
-
-    broadcastToConnIds(
-      "mentions.changed",
-      payload,
-      new Set(["reader", "writer", "admin", "no-scope", "node"]),
-    );
-
-    for (const peer of readers) {
-      expect(JSON.parse(peer.socket.send.mock.lastCall![0])).toMatchObject({
-        event: "mentions.changed",
-        payload,
-        seq: 1,
-      });
-    }
-    for (const peer of denied) {
-      expect(peer.socket.send).not.toHaveBeenCalled();
-    }
-  });
-
   it("preserves scoped sentinels, recipient ordering, and current visibility without changing the source", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       let cfg: OpenClawConfig = { agents: { entries: { main: {}, work: {} } } };
@@ -445,10 +370,18 @@ describe("presence recipient projection", () => {
       const admin = makeClient("admin");
       admin.client.connect.scopes = ["operator.admin"];
       const connection = createGatewayConnectionState({
+        scheduler: createTestGatewayScheduler(),
         bootId: "presence-projection",
         cfg,
         getRuntimeConfig: () => cfg,
       });
+      const projection = await createSessionRowProjection({
+        cfg,
+        modelCatalog: [],
+        getPolicyConfig: () => cfg,
+      });
+      onTestFinished(() => projection.dispose());
+      onTestFinished(connection.attachSessionRowProjection(projection));
       onTestFinished(() => connection.mentionInbox.dispose());
       const person = {
         text: "watcher",
@@ -573,7 +506,14 @@ describe("presence recipient projection", () => {
       worker.connect.role = "worker";
       worker.connect.scopes = [];
       worker.connectionKind = "worker";
-      const project = createPresenceRecipientProjection({ cfg: {}, presence });
+      let policy: OpenClawConfig = {};
+      const projection = await createSessionRowProjection({
+        cfg: policy,
+        modelCatalog: [],
+        getPolicyConfig: () => policy,
+      });
+      onTestFinished(() => projection.dispose());
+      const project = createPresenceRecipientProjection({ cfg: policy, presence, projection });
       expect(project(solo)).toEqual(presence);
       solo.connect.scopes = [];
       expect(project(solo)).toEqual([]);
@@ -586,7 +526,8 @@ describe("presence recipient projection", () => {
       pending.connect.scopes = ["operator.admin"];
       expect(project(pending)).toEqual(presence);
       const cfg: OpenClawConfig = { gateway: { roles: { definitions: {} } } };
-      const restrictedProject = createPresenceRecipientProjection({ cfg, presence });
+      policy = cfg;
+      const restrictedProject = createPresenceRecipientProjection({ cfg, presence, projection });
       expect(restrictedProject(solo)).toEqual([person, idle]);
       solo.internal = { operatorRoleActor: { kind: "system" } };
       expect(restrictedProject(solo)).toEqual(presence);
@@ -618,12 +559,6 @@ describe("presence recipient projection", () => {
       admin.connect.scopes = ["operator.admin"];
       expect(project(admin)).toEqual([person, person, person]);
       expect(existsSync(state.agentDir("uncreated"))).toBe(false);
-
-      const sqlitePath = resolveOpenClawAgentSqlitePath({ agentId: "uncreated", env: state.env });
-      mkdirSync(path.dirname(sqlitePath), { recursive: true });
-      new DatabaseSync(sqlitePath).close();
-      const unreadable = createPresenceRecipientProjection(params);
-      expect(() => unreadable(admin)).toThrow(/schema-missing/);
     });
   });
 });

@@ -2,7 +2,6 @@ import { Compile } from "typebox/compile";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   AuditRunInspectResultSchema,
-  type DecisionReceiptV1,
   type ExecutionIdentityContextV1,
 } from "../../packages/gateway-protocol/src/index.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
@@ -12,27 +11,32 @@ import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
-import { recordAuditEvent } from "./audit-event-store.js";
+import { recordAuditEventInDatabase } from "./audit-event-store.js";
 import {
   pageExecutionDecisionFactsForContextInDatabase,
-  pruneExpiredExecutionDecisionFacts,
-  recordExecutionDecisionFact,
+  pruneExpiredExecutionDecisionFactsInDatabase,
+  recordExecutionDecisionFactInDatabase,
   summarizeExecutionDecisionFactsForContextInDatabase,
 } from "./execution-decision-facts.js";
-import { presentExecutionDecisionReceiptsInDatabase } from "./execution-decision-receipts.js";
 import {
-  configureExecutionIdentityAdmissionSink,
-  createExecutionIdentityAdmissionToken,
-  enqueueExecutionIdentityContextAtAdmission,
-  type ExecutionIdentityAdmissionEnvelope,
-} from "./execution-identity-admission.js";
-import { processExecutionIdentityAdmissionWork } from "./execution-identity-context.js";
-import { bindExecutionOwnerLifecycleMetadata } from "./execution-owner-lifecycle-binding-store.js";
+  receipt,
+  seedExecutionContext,
+  tokenForContext,
+  createUnattributedExecutionContext,
+} from "./execution-decision-facts.test-support.js";
+import { presentExecutionDecisionReceiptsInDatabase } from "./execution-decision-receipts.js";
+import { createExecutionIdentityAdmissionToken } from "./execution-identity-admission.js";
+import {
+  bindExecutionOwnerLifecycleMetadata,
+  ensureExecutionOwnerLifecycleBindingSchema,
+} from "./execution-owner-lifecycle-binding-store.js";
 import {
   configureMessageActionDecisionSink,
   recordMessageActionDecision,
 } from "./message-action-decision.js";
-import { recordOutboundMessageProgress } from "./message-delivery-progress-store.js";
+import { recordOutboundMessageProgressInDatabase } from "./message-delivery-progress-store.js";
+
+const noLifecycleBindings = { cronRunReceipts: true, executionOwnerLifecycleBindings: false };
 
 const RETENTION_MS = 30 * 24 * 60 * 60_000;
 
@@ -46,97 +50,48 @@ function databaseOptions() {
   return { env: { OPENCLAW_STATE_DIR: tempDirs.make("openclaw-decision-facts-") } };
 }
 
-function seedExecutionContext(
-  database: ReturnType<typeof databaseOptions>,
-  overrides: {
-    runId?: string;
-    contextId?: string;
-    executionId?: string;
-  } = {},
-): ExecutionIdentityContextV1 {
-  const runId = overrides.runId ?? "run-1";
-  const contextId = overrides.contextId ?? "context-1";
-  const executionId = overrides.executionId ?? "execution-1";
-  let envelope: ExecutionIdentityAdmissionEnvelope | undefined;
-  const clear = configureExecutionIdentityAdmissionSink((work) => {
-    if (work.kind === "capture") {
-      envelope = work.envelope;
-    }
-    return true;
-  });
-  try {
-    enqueueExecutionIdentityContextAtAdmission(
-      {
-        runId,
-        agentId: "main",
-        ingress: { kind: "local-cli", boundary: "agent-command.local", state: "present" },
-        runtime: { kind: "embedded" },
-      },
-      {
-        enabled: true,
-        now: 50,
-        contextId,
-        executionId,
-        runtimeInstanceId: "runtime-1",
-      },
-    );
-  } finally {
-    clear();
-  }
-  if (!envelope) {
-    throw new Error("expected execution identity envelope");
-  }
-  const stored = processExecutionIdentityAdmissionWork(
-    { kind: "capture", envelope },
-    { ...database, now: 50 },
-  );
-  if (
-    stored.contextId !== contextId ||
-    stored.executionId !== executionId ||
-    stored.runId !== runId
-  ) {
-    throw new Error(`unexpected execution context: ${JSON.stringify(stored)}`);
-  }
-  return stored;
-}
-
-function receipt(id: string, occurredAt = 100): DecisionReceiptV1 {
-  return {
-    schemaVersion: 1,
-    receiptId: id,
-    contextId: "context-1",
-    executionId: "execution-1",
-    runId: "run-1",
-    actionId: `action-${id}`,
-    occurredAt,
-    action: { family: "tool", operation: "policy" },
-    decision: { outcome: "denied", reasonCode: "tool_policy_denied" },
-    enforcement: {
-      coverageState: "enforced",
-      evaluatorRef: "tool-policy",
-      policyRefs: ["tool-policy:deny"],
-      grantRefs: [],
-      contextFieldsUsed: ["runId"],
-    },
-    source: {
-      owner: "tool-policy",
-      recordRef: `record-${id}`,
-      decisionBoundary: "agent-tool.before-call",
-    },
-    missingEvidence: [],
-    remediation: [{ code: "choose_allowed_tool", text: "Choose an allowed tool and retry." }],
-  };
-}
-
-function tokenForContext(context: ExecutionIdentityContextV1) {
-  return createExecutionIdentityAdmissionToken(context.runId, {
-    contextId: context.contextId,
-    executionId: context.executionId,
-    now: context.createdAt,
-  });
-}
-
 describe("execution decision facts", () => {
+  it("retains generic task and flow facts as unverified evidence after lifecycle retirement", () => {
+    const database = databaseOptions();
+    const context = seedExecutionContext(database);
+    const opened = openOpenClawStateDatabase(database);
+    for (const family of ["task", "flow"]) {
+      expect(
+        recordExecutionDecisionFactInDatabase(
+          {
+            ...receipt("historical-" + family),
+            action: { family, operation: "lifecycle", summary: "private historical summary" },
+          },
+          { ...database, database: opened, now: 100 },
+        ),
+      ).toBe("inserted");
+    }
+    const inspection = presentExecutionDecisionReceiptsInDatabase(opened.db, {
+      schema: noLifecycleBindings,
+      context,
+      decisionCursor: "g:0:0",
+      now: 100,
+    });
+    // Equal timestamps are ordered by receipt identity, not insertion order.
+    expect(inspection.decisions.map((decision) => decision.action.family)).toEqual([
+      "flow",
+      "task",
+    ]);
+    expect(inspection.decisionDisplays).toHaveLength(2);
+    for (const display of inspection.decisionDisplays) {
+      expect(display).toMatchObject({
+        action: { family: "decision", operation: "record" },
+        decision: { outcome: "unknown", reasonCode: "decision_fact_display_unverified" },
+        provenance: { state: "unverified" },
+      });
+    }
+    expect(JSON.stringify(inspection.decisionDisplays)).not.toContain("private historical summary");
+    expect(inspection.coverage.state).toBe("unknown");
+    expect(
+      opened.db.prepare("SELECT COUNT(*) AS count FROM execution_decision_facts").get(),
+    ).toEqual({ count: 2 });
+  });
+
   it("persists repeated same-reason broadcast denials with opaque distinct ids", () => {
     const database = databaseOptions();
     seedExecutionContext(database);
@@ -146,7 +101,12 @@ describe("execution decision facts", () => {
       now: 100,
     });
     const clear = configureMessageActionDecisionSink(
-      (decision) => recordExecutionDecisionFact(decision, { ...database, now: 100 }) === "inserted",
+      (decision) =>
+        recordExecutionDecisionFactInDatabase(decision, {
+          ...database,
+          database: openOpenClawStateDatabase(database),
+          now: 100,
+        }) === "inserted",
     );
     try {
       for (const receiptDiscriminator of ["broadcast:0", "broadcast:1"]) {
@@ -189,7 +149,7 @@ describe("execution decision facts", () => {
     const database = databaseOptions();
     const context = seedExecutionContext(database);
     const now = Date.now();
-    const storedEvent = recordAuditEvent(
+    const storedEvent = recordAuditEventInDatabase(
       {
         sourceId: "message:outbound:queue:delivery-1:payload:0",
         sourceSequence: 1,
@@ -210,7 +170,7 @@ describe("execution decision facts", () => {
         targetId: "raw-target",
         messageId: "raw-message-id",
       },
-      database,
+      { ...database, database: openOpenClawStateDatabase(database) },
     );
     if (!storedEvent) {
       throw new Error("expected owner-native message event");
@@ -218,7 +178,12 @@ describe("execution decision facts", () => {
 
     const inspection = presentExecutionDecisionReceiptsInDatabase(
       openOpenClawStateDatabase(database).db,
-      { context, decisionLimit: 10, now },
+      {
+        schema: noLifecycleBindings,
+        context,
+        decisionLimit: 10,
+        now,
+      },
     );
     expect(inspection.decisions).toEqual(
       expect.arrayContaining([
@@ -258,7 +223,7 @@ describe("execution decision facts", () => {
     expect(receiptSearch).not.toContain(encodeURIComponent(messageReceipt?.receiptId ?? ""));
   });
 
-  it("projects exact-bound cron, task, and flow owner rows without generic facts", () => {
+  it("projects exact-bound cron owner rows without generic facts", () => {
     const database = databaseOptions();
     const context = seedExecutionContext(database);
     const db = openOpenClawStateDatabase(database).db;
@@ -279,54 +244,29 @@ describe("execution decision facts", () => {
       60,
       70,
     );
-    db.prepare(
-      `INSERT INTO task_runs (
-         task_id, runtime, owner_key, scope_kind, task, status, delivery_status,
-         notify_policy, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      "task-1",
-      "cron",
-      "owner-1",
-      "session",
-      "private task text",
-      "succeeded",
-      "not-requested",
-      "never",
-      61,
-    );
-    db.prepare(
-      `INSERT INTO flow_runs (
-         flow_id, owner_key, status, notify_policy, goal, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run("flow-1", "owner-1", "succeeded", "never", "private flow goal", 62, 70);
-    for (const [ownerKind, ownerId] of [
-      ["cron", "cron-receipt-1"],
-      ["task", "task-1"],
-      ["flow", "flow-1"],
-    ] as const) {
-      expect(
-        bindExecutionOwnerLifecycleMetadata({
-          db,
-          ownerKind,
-          ownerId,
-          binding: { contextId: context.contextId, executionId: context.executionId },
-        }),
-      ).toBe("bound");
-    }
+    ensureExecutionOwnerLifecycleBindingSchema(db);
+    expect(
+      bindExecutionOwnerLifecycleMetadata({
+        db,
+        ownerKind: "cron",
+        ownerId: "cron-receipt-1",
+        binding: { contextId: context.contextId, executionId: context.executionId },
+      }),
+    ).toBe("bound");
 
     const result = presentExecutionDecisionReceiptsInDatabase(
       openOpenClawStateDatabase(database).db,
-      { context, decisionLimit: 10, now: 100 },
+      {
+        schema: { cronRunReceipts: true, executionOwnerLifecycleBindings: true },
+        context,
+        decisionLimit: 10,
+        now: 100,
+      },
     );
     expect(result.decisions.map((item) => item.source.owner)).toEqual([
       "agent-command",
       "cron_run_receipts",
-      "task_runs",
-      "flow_runs",
     ]);
-    expect(JSON.stringify(result.decisions)).not.toContain("private task text");
-    expect(JSON.stringify(result.decisions)).not.toContain("private flow goal");
     expect(tableExists(db, "execution_decision_facts")).toBe(false);
   });
 
@@ -343,7 +283,7 @@ describe("execution decision facts", () => {
       executionId: "execution-second",
     });
     const now = Date.now();
-    recordAuditEvent(
+    recordAuditEventInDatabase(
       {
         sourceId: "message:shared-run:unbound",
         sourceSequence: 1,
@@ -361,12 +301,13 @@ describe("execution decision facts", () => {
         conversationKind: "direct",
         resultCount: 1,
       },
-      database,
+      { ...database, database: openOpenClawStateDatabase(database) },
     );
 
     for (const context of [first, second]) {
       expect(
         presentExecutionDecisionReceiptsInDatabase(openOpenClawStateDatabase(database).db, {
+          schema: noLifecycleBindings,
           context,
           decisionLimit: 10,
           now,
@@ -377,7 +318,7 @@ describe("execution decision facts", () => {
       tableExists(openOpenClawStateDatabase(database).db, "outbound_message_execution_bindings"),
     ).toBe(false);
 
-    recordAuditEvent(
+    recordAuditEventInDatabase(
       {
         sourceId: "message:shared-run:first-execution",
         sourceSequence: 2,
@@ -396,10 +337,11 @@ describe("execution decision facts", () => {
         conversationKind: "direct",
         resultCount: 1,
       },
-      database,
+      { ...database, database: openOpenClawStateDatabase(database) },
     );
     const messageReceipts = (context: ExecutionIdentityContextV1) =>
       presentExecutionDecisionReceiptsInDatabase(openOpenClawStateDatabase(database).db, {
+        schema: noLifecycleBindings,
         context,
         decisionLimit: 10,
         now: now + 1,
@@ -498,12 +440,18 @@ describe("execution decision facts", () => {
     for (const event of events) {
       expect(
         event.action === "message.outbound.finished"
-          ? recordAuditEvent(event, database)
-          : recordOutboundMessageProgress(event, database),
+          ? recordAuditEventInDatabase(event, {
+              ...database,
+              database: openOpenClawStateDatabase(database),
+            })
+          : recordOutboundMessageProgressInDatabase(event, {
+              ...database,
+              database: openOpenClawStateDatabase(database),
+            }),
       ).toBeDefined();
     }
     expect(
-      recordOutboundMessageProgress(
+      recordOutboundMessageProgressInDatabase(
         {
           ...common,
           occurredAt: now,
@@ -512,12 +460,13 @@ describe("execution decision facts", () => {
           status: "started",
           outcome: "queued",
         },
-        database,
+        { ...database, database: openOpenClawStateDatabase(database) },
       ),
     ).toBeUndefined();
 
     const inspect = () =>
       presentExecutionDecisionReceiptsInDatabase(openOpenClawStateDatabase(database).db, {
+        schema: noLifecycleBindings,
         context,
         decisionCursor: "m:0:0",
         decisionLimit: 10,
@@ -554,6 +503,7 @@ describe("execution decision facts", () => {
     expect(inspect().decisionDisplays.map((item) => item.selectorId)).toEqual(selectors);
     expect(
       presentExecutionDecisionReceiptsInDatabase(openOpenClawStateDatabase(database).db, {
+        schema: noLifecycleBindings,
         context,
         decisionCursor: "m:0:0",
         decisionLimit: 10,
@@ -567,19 +517,31 @@ describe("execution decision facts", () => {
     seedExecutionContext(database);
     const opened = openOpenClawStateDatabase(database);
     expect(tableExists(opened.db, "execution_decision_facts")).toBe(false);
-    expect(pruneExpiredExecutionDecisionFacts({ database })).toBe(0);
+    expect(
+      pruneExpiredExecutionDecisionFactsInDatabase({
+        database: { ...database, database: openOpenClawStateDatabase(database) },
+      }),
+    ).toBe(0);
     expect(tableExists(opened.db, "execution_decision_facts")).toBe(false);
 
-    expect(recordExecutionDecisionFact(receipt("receipt-1"), { ...database, now: 100 })).toBe(
-      "inserted",
-    );
-    expect(recordExecutionDecisionFact(receipt("receipt-1"), { ...database, now: 100 })).toBe(
-      "existing",
-    );
+    expect(
+      recordExecutionDecisionFactInDatabase(receipt("receipt-1"), {
+        ...database,
+        database: openOpenClawStateDatabase(database),
+        now: 100,
+      }),
+    ).toBe("inserted");
+    expect(
+      recordExecutionDecisionFactInDatabase(receipt("receipt-1"), {
+        ...database,
+        database: openOpenClawStateDatabase(database),
+        now: 100,
+      }),
+    ).toBe("existing");
     expect(() =>
-      recordExecutionDecisionFact(
+      recordExecutionDecisionFactInDatabase(
         { ...receipt("receipt-1"), decision: { outcome: "allowed", reasonCode: "changed" } },
-        { ...database, now: 100 },
+        { ...database, database: openOpenClawStateDatabase(database), now: 100 },
       ),
     ).toThrow("conflicts with retained state");
 
@@ -601,7 +563,7 @@ describe("execution decision facts", () => {
   it("rejects approval duplication before creating the generic table", () => {
     const database = databaseOptions();
     expect(() =>
-      recordExecutionDecisionFact(
+      recordExecutionDecisionFactInDatabase(
         {
           ...receipt("approval-duplicate"),
           source: {
@@ -610,7 +572,7 @@ describe("execution decision facts", () => {
             decisionBoundary: "gateway.operator-approval.first-answer",
           },
         },
-        { ...database, now: 100 },
+        { ...database, database: openOpenClawStateDatabase(database), now: 100 },
       ),
     ).toThrow("owner-native table");
     expect(tableExists(openOpenClawStateDatabase(database).db, "execution_decision_facts")).toBe(
@@ -622,8 +584,9 @@ describe("execution decision facts", () => {
     const database = databaseOptions();
     seedExecutionContext(database);
     for (let index = 0; index < 130; index += 1) {
-      recordExecutionDecisionFact(receipt(`bounded-${String(index).padStart(3, "0")}`), {
+      recordExecutionDecisionFactInDatabase(receipt(`bounded-${String(index).padStart(3, "0")}`), {
         ...database,
+        database: openOpenClawStateDatabase(database),
         now: 100,
         limits: { maxRows: 1_000, pruneBatchRows: 10 },
       });
@@ -645,7 +608,11 @@ describe("execution decision facts", () => {
     const database = databaseOptions();
     const context = seedExecutionContext(database);
     for (const id of ["same-time-a", "same-time-b", "same-time-c"]) {
-      recordExecutionDecisionFact(receipt(id, 100), { ...database, now: 100 });
+      recordExecutionDecisionFactInDatabase(receipt(id, 100), {
+        ...database,
+        database: openOpenClawStateDatabase(database),
+        now: 100,
+      });
     }
 
     const first = pageExecutionDecisionFactsForContextInDatabase(
@@ -689,7 +656,13 @@ describe("execution decision facts", () => {
     for (const decisionCursor of ["1", "001"]) {
       const legacyPage = presentExecutionDecisionReceiptsInDatabase(
         openOpenClawStateDatabase(database).db,
-        { context, decisionCursor, decisionLimit: 1, now: 100 },
+        {
+          schema: noLifecycleBindings,
+          context,
+          decisionCursor,
+          decisionLimit: 1,
+          now: 100,
+        },
       );
       expect(legacyPage.decisions.map((item) => item.receiptId)).toEqual(["same-time-a"]);
       expect(legacyPage.decisionDisplays?.map((item) => item.selectorId)).toEqual([
@@ -699,11 +672,23 @@ describe("execution decision facts", () => {
     }
     const legacyPage = presentExecutionDecisionReceiptsInDatabase(
       openOpenClawStateDatabase(database).db,
-      { context, decisionCursor: "1", decisionLimit: 1, now: 100 },
+      {
+        schema: noLifecycleBindings,
+        context,
+        decisionCursor: "1",
+        decisionLimit: 1,
+        now: 100,
+      },
     );
     const next = presentExecutionDecisionReceiptsInDatabase(
       openOpenClawStateDatabase(database).db,
-      { context, decisionCursor: legacyPage.nextDecisionCursor, decisionLimit: 2, now: 100 },
+      {
+        schema: noLifecycleBindings,
+        context,
+        decisionCursor: legacyPage.nextDecisionCursor,
+        decisionLimit: 2,
+        now: 100,
+      },
     );
     expect(next.decisions.map((item) => item.receiptId)).toEqual(["same-time-b", "same-time-c"]);
     expect(next.decisionDisplays?.map((item) => item.selectorId)).toEqual([
@@ -715,25 +700,9 @@ describe("execution decision facts", () => {
   it("replaces unverified aggregate evidence with a fixed display marker", () => {
     const database = databaseOptions();
     seedExecutionContext(database);
-    const context: ExecutionIdentityContextV1 = {
-      schemaVersion: 1,
-      contextId: "context-1",
-      executionId: "execution-1",
-      runId: "run-1",
-      createdAt: 50,
-      trustDomain: { kind: "gateway-cell", domainRef: "domain-1", state: "present" },
-      invoker: { state: "absent" },
-      ingress: { kind: "local-cli", boundary: "agent-command.local", state: "present" },
-      agentPrincipal: { kind: "agent", domainRef: "domain-1", principalRef: "agent-main" },
-      agentDefinition: { definitionRef: "main", state: "present" },
-      runtimeInstance: { runtimeRef: "runtime-1", kind: "embedded", state: "present" },
-      applicableGrants: [],
-      assurance: [],
-      coverageState: "unattributed",
-      missingEvidence: [],
-    };
+    const context = createUnattributedExecutionContext();
     for (const owner of ["one", "two"] as const) {
-      recordExecutionDecisionFact(
+      recordExecutionDecisionFactInDatabase(
         {
           ...receipt(owner),
           missingEvidence: Array.from(
@@ -741,13 +710,18 @@ describe("execution decision facts", () => {
             (_, index) => `${owner}.missing.${String(index).padStart(2, "0")}`,
           ),
         },
-        { ...database, now: 100 },
+        { ...database, database: openOpenClawStateDatabase(database), now: 100 },
       );
     }
 
     const result = presentExecutionDecisionReceiptsInDatabase(
       openOpenClawStateDatabase(database).db,
-      { context, decisionLimit: 10, now: 100 },
+      {
+        schema: noLifecycleBindings,
+        context,
+        decisionLimit: 10,
+        now: 100,
+      },
     );
     expect(result.coverage).toEqual({
       state: "unknown",
@@ -768,7 +742,7 @@ describe("execution decision facts", () => {
     const policyRefSecret = "U2_R6_POLICY_REF_SECRET_ea731c";
     const grantRefSecret = "U2_R6_GRANT_REF_SECRET_b529f4";
     const missingEvidenceSecret = "U2_R6_MISSING_EVIDENCE_SECRET_2d97c1";
-    recordExecutionDecisionFact(
+    recordExecutionDecisionFactInDatabase(
       {
         ...receipt(receiptIdSecret),
         action: {
@@ -791,12 +765,17 @@ describe("execution decision facts", () => {
         missingEvidence: [missingEvidenceSecret],
         remediation: [{ code: remediationCodeSecret, text: remediationTextSecret }],
       },
-      { ...database, now: 100 },
+      { ...database, database: openOpenClawStateDatabase(database), now: 100 },
     );
 
     const result = presentExecutionDecisionReceiptsInDatabase(
       openOpenClawStateDatabase(database).db,
-      { context, decisionLimit: 10, now: 100 },
+      {
+        schema: noLifecycleBindings,
+        context,
+        decisionLimit: 10,
+        now: 100,
+      },
     );
     expect(result.decisionDisplays).toBeDefined();
     const displayJson = JSON.stringify(result.decisionDisplays);
@@ -842,9 +821,9 @@ describe("execution decision facts", () => {
     const database = databaseOptions();
     seedExecutionContext(database);
     expect(() =>
-      recordExecutionDecisionFact(
+      recordExecutionDecisionFactInDatabase(
         { ...receipt("wrong-execution"), executionId: "execution-2" },
-        database,
+        { ...database, database: openOpenClawStateDatabase(database) },
       ),
     ).toThrow("exact retained execution context");
     expect(tableExists(openOpenClawStateDatabase(database).db, "execution_decision_facts")).toBe(
@@ -855,7 +834,11 @@ describe("execution decision facts", () => {
   it("projects a fact as unknown when the requested tuple does not match", () => {
     const database = databaseOptions();
     seedExecutionContext(database);
-    recordExecutionDecisionFact(receipt("tuple-mismatch"), { ...database, now: 100 });
+    recordExecutionDecisionFactInDatabase(receipt("tuple-mismatch"), {
+      ...database,
+      database: openOpenClawStateDatabase(database),
+      now: 100,
+    });
 
     const page = pageExecutionDecisionFactsForContextInDatabase(
       openOpenClawStateDatabase(database).db,
@@ -880,9 +863,14 @@ describe("execution decision facts", () => {
   it("enforces the 30-day read boundary and bounded retention pruning", () => {
     const database = databaseOptions();
     seedExecutionContext(database);
-    recordExecutionDecisionFact(receipt("old", 0), { ...database, now: 0 });
-    recordExecutionDecisionFact(receipt("new", RETENTION_MS + 1), {
+    recordExecutionDecisionFactInDatabase(receipt("old", 0), {
       ...database,
+      database: openOpenClawStateDatabase(database),
+      now: 0,
+    });
+    recordExecutionDecisionFactInDatabase(receipt("new", RETENTION_MS + 1), {
+      ...database,
+      database: openOpenClawStateDatabase(database),
       now: RETENTION_MS + 1,
       limits: { maxRows: 10, pruneBatchRows: 1 },
     });
@@ -905,8 +893,9 @@ describe("execution decision facts", () => {
     const database = databaseOptions();
     seedExecutionContext(database);
     for (const [index, id] of ["one", "two", "three"].entries()) {
-      recordExecutionDecisionFact(receipt(id, 100 + index), {
+      recordExecutionDecisionFactInDatabase(receipt(id, 100 + index), {
         ...database,
+        database: openOpenClawStateDatabase(database),
         now: 100 + index,
         limits: { maxRows: 2, pruneBatchRows: 1 },
       });
@@ -923,24 +912,12 @@ describe("execution decision facts", () => {
   it("turns corrupt retained payloads into bounded unknown receipts", () => {
     const database = databaseOptions();
     seedExecutionContext(database);
-    const context: ExecutionIdentityContextV1 = {
-      schemaVersion: 1,
-      contextId: "context-1",
-      executionId: "execution-1",
-      runId: "run-1",
-      createdAt: 50,
-      trustDomain: { kind: "gateway-cell", domainRef: "domain-1", state: "present" },
-      invoker: { state: "absent" },
-      ingress: { kind: "local-cli", boundary: "agent-command.local", state: "present" },
-      agentPrincipal: { kind: "agent", domainRef: "domain-1", principalRef: "agent-main" },
-      agentDefinition: { definitionRef: "main", state: "present" },
-      runtimeInstance: { runtimeRef: "runtime-1", kind: "embedded", state: "present" },
-      applicableGrants: [],
-      assurance: [],
-      coverageState: "unattributed",
-      missingEvidence: [],
-    };
-    recordExecutionDecisionFact(receipt("corrupt"), { ...database, now: 100 });
+    const context = createUnattributedExecutionContext();
+    recordExecutionDecisionFactInDatabase(receipt("corrupt"), {
+      ...database,
+      database: openOpenClawStateDatabase(database),
+      now: 100,
+    });
     openOpenClawStateDatabase(database)
       .db.prepare("UPDATE execution_decision_facts SET receipt_json = ? WHERE receipt_id = ?")
       .run("{", "corrupt");
@@ -976,6 +953,7 @@ describe("execution decision facts", () => {
     });
     expect(
       presentExecutionDecisionReceiptsInDatabase(openOpenClawStateDatabase(database).db, {
+        schema: noLifecycleBindings,
         context,
         decisionCursor: "g:0:0",
         decisionLimit: 10,
@@ -994,7 +972,11 @@ describe("execution decision facts", () => {
   it("does not materialize an oversized retained fact payload", () => {
     const database = databaseOptions();
     const context = seedExecutionContext(database);
-    recordExecutionDecisionFact(receipt("oversized"), { ...database, now: 100 });
+    recordExecutionDecisionFactInDatabase(receipt("oversized"), {
+      ...database,
+      database: openOpenClawStateDatabase(database),
+      now: 100,
+    });
     const db = openOpenClawStateDatabase(database).db;
     db.exec("PRAGMA ignore_check_constraints = ON");
     db.prepare("UPDATE execution_decision_facts SET receipt_json = ? WHERE receipt_id = ?").run(
@@ -1021,7 +1003,13 @@ describe("execution decision facts", () => {
     ]);
     const result = presentExecutionDecisionReceiptsInDatabase(
       openOpenClawStateDatabase(database).db,
-      { context, decisionCursor: "g:0:0", decisionLimit: 1, now: 100 },
+      {
+        schema: noLifecycleBindings,
+        context,
+        decisionCursor: "g:0:0",
+        decisionLimit: 1,
+        now: 100,
+      },
     );
     expect(result.decisions).toHaveLength(1);
     expect(result.decisionDisplays).toEqual([

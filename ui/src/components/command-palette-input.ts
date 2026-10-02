@@ -4,13 +4,19 @@ import { directive, type ElementPart } from "lit/directive.js";
 import { ref } from "lit/directives/ref.js";
 
 export const COMMAND_PALETTE_INPUT_ID = "cmd-palette-input";
+const measuredInputValues = new WeakMap<HTMLTextAreaElement, string>();
 
 type CommandPaletteInputProps = {
   value: string;
   placeholder: string;
   onInputRef: (element: Element | undefined) => void;
-  onValueChange: (value: string) => void;
+  onValueChange: (value: string, event: InputEvent) => void;
+  onBeforeInput?: (event: InputEvent) => void;
+  onSelectionChange?: (event: Event) => void;
+  onCompositionStart?: () => void;
+  onCompositionEnd?: () => void;
   actions?: TemplateResult | typeof nothing;
+  onPaste?: (event: ClipboardEvent) => void;
   disabled?: boolean;
   readOnly?: boolean;
   controls?: string;
@@ -30,7 +36,7 @@ function updatePaletteInputOverflow(textarea: HTMLTextAreaElement) {
 
 // This input is also the cold-loader surface. Keep its DOM/layout owner free of
 // search catalogs, draft creation, and the full chat composer's scroll lifecycle.
-function updatePaletteInputLayout(textarea: HTMLTextAreaElement) {
+function updatePaletteInputLayout(textarea: HTMLTextAreaElement, editing = false) {
   const root = textarea.closest<HTMLElement>(".cmd-palette__entry");
   const actions = root?.querySelector<HTMLElement>(".cmd-palette__input-actions");
   if (root && actions) {
@@ -44,7 +50,10 @@ function updatePaletteInputLayout(textarea: HTMLTextAreaElement) {
     return;
   }
   const previousScroll = textarea.scrollTop;
+  // A caret at the end does not imply follow intent after manual scrolling.
+  // Only input edits reveal it; rerenders and resizes preserve the viewport.
   const followCaret =
+    editing &&
     document.activeElement === textarea &&
     textarea.selectionStart === textarea.selectionEnd &&
     textarea.selectionEnd === textarea.value.length;
@@ -55,6 +64,7 @@ function updatePaletteInputLayout(textarea: HTMLTextAreaElement) {
   textarea.style.overflowY = overflowing ? "auto" : "hidden";
   textarea.scrollTop = overflowing ? (followCaret ? textarea.scrollHeight : previousScroll) : 0;
   updatePaletteInputOverflow(textarea);
+  measuredInputValues.set(textarea, textarea.value);
 }
 
 function handlePaletteInputScroll(event: Event) {
@@ -66,16 +76,28 @@ function handlePaletteInputScroll(event: Event) {
 
 class PaletteInputLayoutDirective extends AsyncDirective {
   #textarea: HTMLTextAreaElement | undefined;
+  #placeholder: string | undefined;
   #observer: ResizeObserver | undefined;
   #frame: number | undefined;
 
-  render(_value: string) {
+  render(_value: string, _placeholder: string) {
     return nothing;
   }
 
-  override update(part: ElementPart, [_value]: [string]) {
-    this.#textarea = part.element instanceof HTMLTextAreaElement ? part.element : undefined;
-    this.#scheduleLayout();
+  override update(part: ElementPart, [value, placeholder]: [string, string]) {
+    const textarea = part.element instanceof HTMLTextAreaElement ? part.element : undefined;
+    // Input events already measure the edited value. Result navigation and
+    // background updates retain that layout; controlled values still resize.
+    const needsLayout =
+      textarea &&
+      (this.#textarea !== textarea ||
+        this.#placeholder !== placeholder ||
+        measuredInputValues.get(textarea) !== value);
+    this.#textarea = textarea;
+    this.#placeholder = placeholder;
+    if (needsLayout) {
+      this.#scheduleLayout();
+    }
     return nothing;
   }
 
@@ -127,13 +149,14 @@ export function renderCommandPaletteInput(props: CommandPaletteInputProps) {
     <div class="cmd-palette__entry">
       <div class="cmd-palette__input-scroll">
         <textarea
-          ${paletteInputLayout(props.value)}
+          ${paletteInputLayout(props.value, props.placeholder)}
           autofocus
           rows="1"
           id=${COMMAND_PALETTE_INPUT_ID}
           class="cmd-palette__input"
           aria-label=${props.placeholder}
           aria-autocomplete=${props.controls ? "list" : nothing}
+          aria-haspopup=${props.controls ? "listbox" : nothing}
           aria-controls=${props.controls ?? nothing}
           aria-activedescendant=${props.activeDescendant ?? nothing}
           aria-describedby=${props.describedBy ?? nothing}
@@ -142,11 +165,22 @@ export function renderCommandPaletteInput(props: CommandPaletteInputProps) {
           ?disabled=${props.disabled}
           ?readonly=${props.readOnly}
           @scroll=${handlePaletteInputScroll}
+          @paste=${props.onPaste ?? nothing}
+          @beforeinput=${props.onBeforeInput ?? nothing}
+          @select=${props.onSelectionChange ?? nothing}
+          @pointerup=${props.onSelectionChange ?? nothing}
+          @keyup=${(event: KeyboardEvent) => {
+            if (event.key.startsWith("Arrow") || event.key === "Home" || event.key === "End") {
+              props.onSelectionChange?.(event);
+            }
+          }}
+          @compositionstart=${props.onCompositionStart ?? nothing}
+          @compositionend=${props.onCompositionEnd ?? nothing}
           ${ref(props.onInputRef)}
-          @input=${(event: Event) => {
+          @input=${(event: InputEvent) => {
             if (event.currentTarget instanceof HTMLTextAreaElement) {
-              props.onValueChange(event.currentTarget.value);
-              updatePaletteInputLayout(event.currentTarget);
+              props.onValueChange(event.currentTarget.value, event);
+              updatePaletteInputLayout(event.currentTarget, true);
             }
           }}
         ></textarea>

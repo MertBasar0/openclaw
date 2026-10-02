@@ -1,3 +1,6 @@
+// Preserve module setup before modules that consume it.
+// oxfmt-ignore
+import { useSubagentControlFixture } from "./subagent-control.test-support.js";
 import { expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import {
@@ -7,14 +10,9 @@ import {
   runWithGatewayIndependentRootWorkAdmission,
 } from "../../../process/gateway-work-admission.js";
 import * as internalSessionEffects from "../../internal-session-effects.js";
-import { useSubagentControlFixture } from "./subagent-control.test-support.js";
-import { subagentRegistryDeps } from "./subagent-registry-deps.js";
 import { subagentRuns } from "./subagent-registry-memory.js";
-import { persistSubagentRunsToDiskOrThrow } from "./subagent-registry-state.js";
-import {
-  settleSubagentRegistryPersistenceWork,
-  writeSubagentSessionEntry,
-} from "./subagent-registry.persistence.test-support.js";
+import { mutateSubagentRuns } from "./subagent-registry-persistence.js";
+import { writeSubagentSessionEntry } from "./subagent-registry.persistence.test-support.js";
 import {
   registerSubagentRun,
   replaceSubagentRunAfterSteerCore,
@@ -25,7 +23,7 @@ const fixture = useSubagentControlFixture();
 it.each(["completed", "failed"] as const)(
   "retains replacement transcript cleanup through restart until it has %s",
   async (outcome) => {
-    vi.spyOn(subagentRegistryDeps, "callGateway").mockResolvedValue({ status: "pending" });
+    fixture.gateway.mockResolvedValue({ status: "pending" });
     const childSessionKey = "agent:main:subagent:steer";
     const storePath = await writeSubagentSessionEntry({
       stateDir: fixture.stateDir,
@@ -33,7 +31,7 @@ it.each(["completed", "failed"] as const)(
       sessionKey: childSessionKey,
       defaultSessionId: "steer-session",
     });
-    registerSubagentRun({
+    await registerSubagentRun({
       runId: "run-old",
       childSessionKey,
       requesterSessionKey: "agent:main:main",
@@ -48,9 +46,19 @@ it.each(["completed", "failed"] as const)(
       sessionKey: "agent:main:internal-session-effects:run-old",
       storePath,
     };
-    previous.execution = { status: "interrupted", transcriptTarget };
-    persistSubagentRunsToDiskOrThrow(subagentRuns, [previous.runId]);
-    await settleSubagentRegistryPersistenceWork();
+    await mutateSubagentRuns([previous.runId], (rows) => ({
+      value: undefined,
+      postimages: new Map([
+        [
+          previous.runId,
+          {
+            ...rows.get(previous.runId)!,
+            execution: { status: "interrupted" as const, transcriptTarget },
+          },
+        ],
+      ]),
+    }));
+    await fixture.settle();
 
     const cleanup = createDeferred();
     const remove = vi
@@ -61,10 +69,9 @@ it.each(["completed", "failed"] as const)(
         // Replacement is already admitted when the restart fence closes.
         markGatewayRestartDraining();
         expect(
-          replaceSubagentRunAfterSteerCore({
+          await replaceSubagentRunAfterSteerCore({
             previousRunId: "run-old",
             nextRunId: "run-new",
-            fallback: previous,
           }),
         ).toBe(true);
       });
@@ -78,9 +85,8 @@ it.each(["completed", "failed"] as const)(
       } else {
         cleanup.resolve();
       }
-      await vi.waitFor(() => {
-        expect(getActiveGatewayRootWorkCount()).toBe(0);
-      });
+      await fixture.settle();
+      expect(getActiveGatewayRootWorkCount()).toBe(0);
     } finally {
       cleanup.resolve();
       await cleanup.promise.catch(() => {});

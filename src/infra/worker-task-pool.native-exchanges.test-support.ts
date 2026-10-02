@@ -11,7 +11,8 @@ import {
   cancelWorkerNativeSections,
   createWorkerNativeSectionState,
 } from "./worker-task-native-sections.js";
-import { serveWorkerTasks, WorkerTaskPool } from "./worker-task-pool.js";
+import { WorkerTaskPool } from "./worker-task-pool.js";
+import { serveWorkerTasks } from "./worker-task-server.js";
 
 type Input =
   | {
@@ -215,6 +216,7 @@ if (!isMainThread) {
               input: { kind: "echo", value: taskId },
               interactive: true,
               nativeSections: native.buffer,
+              deletedAgentDatabaseFences: [],
             },
             [],
           );
@@ -251,6 +253,7 @@ if (!isMainThread) {
             },
             interactive: true,
             nativeSections: native.buffer,
+            deletedAgentDatabaseFences: [],
           },
           [],
         );
@@ -281,6 +284,7 @@ if (!isMainThread) {
               taskId: 2,
               input: { kind: "echo", value: 42 },
               nativeSections: createWorkerNativeSectionState().buffer,
+              deletedAgentDatabaseFences: [],
             },
             [],
           );

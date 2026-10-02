@@ -1,6 +1,6 @@
 import type { ProgressCard } from "@openclaw/gateway-protocol";
 import { bucketRelativeTimeMs, type RelativeTimeUnit } from "@openclaw/normalization-core";
-import { html, nothing } from "lit";
+import { html, nothing, type TemplateResult } from "lit";
 import type { SessionParticipant } from "../../../packages/gateway-protocol/src/schema/session-participant.js";
 import type {
   ControlUiSessionPullRequest,
@@ -15,6 +15,7 @@ import {
   renderPersonName,
   type PersonActivityRouting,
 } from "./person-activity-link.ts";
+import { sessionAttentionSubtitle } from "./session-attention-presentation.ts";
 import { renderSessionColorDot } from "./session-color.ts";
 import {
   renderSessionHovercardContext,
@@ -60,41 +61,13 @@ type SessionHovercardInput = SessionHovercardContextInput & {
 };
 
 let channelAvatarElementLoad: Promise<unknown> | undefined;
-function ensureChannelAvatarElement(): void {
-  channelAvatarElementLoad ??= import("./channel-avatar.ts");
-}
 
-function pullRequestStateLabel(state: ControlUiSessionPullRequest["state"]): string {
-  return t(`sessionHovercard.states.${state}`);
-}
-
-function checksLabel(checks: NonNullable<ControlUiSessionPullRequest["checks"]>): string {
-  switch (checks.state) {
-    case "passing":
-      return t("sessionHovercard.checks.passing");
-    case "failing":
-      return t("sessionHovercard.checks.failing");
-    case "pending":
-      return t("sessionHovercard.checks.pending");
-    default:
-      return checks.state satisfies never;
-  }
-}
-
-function pullRequestStateIcon(state: ControlUiSessionPullRequest["state"]) {
-  switch (state) {
-    case "open":
-      return icons.gitPullRequest;
-    case "draft":
-      return icons.gitPullRequestDraft;
-    case "merged":
-      return icons.gitMerge;
-    case "closed":
-      return icons.gitPullRequestClosed;
-    default:
-      return state satisfies never;
-  }
-}
+const PULL_REQUEST_STATE_ICONS = {
+  open: icons.gitPullRequest,
+  draft: icons.gitPullRequestDraft,
+  merged: icons.gitMerge,
+  closed: icons.gitPullRequestClosed,
+} satisfies Record<ControlUiSessionPullRequest["state"], TemplateResult>;
 
 function renderDiffStats(item: { additions?: number; deletions?: number }) {
   if (item.additions === undefined && item.deletions === undefined) {
@@ -151,7 +124,7 @@ function formatSessionAge(timestamp: number | null | undefined, suffix: boolean)
     }).format(diff <= 0 ? -value : value, unit);
   }
   if (i18n.getLocale().toLowerCase().startsWith("en")) {
-    const compactSuffix: Partial<Record<SessionAgeUnit, string>> = {
+    const compactSuffix: Record<SessionAgeUnit, string> = {
       second: "s",
       minute: "m",
       hour: "h",
@@ -160,10 +133,7 @@ function formatSessionAge(timestamp: number | null | undefined, suffix: boolean)
       month: "mo",
       year: "y",
     };
-    const unitSuffix = compactSuffix[unit];
-    if (unitSuffix) {
-      return `${value}${unitSuffix}`;
-    }
+    return `${value}${compactSuffix[unit]}`;
   }
   return new Intl.NumberFormat(i18n.getLocale(), {
     style: "unit",
@@ -173,18 +143,7 @@ function formatSessionAge(timestamp: number | null | undefined, suffix: boolean)
   }).format(value);
 }
 
-type SessionAttribution = {
-  creator?: SessionCreatedActor;
-  primaryIdentity: SessionParticipant["identity"] | undefined;
-  primaryLabel: string;
-  participants: SessionParticipant[];
-  otherCount: number;
-};
-
-function sessionAttribution(
-  row: SidebarSessionHovercardRow,
-  selfUserId: string | undefined,
-): SessionAttribution | undefined {
+function sessionAttribution(row: SidebarSessionHovercardRow, selfUserId: string | undefined) {
   const creator = row.createdActor;
   const creatorLabel = creator?.label?.trim() || creator?.id?.trim();
   const participantIds = new Set<string>();
@@ -282,6 +241,11 @@ function renderSessionAttribution({
   }
   const { creator, primaryIdentity, primaryLabel, participants, otherCount } = attribution;
   const primaryParticipant = creator ? undefined : participants[0];
+  const avatarPerson =
+    creator ??
+    (primaryParticipant
+      ? { ...primaryParticipant, id: primaryParticipant.identity.id }
+      : undefined);
   const primaryActivity =
     primaryIdentity?.type === "profile"
       ? personActivityLink(primaryIdentity.id, personActivity, primaryLabel)
@@ -293,10 +257,10 @@ function renderSessionAttribution({
       >`
     : nothing;
   if (creator && row.channelAvatarUrl) {
-    ensureChannelAvatarElement();
+    channelAvatarElementLoad ??= import("./channel-avatar.ts");
   }
-  const primaryAvatar = creator
-    ? row.channelAvatarUrl
+  const primaryAvatar =
+    creator && row.channelAvatarUrl
       ? html`<openclaw-channel-avatar
           class="session-hovercard__creator-avatar"
           .routeUrl=${row.channelAvatarUrl}
@@ -305,34 +269,21 @@ function renderSessionAttribution({
           .fallback=${avatarFallback}
           aria-hidden="true"
         ></openclaw-channel-avatar>`
-      : html`<openclaw-viewer-avatar
-          class="session-hovercard__creator-avatar"
-          .user=${{
-            id: creator.id,
-            name: creator.label,
-            avatarUrl: creator.avatarUrl,
-            watchedSessions: [],
-          }}
-          .markAsViewer=${false}
-          .identity=${creator.identity}
-          variant="session"
-          aria-hidden="true"
-        ></openclaw-viewer-avatar>`
-    : primaryParticipant
-      ? html`<openclaw-viewer-avatar
-          class="session-hovercard__creator-avatar"
-          .user=${{
-            id: primaryParticipant.identity.id,
-            name: primaryParticipant.label,
-            avatarUrl: primaryParticipant.avatarUrl,
-            watchedSessions: [],
-          }}
-          .markAsViewer=${false}
-          .identity=${primaryParticipant.identity}
-          variant="session"
-          aria-hidden="true"
-        ></openclaw-viewer-avatar>`
-      : nothing;
+      : avatarPerson
+        ? html`<openclaw-viewer-avatar
+            class="session-hovercard__creator-avatar"
+            .user=${{
+              id: avatarPerson.id,
+              name: avatarPerson.label,
+              avatarUrl: avatarPerson.avatarUrl,
+              watchedSessions: [],
+            }}
+            .markAsViewer=${false}
+            .identity=${avatarPerson.identity}
+            variant="session"
+            aria-hidden="true"
+          ></openclaw-viewer-avatar>`
+        : nothing;
   const remainingParticipants = creator ? participants : participants.slice(1);
   const attributionLabel = [
     primaryLabel,
@@ -399,13 +350,36 @@ function renderSessionAttribution({
 
 function renderHeader(input: SessionHovercardInput) {
   const row = input.row!;
-  const hasCreatedAt = typeof row.createdAt === "number" && Number.isFinite(row.createdAt);
-  const created = hasCreatedAt ? formatSessionAge(row.createdAt, true) : "";
-  const age = hasCreatedAt ? formatSessionAge(row.createdAt, false) : "";
+  const channel = row.channelPresentation;
+  const details = channel
+    ? [
+        ...new Set(
+          [channel.conversation, channel.address].filter((value) => value && value !== row.label),
+        ),
+      ]
+    : [];
+  const created = formatSessionAge(row.createdAt, true);
+  const age = formatSessionAge(row.createdAt, false);
   return html`<header class="session-hovercard__header">
     <span class="session-hovercard__heading">
+      ${
+        channel
+          ? html`<span class="session-hovercard__channel"
+              ><span aria-hidden="true">${icons.link}</span
+              >${t("sessionHovercard.linkedChannel", { channel: channel.channelLabel })}</span
+            >`
+          : nothing
+      }
       <span class="session-hovercard__title">${renderSessionColorDot(row.color)}${row.label}</span>
-      ${renderSessionAttribution(input)}
+      ${
+        channel
+          ? html`<span class="session-hovercard__conversation">
+              ${channel.kind ? html`<span>${channel.topicId ? t("sessionHovercard.topicNumber", { id: channel.topicId }) : t(`sessionHovercard.chatKinds.${channel.kind}`)}</span>` : nothing}
+              ${details.map((detail) => html`<span>${detail}</span>`)}
+              ${channel.account ? html`<span>${t("sessionHovercard.viaAccount", { account: channel.account })}</span>` : nothing}
+            </span>`
+          : renderSessionAttribution(input)
+      }
     </span>
     ${
       age
@@ -429,8 +403,10 @@ function renderAgentNotepad(card: ProgressCard | null | undefined) {
 }
 
 function renderPullRequestRow(pullRequest: ControlUiSessionPullRequest) {
-  const state = pullRequestStateLabel(pullRequest.state);
-  const checks = pullRequest.checks ? checksLabel(pullRequest.checks) : null;
+  const state = t(`sessionHovercard.states.${pullRequest.state}`);
+  const checks = pullRequest.checks
+    ? t(`sessionHovercard.checks.${pullRequest.checks.state}`)
+    : null;
   const details = [
     pullRequest.title,
     checks,
@@ -454,7 +430,7 @@ function renderPullRequestRow(pullRequest: ControlUiSessionPullRequest) {
       data-checks=${pullRequest.checks?.state ?? nothing}
       aria-label=${checks ? `${state} · ${checks}` : state}
       title=${checks ? `${state} · ${checks}` : state}
-      >${pullRequestStateIcon(pullRequest.state)}</span
+      >${PULL_REQUEST_STATE_ICONS[pullRequest.state]}</span
     >
     <span class="session-hovercard__pr-title">${pullRequest.title}</span>
     ${renderDiffStats(pullRequest)}
@@ -507,6 +483,9 @@ function renderPullRequestDetails(snapshot: ControlUiSessionPullRequestSnapshot 
 }
 
 export function renderSessionHovercard(input: SessionHovercardInput) {
+  const channelAttribution = input.row?.channelPresentation
+    ? renderSessionAttribution(input)
+    : nothing;
   const headsUp = progressCardHeadsUp(
     input.progressCard,
     input.row?.status,
@@ -514,7 +493,10 @@ export function renderSessionHovercard(input: SessionHovercardInput) {
     input.row?.hasActiveRun ?? false,
   );
   const hasPullRequestDetails = Boolean(
-    input.pullRequests && (input.pullRequests.pullRequests.length > 0 || input.pullRequests.branch),
+    input.pullRequests &&
+    (input.pullRequests.pullRequests.length > 0 ||
+      input.pullRequests.branch ||
+      input.pullRequests.status !== "ready"),
   );
   const hasContext = Boolean(
     input.row?.workContext ||
@@ -548,6 +530,17 @@ export function renderSessionHovercard(input: SessionHovercardInput) {
       hasPullRequestDetails
         ? html`<section class="session-hovercard__section session-hovercard__section--prs">
             ${renderPullRequestDetails(input.pullRequests)}
+            ${
+              input.pullRequests?.status !== "ready"
+                ? html`<div class="session-hovercard__more" role="status">
+                    ${t(
+                      input.pullRequests?.status === "rate-limited"
+                        ? "chat.pullRequests.rateLimited"
+                        : "chat.pullRequests.unavailable",
+                    )}
+                  </div>`
+                : nothing
+            }
           </section>`
         : nothing
     }
@@ -558,6 +551,29 @@ export function renderSessionHovercard(input: SessionHovercardInput) {
           </section>`
         : nothing
     }
+    ${
+      input.row?.attention?.kind === "error"
+        ? html`<section class="session-hovercard__section session-hovercard__error">
+            <span class="session-hovercard__error-icon" aria-hidden="true"
+              >${icons.alertTriangle}</span
+            >
+            <span>${sessionAttentionSubtitle(input.row.attention)}</span>
+          </section>`
+        : nothing
+    }
     ${renderAgentNotepad(input.progressCard)}
+    ${
+      channelAttribution !== nothing
+        ? html`<section
+            class="session-hovercard__section session-hovercard__section--attribution"
+            aria-label=${t("sessionHovercard.sessionParticipants")}
+          >
+            <div class="session-hovercard__attribution-label">
+              ${t("sessionHovercard.sessionParticipants")}
+            </div>
+            ${channelAttribution}
+          </section>`
+        : nothing
+    }
   </div>`;
 }
