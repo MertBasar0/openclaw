@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createVercelAiGatewayDecisionProvider } from "./decisions.js";
 import pluginEntry from "./index.js";
 
-vi.mock("openclaw/plugin-sdk/secret-input-runtime", () => ({
-  getPreparedPluginSecretInput: vi.fn(),
-}));
+vi.mock("openclaw/plugin-sdk/secret-input-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/secret-input-runtime")>();
+  return { ...actual, getPreparedPluginSecretInput: vi.fn() };
+});
 
 const batch: DecisionBatch = {
   state: { userMessage: "Test state" },
