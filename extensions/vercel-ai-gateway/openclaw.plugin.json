@@ -23,6 +23,12 @@
       "name": "Jev 1.13.0 (Vercel AI Gateway)"
     }
   ],
+  "providerEndpoints": [
+    {
+      "endpointClass": "vercel-ai-gateway",
+      "hosts": ["ai-gateway.vercel.sh"]
+    }
+  ],
   "modelCatalog": {
     "discovery": {
       "vercel-ai-gateway": "refreshable"

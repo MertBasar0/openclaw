@@ -169,6 +169,12 @@ rejects them otherwise, and the evaluation returns `unsupported-input`.
     refs keep the standard reasoning levels unless their catalog metadata
     declares more.
   </Accordion>
+  <Accordion title="App attribution">
+    Requests to `ai-gateway.vercel.sh` carry Vercel's documented app-attribution
+    headers, `HTTP-Referer: https://openclaw.ai` and `X-Title: OpenClaw`. This
+    also applies to custom provider ids whose `baseUrl` points at AI Gateway.
+    A custom proxy `baseUrl` gets no attribution headers.
+  </Accordion>
 </AccordionGroup>
 
 ## Related

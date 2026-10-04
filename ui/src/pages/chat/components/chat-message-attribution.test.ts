@@ -90,7 +90,6 @@ it.each(["loaded", "fetched"] as const)(
       sessionKey: "agent:main:historical",
       runWorking: false,
       searchActive: false,
-      stream: null,
     });
     const loaded =
       location === "loaded"
@@ -102,7 +101,6 @@ it.each(["loaded", "fetched"] as const)(
         revision: 0,
         navigationId: null,
         read: () => message,
-        request: () => undefined,
         open: () => undefined,
       },
     });
