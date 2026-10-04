@@ -106,6 +106,43 @@ describe("vercel ai gateway decision provider", () => {
   });
 
   it.each([
+    { admitted: false, dispatches: 0 },
+    { admitted: true, dispatches: 1 },
+  ])(
+    "checks host admission once, immediately before dispatch (admitted: $admitted)",
+    async ({ admitted, dispatches }) => {
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            answers: {
+              bool_q: { type: "boolean", probability: 0.12 },
+              choice_q: {
+                type: "choice",
+                choice: "opt_a",
+                probabilities: { opt_a: 0.85, opt_b: 0.15 },
+              },
+              score_q: {
+                type: "score",
+                score: 2,
+                probabilities: { "0": 0.05, "1": 0.25, "2": 0.7 },
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+      const isAdmissible = vi.fn(() => admitted);
+      const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+
+      const outcome = await provider.evaluate(batch, createContext({ isAdmissible }));
+
+      expect(isAdmissible).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(dispatches);
+      expect(outcome.status).toBe(admitted ? "ok" : "unavailable");
+    },
+  );
+
+  it.each([
     { reported: "typesafe-ai/jev-1.13.0", expected: "typesafe-ai/jev-1.13.0" },
     { reported: undefined, expected: "typesafe-ai/jev" },
   ])(

@@ -148,6 +148,11 @@ export function createVercelAiGatewayDecisionProvider(
         if (performance.now() >= context.deadlineMonotonicMs) {
           throw new Error("Vercel AI Gateway decision deadline expired before dispatch");
         }
+        // Host-owned admission (for example an automatic consumer's opt-in). The host records the
+        // refusal itself, so the outcome below never counts against provider health.
+        if (context.isAdmissible && !context.isAdmissible()) {
+          throw new Error("Vercel AI Gateway decision evaluation is no longer admitted");
+        }
       };
 
       try {
