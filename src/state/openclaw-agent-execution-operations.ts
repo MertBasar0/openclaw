@@ -66,13 +66,17 @@ export async function loadAgentTranscriptOperations() {
 }
 
 export async function loadAgentReplacementOperations() {
-  const kernel = await import("../config/sessions/session-accessor.sqlite-replacement-state.js");
+  const [kernel, { assertSessionSubagentRunsCurrent }] = await Promise.all([
+    import("../config/sessions/session-accessor.sqlite-replacement-state.js"),
+    import("../config/sessions/session-accessor.sqlite-descendant-basis.js"),
+  ]);
   return {
     "session.entries.replace": (
       input: SessionEntryReplacementCommit & { initializeTranscript?: TranscriptInitialization },
       context,
     ) =>
       context.writeTransaction("session.entry-replacements", "Session replacement", (current) => {
+        assertSessionSubagentRunsCurrent(input, context.options.env ?? process.env);
         const result = kernel.commitSessionEntryReplacementsInDatabase(current, input, () => {
           const initialization = input.initializeTranscript;
           if (!initialization) {
@@ -99,6 +103,7 @@ export async function loadAgentReplacementOperations() {
         const publication = kernel.prepareSessionEntryReplacementPublication(result, current);
         deferSqliteWorkerCommitReceipt(current.db, publication);
         context.admit("commit", publication);
+        assertSessionSubagentRunsCurrent(input, context.options.env ?? process.env);
         return { ...result, publication };
       }),
   } satisfies Handlers;
@@ -145,12 +150,14 @@ export async function loadAgentEntryPatchOperations() {
 export async function loadAgentCompoundOperations() {
   const turn = await import("../config/sessions/session-turn.worker.js");
   const reset = await import("../config/sessions/session-reset.worker.js");
+  const lifecycle = await import("../config/sessions/session-lifecycle-projection.worker.js");
   const predicates = await import("../config/sessions/session-turn-predicate.js");
   await predicates.prepareSessionTurnPredicates();
   return {
     "session.turn.prepare": turn.prepareSessionTurn,
     "session.turn.commit": turn.commitSessionTurn,
     "session.lifecycle.reset": reset.commitSessionReset,
+    "session.lifecycle.project": lifecycle.commitSessionLifecycleProjection,
   } satisfies Handlers;
 }
 
