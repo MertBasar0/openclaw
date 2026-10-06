@@ -97,16 +97,26 @@ export function hasPreparedNativeSessionDeletion(): boolean {
   );
 }
 
+/** Initialization and opaque SDK callbacks retain their synchronous agent-row authority. */
+export function preparedSessionDeletionRequiresNativeTransaction(): boolean {
+  return [...(deletions.getStore()?.values() ?? [])].some(
+    ({ target, mutations }) =>
+      target.initialization !== undefined ||
+      mutations.some((mutation) => !getNativeSessionDeletionParticipant(mutation)),
+  );
+}
+
 /** Opaque SDK mutations keep their native transaction; only owner-minted participants qualify. */
 export function captureNativeSessionWorkerDeletion(entries: readonly DeletionEntry[]) {
+  if (preparedSessionDeletionRequiresNativeTransaction()) {
+    return undefined;
+  }
   const captured = entries.map(({ sessionKey, entry }) => ({
     sessionKey,
     entry,
     prepared: deletions.getStore()?.get(sessionKey),
   }));
-  if (
-    !captured.some(({ prepared }) => prepared?.mutations.length || prepared?.target.initialization)
-  ) {
+  if (!captured.some(({ prepared }) => prepared?.mutations.length)) {
     return undefined;
   }
   const participants = [];
@@ -127,13 +137,6 @@ export function captureNativeSessionWorkerDeletion(entries: readonly DeletionEnt
     assertCurrent() {
       for (const { prepared } of captured) {
         prepared?.assertIdle();
-      }
-    },
-    committed(sessionKeys?: ReadonlySet<string>) {
-      for (const { sessionKey, prepared } of captured) {
-        if (prepared?.target.initialization && (!sessionKeys || sessionKeys.has(sessionKey))) {
-          commitSessionInitializationRollback(prepared.target.initialization);
-        }
       }
     },
   };
@@ -442,13 +445,14 @@ async function withSqliteSessionMutations<T>(
           }),
         );
       }
-      const settleReceiptOnlyDeletions = receiptSource
-        ? await prepareSqliteSessionReceiptDeletions(receiptSource, receiptOnlyTargets, {
-            env: scope.env,
-            assertCurrent,
-            assertRepositoryCurrent: () => repositorySource?.admission.assertCurrent(),
-          })
-        : undefined;
+      const settleReceiptOnlyDeletions =
+        receiptSource && receiptOnlyTargets.length > 0
+          ? await prepareSqliteSessionReceiptDeletions(receiptSource, receiptOnlyTargets, {
+              env: scope.env,
+              assertCurrent,
+              assertRepositoryCurrent: () => repositorySource?.admission.assertCurrent(),
+            })
+          : undefined;
       return await deletions.run(
         new Map(
           targets.map((target) => [
@@ -524,10 +528,10 @@ async function withSqliteSessionMutations<T>(
                   throw new Error("Repository workspace session changed before deletion");
                 }
               };
-              await receiptDeletions.get(workspace.workspaceId)!(
-                assertSessionAbsent,
+              await receiptDeletions.get(workspace.workspaceId)!({
+                assertCurrent: assertSessionAbsent,
                 sessionEntryCurrent,
-              );
+              });
               await repositories?.delete({
                 workspaceId: workspace.workspaceId,
                 sessionEntryCurrent,

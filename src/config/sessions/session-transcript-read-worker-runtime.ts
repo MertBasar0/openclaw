@@ -3,13 +3,12 @@ import { runtimeProcessEntrypoints } from "../../infra/runtime-process-entrypoin
 import { resolveRuntimeWorkerUrl } from "../../infra/runtime-worker-url.js";
 import { WorkerTaskPool } from "../../infra/worker-task-pool.js";
 import type { SensitiveTextRedactionSnapshot } from "../../logging/redact.js";
-import type { SessionBranchSummaryReadRequest } from "./session-accessor.sqlite-branches.js";
 import type { readSessionTranscriptModelContext } from "./session-accessor.sqlite-model-context.js";
 import type { SessionTranscriptRuntimeTarget } from "./session-accessor.types.js";
+import type { SessionContextMessagesWorkerInput } from "./session-history-read.types.js";
 import { unwrapSessionTranscriptWorkerReply } from "./session-history-worker-errors.js";
 import { resolveSessionTranscriptReadFence } from "./session-transcript-read-fence.js";
 import type {
-  SessionBranchSummaryWorkerInput,
   SessionEntryWorkerInput,
   SessionResetRecallWorkerInput,
   SessionModelContextWorkerInput,
@@ -38,16 +37,15 @@ function createTranscriptReadPool<Input extends SessionTranscriptWorkerInput>(
 
 // Preserve context-read admission order and avoid multiplying large SQLite scans.
 const modelContextReads = createTranscriptReadPool<
-  SessionModelContextWorkerInput | SessionSqliteTargetWorkerInput
+  | SessionModelContextWorkerInput
+  | SessionSqliteTargetWorkerInput
+  | SessionContextMessagesWorkerInput
 >();
 
 // Background transcript exports cannot occupy the foreground context worker.
 const sessionEntries = createTranscriptReadPool<
   SessionEntryWorkerInput | SessionResetRecallWorkerInput
 >(true);
-
-// Branch scans share background compute admission without delaying foreground history or context.
-const branchSummaries = createTranscriptReadPool<SessionBranchSummaryWorkerInput>(true);
 
 export async function readSessionTranscriptModelContextInWorker(
   target: SessionTranscriptRuntimeTarget,
@@ -58,7 +56,7 @@ export async function readSessionTranscriptModelContextInWorker(
   expectedIdentity?: SessionModelContextWorkerInput["expectedIdentity"],
 ): Promise<ReturnType<typeof readSessionTranscriptModelContext>> {
   signal?.throwIfAborted();
-  const value = unwrapSessionTranscriptWorkerReply<"model-context" | "sqlite-target">(
+  const value = unwrapSessionTranscriptWorkerReply(
     await modelContextReads.run(
       { kind: "model-context", target, admission, through, limits, expectedIdentity },
       { timeoutMs: 60_000, signal },
@@ -75,7 +73,7 @@ export async function resolveSessionSqliteTargetInWorker(
   signal?: AbortSignal,
 ) {
   signal?.throwIfAborted();
-  const value = unwrapSessionTranscriptWorkerReply<"model-context" | "sqlite-target">(
+  const value = unwrapSessionTranscriptWorkerReply(
     await modelContextReads.run(
       { kind: "sqlite-target", ...input },
       { inputBytes: JSON.stringify(input).length * 2, timeoutMs: 60_000, signal },
@@ -85,6 +83,25 @@ export async function resolveSessionSqliteTargetInWorker(
     throw new Error("Session context worker returned context instead of a database target");
   }
   return value.target;
+}
+
+export async function readSessionTranscriptContextMessagesInWorker(
+  target: SessionTranscriptRuntimeTarget,
+  admission: SessionContextMessagesWorkerInput["admission"],
+  signal?: AbortSignal,
+  expectedIdentity?: SessionContextMessagesWorkerInput["expectedIdentity"],
+) {
+  signal?.throwIfAborted();
+  const value = unwrapSessionTranscriptWorkerReply(
+    await modelContextReads.run(
+      { kind: "context-messages", target, admission, expectedIdentity },
+      { timeoutMs: 60_000, signal },
+    ),
+  );
+  if (!("messages" in value)) {
+    throw new Error("Session context worker returned a different context operation");
+  }
+  return value;
 }
 
 export async function prepareSessionEntryInWorker(
@@ -138,27 +155,4 @@ export async function readSessionResetRecallCutoffInWorker(
     throw new Error("Session transcript worker returned an export instead of reset metadata");
   }
   return result.cutoff;
-}
-
-export async function runSessionBranchSummaryWorkerRequest(
-  request: SessionBranchSummaryReadRequest,
-  signal: AbortSignal,
-) {
-  return unwrapSessionTranscriptWorkerReply<"branch-summaries">(
-    await branchSummaries.run(
-      { kind: "branch-summaries", request },
-      {
-        inputBytes:
-          2 *
-          (request.database.agentId.length +
-            request.database.path.length +
-            request.databaseIdentity.length +
-            request.sessionKey.length +
-            request.sessionId.length +
-            (request.lifecycleRevision?.length ?? 0)),
-        timeoutMs: 60_000,
-        signal,
-      },
-    ),
-  );
 }

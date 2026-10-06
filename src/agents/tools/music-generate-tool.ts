@@ -1,4 +1,3 @@
-/** Runs music generation, persistence, and detached completion. */
 import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
 import { Type } from "typebox";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -264,7 +263,7 @@ export function createMusicGenerateTool(options?: MediaGenerateToolOptions): Any
                 ...(typeof durationSeconds === "number" ? { durationSeconds } : {}),
                 ...(format ? { format } : {}),
                 ...(filename ? { filename } : {}),
-                ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+                timeoutMs,
                 ...(timeout.normalization
                   ? {
                       requestedTimeoutMs: timeout.normalization.requested,
