@@ -17,6 +17,10 @@ const MAX_CHOICE_OPTIONS = 255;
 const MAX_SCORE_LEVELS = 10;
 // Same bound as the TypeSafe transport; the reader stops at the limit instead of buffering the rest.
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+// Measured live against typesafe-ai/jev: a 25,000-character request succeeded (4,068 input
+// tokens) and a 60,176-byte request returned 503. Larger request bodies are refused before
+// dispatch. The bound sits above every tool-prefilter request (at most 8,000 text code units).
+const MAX_REQUEST_BYTES = 32 * 1024;
 const DEFAULT_DECISION_MODEL = "typesafe-ai/jev";
 
 export type VercelAiGatewayDecisionConfig = {
@@ -105,13 +109,6 @@ export function createVercelAiGatewayDecisionProvider(
         }
       }
 
-      const timeoutMs = Math.min(config.timeoutMs ?? DEFAULT_TIMEOUT_MS, remainingMs);
-      const { signal, cleanup } = buildTimeoutAbortSignal({
-        signal: context.signal,
-        timeoutMs,
-        operation: "Vercel AI Gateway decision evaluation",
-      });
-
       const baseUrl = config.baseUrl ?? VERCEL_AI_GATEWAY_BASE_URL;
       const endpoint = `${baseUrl}/v4/ai/evaluation-model`;
       const model = context.model || DEFAULT_DECISION_MODEL;
@@ -129,6 +126,18 @@ export function createVercelAiGatewayDecisionProvider(
         state: batch.state,
         questions,
         providerOptions: {},
+      });
+      // The gateway answers evidence beyond the model's input limit with HTTP 503, which cannot be
+      // told apart from an outage and would count toward the provider circuit. Refuse it locally.
+      if (Buffer.byteLength(bodyPayload) > MAX_REQUEST_BYTES) {
+        return { status: "unavailable", reason: "unsupported-input" };
+      }
+
+      const timeoutMs = Math.min(config.timeoutMs ?? DEFAULT_TIMEOUT_MS, remainingMs);
+      const { signal, cleanup } = buildTimeoutAbortSignal({
+        signal: context.signal,
+        timeoutMs,
+        operation: "Vercel AI Gateway decision evaluation",
       });
 
       const assertCurrentRequest = () => {

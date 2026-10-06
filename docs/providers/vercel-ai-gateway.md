@@ -130,12 +130,15 @@ under [Advanced configuration](#advanced-configuration). Evaluations send the
 selected evidence through Vercel AI Gateway and incur its normal usage charges.
 
 The Gateway answers evidence beyond the model's input limit with HTTP 503, the
-same status it uses for a service outage, so OpenClaw counts it as a transport
-failure. After three consecutive transport failures, evaluations through this
-provider pause for at least 10 seconds; callers keep their normal behavior
-while it is paused. Keep evaluation evidence well within the model's input
-limit. Boolean questions also need non-empty `instructions`: the Gateway
-rejects them otherwise, and the evaluation returns `unsupported-input`.
+same status it uses for a service outage. To keep oversized evidence from
+looking like an outage, OpenClaw refuses evaluation requests larger than 32 KiB
+before sending them and returns `unsupported-input`, which does not count
+toward the provider's failure cooldown. Tool filtering stays well within that
+budget. A 503 that still reaches OpenClaw counts as a transport failure, and
+after three consecutive transport failures, evaluations through this provider
+pause for at least 10 seconds while callers keep their normal behavior. Boolean
+questions also need non-empty `instructions`: the Gateway rejects them
+otherwise, and the evaluation returns `unsupported-input`.
 
 ## Advanced configuration
 

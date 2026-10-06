@@ -107,6 +107,28 @@ describe("vercel ai gateway decision provider", () => {
   });
 
   it.each([
+    { label: "over the request budget", chars: 40_000, dispatches: 0 },
+    { label: "within the request budget", chars: 20_000, dispatches: 1 },
+  ])(
+    "applies the request budget before dispatch for evidence $label",
+    async ({ chars, dispatches }) => {
+      globalThis.fetch = vi.fn().mockResolvedValue(new Response("{}", { status: 503 }));
+      const provider = createVercelAiGatewayDecisionProvider(() => ({ apiKey: "test-key" }));
+
+      const outcome = await provider.evaluate(
+        { ...batch, state: { userMessage: "x".repeat(chars) } },
+        createContext(),
+      );
+
+      expect(globalThis.fetch).toHaveBeenCalledTimes(dispatches);
+      expect(outcome).toEqual({
+        status: "unavailable",
+        reason: dispatches ? "transport" : "unsupported-input",
+      });
+    },
+  );
+
+  it.each([
     { admitted: false, dispatches: 0 },
     { admitted: true, dispatches: 1 },
   ])(
