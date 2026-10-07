@@ -6,12 +6,12 @@ import type {
   WorkerProvisioningDispatchPlacement,
 } from "./placement-dispatch-failure.js";
 import type { WorkerPlacementDispatchService } from "./placement-dispatch.js";
-import { matchesWorkerPlacementTarget } from "./placement-reclaim-contract.js";
 import type { WorkerPlacementRecoveryAdmission } from "./placement-recovery-contract.js";
-import type {
-  WorkerPlacementDispatchAdmission,
-  WorkerPlacementCancellationTarget,
-} from "./service-contract.js";
+import {
+  matchesWorkerPlacementTarget,
+  type WorkerPlacementCancellationTarget,
+} from "./placement-target.js";
+import type { WorkerPlacementDispatchAdmission } from "./service-contract.js";
 
 function trackPlacementOperation<T extends WorkerDispatchPlacement | void>(
   run: (report: (placement: WorkerDispatchPlacement) => void) => Promise<T>,
@@ -372,9 +372,17 @@ export function coordinateWorkerPlacementDispatch(
         );
         return await admitDispatch(
           request,
-          (signal) =>
+          (signal, assertSessionCurrent) =>
             runSessionOperation(request.sessionId, signal, () =>
-              service.dispatch(request, report, authorize, signal),
+              service.dispatch(
+                request,
+                report,
+                () => {
+                  authorize?.();
+                  assertSessionCurrent?.();
+                },
+                signal,
+              ),
             ),
           authorize,
           callerSignal,
@@ -437,9 +445,17 @@ export function coordinateWorkerPlacementDispatch(
         await Promise.allSettled(predecessors.map((pending) => pending.operation));
         return await admitDispatch(
           request,
-          (signal) =>
+          (signal, assertSessionCurrent) =>
             runSessionOperation(request.sessionId, signal, () =>
-              service.move(request, report, authorize, signal),
+              service.move(
+                request,
+                report,
+                () => {
+                  authorize?.();
+                  assertSessionCurrent?.();
+                },
+                signal,
+              ),
             ),
           authorize,
         );
@@ -535,10 +551,12 @@ export function coordinateWorkerPlacementDispatch(
           },
           report,
           (runRecovery) =>
-            admitDispatch(placement, async (signal) => {
+            admitDispatch(placement, async (signal, assertSessionCurrent) => {
               try {
                 signal?.throwIfAborted();
+                assertSessionCurrent?.();
                 const recovered = await runRecovery(signal);
+                assertSessionCurrent?.();
                 if (providerPending) {
                   foreground.resolve(recovered);
                 }
