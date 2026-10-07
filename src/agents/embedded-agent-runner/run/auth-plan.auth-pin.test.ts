@@ -11,10 +11,10 @@ import { clearRuntimeAuthProfileStoreSnapshot, type OAuthCredential } from "../.
 import { testing as externalAuthTesting } from "../../auth-profiles/external-auth.test-support.js";
 import { clearAuthProfileMigrationDiagnostics } from "../../auth-profiles/legacy-source-diagnostic.js";
 import { writePersistedAuthProfileStoreRaw } from "../../auth-profiles/sqlite.js";
+import { createNativeModelOwnedRuntimeModel } from "../../defaults.js";
 import type { AgentHarness } from "../../harness/types.js";
 import * as modelRuntime from "../model.js";
 import { prepareEmbeddedRunAuthPlan } from "./auth-plan.js";
-import { createNativeModelOwnedRuntimeModel } from "./setup.js";
 
 const readCodexCliCredentialsCachedMock = vi.hoisted(() =>
   vi.fn<(_options?: unknown) => OAuthCredential | null>(() => null),
