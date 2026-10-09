@@ -16,6 +16,7 @@ export function captureCommand(command: OpenClawStateReadCommand): OpenClawState
     command.type === "sessionState.versions" ||
     command.type === "sessionState.ambientTargets" ||
     command.type === "sessionState.events" ||
+    command.type === "sessionUpstream.read" ||
     command.type === "operatorApprovals.placementGrant" ||
     command.type === "operatorApprovals.history" ||
     command.type === "diagnostic.latest" ||
@@ -222,6 +223,7 @@ function commandBytes(command: OpenClawStateReadRequest["command"]): number {
     command.type === "sessionState.versions" ||
     command.type === "sessionState.ambientTargets" ||
     command.type === "sessionState.events" ||
+    command.type === "sessionUpstream.read" ||
     command.type === "workers.placementProjection" ||
     command.type === "workers.placementPendingResults" ||
     isWorkspaceJournalReadCommand(command)
@@ -466,11 +468,22 @@ function commandBytes(command: OpenClawStateReadRequest["command"]): number {
       bytes,
     );
   }
-  if (command.type === "fleet.get") {
-    return bytes + Buffer.byteLength(command.tenantId, "utf8");
-  }
   if (command.type === "onboardingRecommendations.read") {
     return bytes + Buffer.byteLength(command.configKey, "utf8");
+  }
+  if (command.type === "userModelAccounts.summary") {
+    return bytes + stringBytes([command.profileId, command.authProfileId]);
+  }
+  if (command.type === "userModelAccounts.catalog") {
+    return (
+      bytes +
+      Buffer.byteLength(
+        "profileId" in command.selection
+          ? command.selection.profileId
+          : command.selection.requesterProfileId,
+        "utf8",
+      )
+    );
   }
   if (
     command.type === "userModelAccounts.links" ||
