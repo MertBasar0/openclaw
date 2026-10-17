@@ -1,4 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
+import { createNodeProxyAgent } from "openclaw/plugin-sdk/fetch-runtime";
 import WebSocket from "ws";
 import { OpenAIQuicksilverSocketRuntime } from "./realtime-quicksilver-socket.runtime.js";
 import type {
@@ -19,9 +20,13 @@ function post(message: QuicksilverSocketMessage): void {
 try {
   // These are the only options constructed by sideband admission; do not clone
   // factories, Agents, callbacks, loggers or the credential resolver into media.
+  // Managed proxy hooks patch only the Gateway isolate, so route from the
+  // inherited proxy env here. A proxy failure closes media; it never dials direct.
+  const agent = createNodeProxyAgent({ mode: "env", targetUrl: data.url });
   const socket = new WebSocket(data.url, {
     headers: data.options.headers,
     maxPayload: data.options.maxPayload,
+    ...(agent ? { agent } : {}),
   });
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
   const runtime = new OpenAIQuicksilverSocketRuntime(
