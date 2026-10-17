@@ -1,5 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
-import WebSocket from "ws";
+import { WebSocket } from "openclaw/plugin-sdk/websocket-runtime";
 import { OpenAIQuicksilverSocketRuntime } from "./realtime-quicksilver-socket.runtime.js";
 import type {
   QuicksilverSocketCommand,
@@ -21,8 +21,9 @@ try {
   // factories, Agents, callbacks, loggers or the credential resolver into media.
   // Managed proxy hooks patch only the Gateway isolate, so route from the
   // inherited proxy env here. A proxy failure closes media; it never dials direct.
-  // The helper loads undici (~200 ms), so only proxied hosts pay for it; it still
-  // owns NO_PROXY and protocol selection.
+  // The SDK WebSocket honors agents on Bun, where bare ws resolves to Bun's adapter.
+  // The helper's module graph costs ~250 ms, so only proxied hosts load it; it
+  // still owns NO_PROXY and protocol selection.
   const agent = Object.keys(process.env).some(
     (key) => /^(?:https?|all)_proxy$/i.test(key) && process.env[key],
   )
