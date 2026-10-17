@@ -1,5 +1,4 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { createNodeProxyAgent } from "openclaw/plugin-sdk/fetch-runtime";
 import WebSocket from "ws";
 import { OpenAIQuicksilverSocketRuntime } from "./realtime-quicksilver-socket.runtime.js";
 import type {
@@ -22,7 +21,16 @@ try {
   // factories, Agents, callbacks, loggers or the credential resolver into media.
   // Managed proxy hooks patch only the Gateway isolate, so route from the
   // inherited proxy env here. A proxy failure closes media; it never dials direct.
-  const agent = createNodeProxyAgent({ mode: "env", targetUrl: data.url });
+  // The helper loads undici (~200 ms), so only proxied hosts pay for it; it still
+  // owns NO_PROXY and protocol selection.
+  const agent = Object.keys(process.env).some(
+    (key) => /^(?:https?|all)_proxy$/i.test(key) && process.env[key],
+  )
+    ? (await import("openclaw/plugin-sdk/fetch-runtime")).createNodeProxyAgent({
+        mode: "env",
+        targetUrl: data.url,
+      })
+    : undefined;
   const socket = new WebSocket(data.url, {
     headers: data.options.headers,
     maxPayload: data.options.maxPayload,

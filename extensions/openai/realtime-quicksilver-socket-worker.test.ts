@@ -224,6 +224,7 @@ function stubManagedProxyEnv(proxyUrl: string, loopbackMode: "gateway-only" | "p
   }
   vi.stubEnv("OPENCLAW_PROXY_ACTIVE", "1");
   vi.stubEnv("OPENCLAW_PROXY_LOOPBACK_MODE", loopbackMode);
+  vi.stubEnv("OPENCLAW_PROXY_CA_FILE", undefined);
   for (const key of ["no_proxy", "NO_PROXY"]) {
     vi.stubEnv(
       key,
