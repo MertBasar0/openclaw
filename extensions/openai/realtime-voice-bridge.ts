@@ -13,7 +13,7 @@ import {
   isRecord,
   readStringField,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
-import WebSocket from "ws";
+import { WebSocket } from "openclaw/plugin-sdk/websocket-runtime";
 import type { OpenAIRealtimeHost } from "./realtime-host.js";
 import {
   readRealtimeErrorDetail,
