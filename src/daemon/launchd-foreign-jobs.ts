@@ -56,6 +56,7 @@ function isCandidate(label: string, env: NodeJS.ProcessEnv): boolean {
       resolveGatewayLaunchAgentLabel(env.OPENCLAW_PROFILE),
       resolveLaunchAgentLabel(env),
       resolveNodeLaunchAgentLabel(),
+      resolveNodeLaunchAgentLabel(env.OPENCLAW_PROFILE),
     ]).has(label)
   );
 }

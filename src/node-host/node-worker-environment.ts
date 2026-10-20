@@ -1,5 +1,5 @@
 import path from "node:path";
-import { NODE_SERVICE_KIND, resolveNodeLaunchAgentLabel } from "../daemon/constants.js";
+import { NODE_SERVICE_KIND, isNodeLaunchAgentLabel } from "../daemon/constants.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 
 const POSIX_WORKER_ENV_KEYS = new Set([
@@ -77,7 +77,7 @@ export function snapshotNodeWorkerEnv(
   const hostCacheFenced =
     source.NODE_DISABLE_COMPILE_CACHE !== undefined &&
     source.OPENCLAW_SERVICE_KIND === NODE_SERVICE_KIND &&
-    source.OPENCLAW_LAUNCHD_LABEL === resolveNodeLaunchAgentLabel();
+    isNodeLaunchAgentLabel(source.OPENCLAW_LAUNCHD_LABEL ?? "");
   const workerCacheDisabled = source.NODE_DISABLE_COMPILE_CACHE !== undefined && !hostCacheFenced;
   if (!workerCacheDisabled) {
     const requestedCache = hostCacheFenced ? undefined : source.NODE_COMPILE_CACHE?.trim();

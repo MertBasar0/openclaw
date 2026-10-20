@@ -140,6 +140,8 @@ openclaw node restart
 
 `node install` also accepts `--context-path`, `--tls`, `--tls-fingerprint`, `--node-id` (legacy client instance ID only), `--share-installed-apps` / `--no-share-installed-apps`, `--runtime <node|bun>` (default: `node`), and `--force` to reinstall. Bun requires version 1.4.3+ with WAL-reset-safe `node:sqlite` and is an explicit opt-in; Node remains recommended. `node status`, `node stop`, and `node uninstall` are also available.
 
+With `openclaw --profile <name> node install`, the node service is named after the profile, so each profile can run its own node next to the default one: launchd `ai.openclaw.node.<name>`, systemd `openclaw-node-<name>.service`, Windows `OpenClaw Node (<name>)`. Manage it with the same `--profile`.
+
 For `npx openclaw node install` or `npx openclaw connect <join-url> --service`,
 OpenClaw installs the selected release into `<state-dir>/npm` before writing
 the service. The state directory respects `OPENCLAW_STATE_DIR` and profiles.

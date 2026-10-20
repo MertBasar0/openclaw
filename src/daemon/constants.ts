@@ -66,6 +66,7 @@ function isAmbiguousLegacyGatewayCandidate(legacyName: string): boolean {
   // gateway-lisa -> openclaw-gateway-lisa).
   return (
     legacyName === NODE_SYSTEMD_SERVICE_NAME ||
+    legacyName.startsWith(`${NODE_SYSTEMD_SERVICE_NAME}-`) ||
     legacyName === GATEWAY_SYSTEMD_SERVICE_NAME ||
     legacyName.startsWith(`${GATEWAY_SYSTEMD_SERVICE_NAME}-`)
   );
@@ -160,23 +161,34 @@ export function resolveGatewayServiceDescription(params: {
   return params.description ?? formatGatewayServiceDescription(params.env.OPENCLAW_PROFILE);
 }
 
-export function resolveNodeLaunchAgentLabel(): string {
-  return NODE_LAUNCH_AGENT_LABEL;
+// A named profile gets its own node service, as it gets its own gateway. Profile names have no
+// dots, so ai.openclaw.node.<profile> never equals a gateway label (ai.openclaw.<profile>).
+export function resolveNodeLaunchAgentLabel(profile?: string): string {
+  const normalized = normalizeGatewayProfile(profile);
+  return normalized ? `${NODE_LAUNCH_AGENT_LABEL}.${normalized}` : NODE_LAUNCH_AGENT_LABEL;
 }
 
-export function resolveNodeSystemdServiceName(): string {
-  return NODE_SYSTEMD_SERVICE_NAME;
+export function isNodeLaunchAgentLabel(label: string): boolean {
+  return label === NODE_LAUNCH_AGENT_LABEL || label.startsWith(`${NODE_LAUNCH_AGENT_LABEL}.`);
 }
 
-export function resolveNodeWindowsTaskName(): string {
-  return NODE_WINDOWS_TASK_NAME;
+export function resolveNodeSystemdServiceName(profile?: string): string {
+  return `${NODE_SYSTEMD_SERVICE_NAME}${resolveGatewayProfileSuffix(profile)}`;
 }
 
-export function resolveNodeServiceIdentityEnvironment(): Record<string, string> {
+export function resolveNodeWindowsTaskName(profile?: string): string {
+  const normalized = normalizeGatewayProfile(profile);
+  return normalized ? `${NODE_WINDOWS_TASK_NAME} (${normalized})` : NODE_WINDOWS_TASK_NAME;
+}
+
+export function resolveNodeServiceIdentityEnvironment(
+  env: Record<string, string | undefined> = {},
+): Record<string, string> {
+  const profile = env.OPENCLAW_PROFILE;
   return {
-    OPENCLAW_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(),
-    OPENCLAW_SYSTEMD_UNIT: resolveNodeSystemdServiceName(),
-    OPENCLAW_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(),
+    OPENCLAW_LAUNCHD_LABEL: resolveNodeLaunchAgentLabel(profile),
+    OPENCLAW_SYSTEMD_UNIT: resolveNodeSystemdServiceName(profile),
+    OPENCLAW_WINDOWS_TASK_NAME: resolveNodeWindowsTaskName(profile),
     OPENCLAW_WINDOWS_TASK_HIDDEN_LAUNCHER: "1",
     OPENCLAW_TASK_SCRIPT_NAME: NODE_WINDOWS_TASK_SCRIPT_NAME,
     OPENCLAW_LOG_PREFIX: "node",

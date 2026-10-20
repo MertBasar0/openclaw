@@ -93,7 +93,7 @@ export async function maybeRepairNodeServiceConfig(
     );
     const serviceEnv = mergeGatewayServiceEnv(env, command);
     assertDoctorServiceSelection(env, serviceEnv);
-    const nativeEnv = { ...serviceEnv, ...resolveNodeServiceIdentityEnvironment() };
+    const nativeEnv = { ...serviceEnv, ...resolveNodeServiceIdentityEnvironment(serviceEnv) };
     const drift: ServiceDefinitionDrift[] = [];
     let driftError: string | undefined;
     if (process.platform === "darwin") {
@@ -134,7 +134,7 @@ export async function maybeRepairNodeServiceConfig(
       return;
     }
     const pin = await withDaemonRuntimePinMigration(
-      { ...serviceEnv, ...resolveNodeServiceIdentityEnvironment() },
+      { ...serviceEnv, ...resolveNodeServiceIdentityEnvironment(serviceEnv) },
       () => readDaemonRuntimePin({ kind: "node", env: serviceEnv }, command),
     );
     const state = await service.readRuntime(serviceEnv, {

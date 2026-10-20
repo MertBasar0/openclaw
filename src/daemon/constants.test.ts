@@ -1,11 +1,36 @@
 // Daemon constant tests cover platform constants used by service installers.
 import { describe, expect, it } from "vitest";
 import {
+  isNodeLaunchAgentLabel,
+  resolveGatewayLaunchAgentLabel,
   resolveGatewayNativeServiceIdentityConflict,
   resolveGatewayProfileSuffix,
   resolveGatewayServiceDescription,
   resolveGatewaySystemdServiceNameCandidates,
+  resolveNodeServiceIdentityEnvironment,
 } from "./constants.js";
+
+describe("resolveNodeServiceIdentityEnvironment", () => {
+  it("gives a named profile its own node service and keeps the default names", () => {
+    const defaults = {
+      OPENCLAW_LAUNCHD_LABEL: "ai.openclaw.node",
+      OPENCLAW_SYSTEMD_UNIT: "openclaw-node",
+      OPENCLAW_WINDOWS_TASK_NAME: "OpenClaw Node",
+    };
+    expect(resolveNodeServiceIdentityEnvironment()).toMatchObject(defaults);
+    expect(resolveNodeServiceIdentityEnvironment({ OPENCLAW_PROFILE: "default" })).toMatchObject(
+      defaults,
+    );
+    expect(resolveNodeServiceIdentityEnvironment({ OPENCLAW_PROFILE: "work" })).toMatchObject({
+      OPENCLAW_LAUNCHD_LABEL: "ai.openclaw.node.work",
+      OPENCLAW_SYSTEMD_UNIT: "openclaw-node-work",
+      OPENCLAW_WINDOWS_TASK_NAME: "OpenClaw Node (work)",
+    });
+    // Profile names cannot contain dots, so a node label never equals a gateway label.
+    expect(isNodeLaunchAgentLabel("ai.openclaw.node.work")).toBe(true);
+    expect(isNodeLaunchAgentLabel(resolveGatewayLaunchAgentLabel("work"))).toBe(false);
+  });
+});
 
 describe("resolveGatewaySystemdServiceNameCandidates", () => {
   it("includes current default and legacy bare openclaw", () => {
@@ -30,6 +55,10 @@ describe("resolveGatewaySystemdServiceNameCandidates", () => {
     ]);
     expect(resolveGatewaySystemdServiceNameCandidates("gateway-lisa")).toEqual([
       "openclaw-gateway-gateway-lisa",
+    ]);
+    // openclaw-node-lisa is the node service of profile "lisa".
+    expect(resolveGatewaySystemdServiceNameCandidates("node-lisa")).toEqual([
+      "openclaw-gateway-node-lisa",
     ]);
   });
 });
