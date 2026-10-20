@@ -1,10 +1,8 @@
 import { once } from "node:events";
 import http, { createServer, type ClientRequest, type RequestOptions } from "node:http";
 import https from "node:https";
-import { connect, type AddressInfo, type Socket } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import { createNodeProxyAgent } from "openclaw/plugin-sdk/fetch-runtime";
-import { rawDataToString } from "openclaw/plugin-sdk/realtime-voice-provider";
-import { WebSocketServer } from "openclaw/plugin-sdk/websocket-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { openAIRealtimeHost } from "./realtime-host.js";
 import { OpenAIQuicksilverGatewayBridge } from "./realtime-quicksilver-gateway-bridge.js";
@@ -14,7 +12,6 @@ import {
   createRequest,
   createResponseHarness,
 } from "./realtime-quicksilver.test-helpers.js";
-import { buildOpenAIRealtimeVoiceProvider } from "./realtime-voice-provider.js";
 
 const closers: Array<() => Promise<void> | void> = [];
 
@@ -31,32 +28,12 @@ afterEach(async () => {
 
 // Gateway-isolate sockets get no agent of their own: they rely on the managed
 // proxy hooks below, which Bun's built-in adapter for a bare `ws` import skips.
-describe("OpenAI realtime sockets under the managed proxy", () => {
-  it("tunnels the realtime voice bridge through the managed proxy", async () => {
-    const target = await startRealtimeTarget();
-    const proxy = await startForwardProxy(true);
-    routeNodeHttpThroughProxy(proxy.url);
-    // Only the proxy reaches this host, like api.openai.com behind egress restrictions.
-    const authority = `realtime.openai.test:${target.port}`;
-    const bridge = buildOpenAIRealtimeVoiceProvider().createBridge({
-      providerConfig: {
-        apiKey: "test-realtime-key",
-        baseUrl: `ws://${authority}/v1/realtime`,
-      },
-      onAudio: vi.fn(),
-      onClearAudio: vi.fn(),
-    });
-    closers.push(() => bridge.close());
-
-    await bridge.connect();
-
-    expect(bridge.isConnected()).toBe(true);
-    expect(proxy.connects).toEqual([authority]);
-    expect(target.authorizations).toEqual(["Bearer test-realtime-key"]);
-  }, 10_000);
-
+// The realtime voice bridge runs against the real hooks in
+// src/infra/net/proxy/managed-proxy-openai-realtime.test.ts; these sideband paths
+// are not on the plugin's public surface.
+describe("OpenAI realtime sidebands under the managed proxy", () => {
   it("offers the browser session sideband only to the managed proxy", async () => {
-    const proxy = await startForwardProxy(false);
+    const proxy = await startRefusingProxy();
     routeNodeHttpThroughProxy(proxy.url);
     const realtime = createOpenAIQuicksilverBrowserSessionBroker(
       {
@@ -89,7 +66,7 @@ describe("OpenAI realtime sockets under the managed proxy", () => {
   }, 15_000);
 
   it("offers the gateway relay sideband only to the managed proxy", async () => {
-    const proxy = await startForwardProxy(false);
+    const proxy = await startRefusingProxy();
     routeNodeHttpThroughProxy(proxy.url);
     const bridge = new OpenAIQuicksilverGatewayBridge(
       {
@@ -148,61 +125,20 @@ function routeNodeHttpThroughProxy(proxyUrl: string): void {
   }
 }
 
-async function startRealtimeTarget() {
-  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
-  const authorizations: string[] = [];
-  server.on("connection", (socket, request) => {
-    authorizations.push(request.headers.authorization ?? "");
-    socket.on("message", (data) => {
-      const event = JSON.parse(rawDataToString(data)) as { type?: string };
-      if (event.type === "session.update") {
-        socket.send(JSON.stringify({ type: "session.updated" }));
-      }
-    });
-  });
-  await once(server, "listening");
-  closers.push(
-    () =>
-      new Promise<void>((resolve) => {
-        for (const client of server.clients) {
-          client.terminate();
-        }
-        server.close(() => resolve());
-      }),
-  );
-  return { port: (server.address() as AddressInfo).port, authorizations };
-}
-
-async function startForwardProxy(admit: boolean) {
+// Refuses every tunnel, so a sideband can only fail; the CONNECT targets show where it dialed.
+async function startRefusingProxy() {
   const connects: string[] = [];
-  const sockets = new Set<Socket>();
   const server = createServer((_request, response) => response.writeHead(405).end());
-  server.on("connection", (socket) => sockets.add(socket));
-  server.on("connect", (request, client: Socket, head: Buffer) => {
-    const authority = request.url ?? "";
-    connects.push(authority);
-    if (!admit) {
-      client.end("HTTP/1.1 403 Forbidden\r\n\r\n");
-      return;
-    }
-    const upstream = connect(Number(authority.split(":").at(-1)), "127.0.0.1", () => {
-      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-      upstream.write(head);
-      upstream.pipe(client);
-      client.pipe(upstream);
-    });
-    sockets.add(upstream);
-    upstream.on("error", () => client.destroy());
-    client.on("error", () => upstream.destroy());
+  server.on("connect", (request, client: Socket) => {
+    connects.push(request.url ?? "");
+    client.end("HTTP/1.1 403 Forbidden\r\n\r\n");
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   closers.push(
     () =>
       new Promise<void>((resolve) => {
-        for (const socket of sockets) {
-          socket.destroy();
-        }
+        server.closeAllConnections();
         server.close(() => resolve());
       }),
   );

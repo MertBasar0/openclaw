@@ -67,7 +67,8 @@ const providerMocks = await vi.hoisted(async () => {
     },
   };
 });
-vi.mock("openclaw/plugin-sdk/websocket-runtime", () => ({
+vi.mock("openclaw/plugin-sdk/websocket-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/websocket-runtime")>()),
   WebSocket: providerMocks.FakeWebSocket,
 }));
 vi.mock("openclaw/plugin-sdk/provider-auth", async (importOriginal) => ({
