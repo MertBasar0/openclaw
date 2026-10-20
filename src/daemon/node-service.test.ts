@@ -4,7 +4,7 @@ import type { GatewayServiceInstallArgs } from "./service.js";
 
 const installed: GatewayServiceInstallArgs[] = [];
 
-// The platform installer only records what it was given; node-service reads nothing else here.
+// mock-isolation: the real platform installer would register a native service; this one records its arguments.
 vi.mock("./service.js", () => ({
   resolveGatewayService: () => ({
     install: async (args: GatewayServiceInstallArgs) => {
