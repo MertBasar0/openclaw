@@ -64,9 +64,9 @@ function isAmbiguousLegacyGatewayCandidate(legacyName: string): boolean {
   // openclaw-gateway-<profile> are canonical gateway names for default or
   // another profile (node -> openclaw-node, gateway -> openclaw-gateway,
   // gateway-lisa -> openclaw-gateway-lisa).
+  // openclaw-node-<profile> stays a candidate: discovery skips it when its definition is a node.
   return (
     legacyName === NODE_SYSTEMD_SERVICE_NAME ||
-    legacyName.startsWith(`${NODE_SYSTEMD_SERVICE_NAME}-`) ||
     legacyName === GATEWAY_SYSTEMD_SERVICE_NAME ||
     legacyName.startsWith(`${GATEWAY_SYSTEMD_SERVICE_NAME}-`)
   );
@@ -174,6 +174,12 @@ export function isNodeLaunchAgentLabel(label: string): boolean {
 
 export function resolveNodeSystemdServiceName(profile?: string): string {
   return `${NODE_SYSTEMD_SERVICE_NAME}${resolveGatewayProfileSuffix(profile)}`;
+}
+
+// A named profile's node unit name is also the legacy Gateway name of profile node-<profile>
+// (openclaw-<profile>, from before the gateway segment); only the definition tells them apart.
+export function isProfileNodeSystemdServiceName(name: string): boolean {
+  return name.startsWith(`${NODE_SYSTEMD_SERVICE_NAME}-`);
 }
 
 export function resolveNodeWindowsTaskName(profile?: string): string {

@@ -17,7 +17,12 @@ import { hasErrnoCode } from "../infra/errno.js";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
 import { parseTcpPortFromArgs } from "../infra/tcp-port.js";
 import { hasCommandProcessCleanupError } from "../process/exec-result.js";
-import { GATEWAY_SERVICE_KIND, isGatewayServiceEnv } from "./constants.js";
+import {
+  GATEWAY_SERVICE_KIND,
+  isGatewayServiceEnv,
+  isProfileNodeSystemdServiceName,
+  NODE_SERVICE_KIND,
+} from "./constants.js";
 import { resolveDaemonHomeDir } from "./paths.js";
 import { isBunRuntime, isNodeRuntime } from "./runtime-binary.js";
 import {
@@ -49,6 +54,7 @@ import {
   DEFAULT_SYSTEMD_SYSTEM_UNIT_DIRS,
   resolveSystemdUnitLoadPaths,
 } from "./systemd-unit-load-paths.js";
+import { parseSystemdInlineEnvironment } from "./systemd-unit.js";
 
 type SystemdDiscoveryOptions = Pick<
   GatewayServiceReadOptions,
@@ -467,6 +473,11 @@ async function findMarkerOwnedSystemSystemdUnit(
           Boolean(env.OPENCLAW_SYSTEMD_UNIT?.trim()),
         )
       ) {
+        if (
+          await isNodeUnitForGatewayCandidate(env, svc.label.slice(0, -".service".length), unitPath)
+        ) {
+          continue;
+        }
         return target;
       }
       if (allowCustom && !custom.has(target.unitName)) {
@@ -504,6 +515,19 @@ async function findMarkerOwnedSystemSystemdUnit(
   return found;
 }
 
+/** A profile-derived candidate named like profile <x>'s node unit that is that node, not a Gateway. */
+async function isNodeUnitForGatewayCandidate(
+  env: GatewayServiceEnv,
+  name: string,
+  unitPath: string,
+): Promise<boolean> {
+  if (env.OPENCLAW_SYSTEMD_UNIT?.trim() || !isProfileNodeSystemdServiceName(name)) {
+    return false;
+  }
+  const environment = parseSystemdInlineEnvironment(await fs.readFile(unitPath, "utf8"));
+  return environment.OPENCLAW_SERVICE_KIND?.trim() === NODE_SERVICE_KIND;
+}
+
 async function findSystemdGatewayScope(
   env: GatewayServiceEnv,
   scope: "user" | "system",
@@ -526,6 +550,9 @@ async function findSystemdGatewayScope(
         if (!hasErrnoCode(error, "ENOENT")) {
           throw error;
         }
+        continue;
+      }
+      if (await isNodeUnitForGatewayCandidate(env, name, unitPath)) {
         continue;
       }
       return {

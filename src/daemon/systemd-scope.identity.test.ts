@@ -116,6 +116,29 @@ it("rejects legacy aliases that collide with Node or another canonical profile",
   }
 });
 
+it("keeps profile node-work's legacy Gateway but never adopts profile work's node", async () => {
+  const unitPath = `${HOME}/.config/systemd/user/openclaw-node-work.service`;
+  files = [unitPath];
+  let kind = "gateway";
+  vi.spyOn(fs, "readFile").mockImplementation(async (file) => {
+    expect(String(file)).toBe(unitPath);
+    return `[Service]\nExecStart=/usr/bin/openclaw\nEnvironment=OPENCLAW_SERVICE_KIND=${kind}\n`;
+  });
+  const env = { HOME, OPENCLAW_PROFILE: "node-work" };
+
+  await expect(findInstalledSystemdGatewayScope(env)).resolves.toEqual({
+    scope: "user",
+    unitName: "openclaw-node-work.service",
+    unitPath,
+  });
+  kind = "node";
+  await expect(findInstalledSystemdGatewayScope(env)).resolves.toBeNull();
+  // The node itself still finds its own unit by its explicit name.
+  await expect(
+    findInstalledSystemdGatewayScope({ ...env, OPENCLAW_SYSTEMD_UNIT: "openclaw-node-work" }),
+  ).resolves.toEqual({ scope: "user", unitName: "openclaw-node-work.service", unitPath });
+});
+
 it.each(["disk", "marker"])(
   "preserves an explicit instance with only its template on %s",
   async (source) => {

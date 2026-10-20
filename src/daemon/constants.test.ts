@@ -56,9 +56,10 @@ describe("resolveGatewaySystemdServiceNameCandidates", () => {
     expect(resolveGatewaySystemdServiceNameCandidates("gateway-lisa")).toEqual([
       "openclaw-gateway-gateway-lisa",
     ]);
-    // openclaw-node-lisa is the node service of profile "lisa".
+    // openclaw-node-lisa may also be profile "lisa"'s node; discovery reads the definition.
     expect(resolveGatewaySystemdServiceNameCandidates("node-lisa")).toEqual([
       "openclaw-gateway-node-lisa",
+      "openclaw-node-lisa",
     ]);
   });
 });
