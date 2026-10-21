@@ -97,33 +97,6 @@ export function buildStatusUpdateSurface(params: {
   };
 }
 
-function formatStatusTailscaleValue(params: {
-  tailscaleMode: string;
-  dnsName?: string | null;
-  httpsUrl?: string | null;
-  includeBackendStateWhenOn?: boolean;
-  includeDnsNameWhenOff?: boolean;
-  decorateOff?: (value: string) => string;
-  decorateWarn?: (value: string) => string;
-}): string {
-  const decorateOff = params.decorateOff ?? ((value: string) => value);
-  const decorateWarn = params.decorateWarn ?? ((value: string) => value);
-  if (params.tailscaleMode === "off") {
-    // Off mode can still show DNS context when the caller wants diagnostic detail.
-    const suffix = params.includeDnsNameWhenOff ? params.dnsName : null;
-    return decorateOff(suffix ? `off · ${suffix}` : "off");
-  }
-  const hasAddress = params.dnsName && params.httpsUrl;
-  const value = [
-    params.tailscaleMode,
-    params.includeBackendStateWhenOn ? "unknown" : null,
-    ...(hasAddress ? [params.dnsName, params.httpsUrl] : ["magicdns unknown"]),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return hasAddress ? value : decorateWarn(value);
-}
-
 function formatStatusServiceValue(params: StatusManagedService): string {
   const inspectionDetail =
     params.loadState?.status === "unknown"
@@ -236,15 +209,24 @@ export function buildStatusOverviewSurfaceRows(params: {
       : null);
   const gatewayServiceValue = formatStatusServiceValue(params.gatewayService);
   const nodeServiceValue = formatStatusServiceValue(params.nodeService);
-  const tailscaleValue = formatStatusTailscaleValue({
-    tailscaleMode: params.tailscaleMode,
-    dnsName: params.tailscaleDns,
-    httpsUrl: params.tailscaleHttpsUrl,
-    includeBackendStateWhenOn: params.includeBackendStateWhenOn,
-    includeDnsNameWhenOff: params.includeDnsNameWhenOff,
-    decorateOff: params.decorateTailscaleOff,
-    decorateWarn: params.decorateTailscaleWarn,
-  });
+  const decorateTailscaleOff = params.decorateTailscaleOff ?? ((value: string) => value);
+  const decorateTailscaleWarn = params.decorateTailscaleWarn ?? ((value: string) => value);
+  let tailscaleValue: string;
+  if (params.tailscaleMode === "off") {
+    // Off mode can still show DNS context when the caller wants diagnostic detail.
+    const suffix = params.includeDnsNameWhenOff ? params.tailscaleDns : null;
+    tailscaleValue = decorateTailscaleOff(suffix ? `off · ${suffix}` : "off");
+  } else {
+    const hasAddress = params.tailscaleDns && params.tailscaleHttpsUrl;
+    const value = [
+      params.tailscaleMode,
+      params.includeBackendStateWhenOn ? "unknown" : null,
+      ...(hasAddress ? [params.tailscaleDns, params.tailscaleHttpsUrl] : ["magicdns unknown"]),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    tailscaleValue = hasAddress ? value : decorateTailscaleWarn(value);
+  }
   const gatewayAuthWarning =
     params.gatewayAuthWarningValue !== undefined
       ? params.gatewayAuthWarningValue
@@ -342,10 +324,10 @@ export function redactStatusSecrets(text: string): string {
   }
   let out = text;
   out = out.replace(
-    /(\b(?:access[_-]?token|refresh[_-]?token|token|password|secret|api[_-]?key)\b\s*[:=]\s*)("?)([^"\\s]+)("?)/gi,
-    "$1$2***$4",
+    /(["']?\b(?:access[_-]?token|refresh[_-]?token|token|password|secret|api[_-]?key)\b["']?\s*[:=]\s*)(?:Bearer\s+[^\s]+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s]+)/gi,
+    "$1***",
   );
-  out = out.replace(/\bBearer\s+[A-Za-z0-9._-]+\b/g, "Bearer ***");
+  out = out.replace(/\bBearer\s+[^\s]+/gi, "Bearer ***");
   out = out.replace(/\bsk-[A-Za-z0-9]{10,}\b/g, "sk-***");
   return out;
 }

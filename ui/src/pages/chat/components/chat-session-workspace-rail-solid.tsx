@@ -1,21 +1,24 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { JSX } from "@solidjs/web";
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, For, Match, Show, Switch } from "solid-js";
 import { shortestFileLabels } from "../../../components/file-kind.ts";
 import { CopyButton } from "../../../components/solid/copy-button.tsx";
 import { Icon, type IconName } from "../../../components/solid/icon.tsx";
 import { PanelLoadingSkeleton } from "../../../components/solid/panel-loading-skeleton.tsx";
 import "../../../components/tooltip.ts";
+import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
 import { formatByteSize } from "../../../lib/format.ts";
-import { t } from "../../../lib/reactive/i18n.ts";
+import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { liveValue } from "../../../lib/reactive/live-value.ts";
 import { isSessionWorkspaceFileSelected } from "../../../lib/sessions/workspace.ts";
 import { nativeListener } from "../../../lib/solid-native-listener.ts";
 import { FileDownloadButton } from "./chat-file-download-button.tsx";
-import type {
-  SessionWorkspaceFilter,
-  SessionWorkspaceProps,
-} from "./chat-session-workspace-types.ts";
+import { DesktopWorkspaceContents } from "./chat-session-workspace-desktop.tsx";
+import { MobileWorkspaceContents } from "./chat-session-workspace-mobile-adapter.tsx";
+import type { SessionWorkspaceFilter } from "./chat-sidebar-content-types.ts";
+import type { SessionWorkspaceProps } from "./chat-sidebar-view-types.ts";
+
+registerEnglishCatalog(registerChatSessionEnglish);
 
 const SESSION_KIND_LABELS = {
   modified: "chat.workspaceFiles.changed",
@@ -312,7 +315,15 @@ function WorkspaceContents(props: { workspace: SessionWorkspaceProps }) {
         when={!props.workspace.error}
         fallback={
           <div class="chat-workspace-rail__state chat-workspace-rail__state--error">
-            {props.workspace.error}
+            <div role="alert">{props.workspace.error}</div>
+            <button
+              type="button"
+              class="btn small"
+              disabled={props.workspace.loading}
+              onClick={() => props.workspace.onRetry()}
+            >
+              {t("common.retry")}
+            </button>
           </div>
         }
       >
@@ -476,7 +487,16 @@ function WorkspaceContents(props: { workspace: SessionWorkspaceProps }) {
 export function SessionWorkspaceRail(props: { workspace?: SessionWorkspaceProps }) {
   return (
     <Show when={props.workspace}>
-      {(workspace) => <WorkspaceContents workspace={workspace()} />}
+      {(workspace) => (
+        <Switch fallback={<WorkspaceContents workspace={workspace()} />}>
+          <Match when={workspace().presentation === "desktop"}>
+            <DesktopWorkspaceContents workspace={workspace()} />
+          </Match>
+          <Match when={workspace().presentation === "mobile"}>
+            <MobileWorkspaceContents workspace={workspace()} />
+          </Match>
+        </Switch>
+      )}
     </Show>
   );
 }

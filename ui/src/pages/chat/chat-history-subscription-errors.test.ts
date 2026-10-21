@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { GatewayProtocolRequestTimeoutError } from "@openclaw/gateway-client/browser";
 import { createEffect, createRoot, flush } from "@solidjs/signals";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
+import { GatewayRequestError } from "../../api/gateway.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
 import { projectChatFields } from "./chat-field-projection.ts";
 import {
@@ -21,14 +21,17 @@ import { makeChatHost } from "./chat-host.test-support.ts";
 type Subscription = Awaited<ReturnType<SessionCapability["subscribeMessages"]>>;
 type Subscribe = SessionCapability["subscribeMessages"];
 type Unsubscribe = SessionCapability["unsubscribeMessages"];
-const subscriptionTimeout = () =>
-  vi.fn<Subscribe>().mockRejectedValue(
-    new GatewayProtocolRequestTimeoutError({
+const sessionChanged = (overrides: { code?: string; details?: unknown } = {}) =>
+  new GatewayRequestError({
+    code: "INVALID_REQUEST",
+    message: "session changed before sessions.messages.subscribe; retry the request",
+    details: {
+      code: "SESSION_MUTATION_AUTHORIZATION_CHANGED",
       method: "sessions.messages.subscribe",
-      timeoutMs: 30_000,
-      requestSent: true,
-    }),
-  );
+      sessionKey: "agent:main:selected",
+    },
+    ...overrides,
+  });
 
 function createSubscriptionState(options?: {
   sessionKey?: string;
@@ -66,6 +69,84 @@ function createSubscriptionState(options?: {
   return { selected, state, subscribeMessages, unsubscribeMessages, publishedLoads };
 }
 
+it("starts the new subscription before the old unsubscribe settles", async () => {
+  const previous = { key: "agent:main:previous", agentId: null };
+  const release = createDeferred();
+  const { state, selected, subscribeMessages, unsubscribeMessages } = createSubscriptionState({
+    previous,
+    unsubscribeMessages: vi.fn(() => release.promise),
+  });
+  const sync = syncSelectedSessionMessageSubscription(state);
+  await Promise.resolve();
+  expect(unsubscribeMessages).toHaveBeenCalledOnce();
+  expect(subscribeMessages).toHaveBeenCalledWith(selected.key, {
+    agentId: undefined,
+    includeApprovals: true,
+  });
+  expect(state.chatSessionMessageSubscription).toEqual(previous);
+  release.resolve();
+  await sync;
+  expect(state.chatSessionMessageSubscription).toEqual(selected);
+});
+
+it("releases an active message subscription when its pane is disposed", () => {
+  const { state, selected, unsubscribeMessages } = createSubscriptionState();
+  state.chatSessionMessageSubscriptionRequestedKey = selected.key;
+  state.chatSessionMessageSubscription = selected;
+  state.chatSessionApprovalQueue = [
+    {
+      id: "approval-1",
+      kind: "plugin",
+      request: { command: "Approve", sessionKey: selected.key },
+      createdAtMs: 1,
+      expiresAtMs: 2,
+    },
+  ];
+  state.chatSessionApprovalReplay = {
+    complete: true,
+    client: state.client,
+    connectionEpoch: state.connectionEpoch,
+    sessionKey: state.sessionKey,
+  };
+  disposeSelectedSessionMessageSubscription(state);
+  expect(unsubscribeMessages).toHaveBeenCalledExactlyOnceWith(selected);
+  expect(state).toMatchObject({
+    chatSessionApprovalReplay: undefined,
+    chatSessionMessageSubscriptionRequestedKey: null,
+    chatSessionMessageSubscription: null,
+    chatSessionApprovalQueue: [],
+  });
+});
+
+it.each([false, true])(
+  "releases a subscription that resolves after its pane is disposed (initial release fails: %s)",
+  async (failInitialRelease) => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    onTestFinished(() => warning.mockRestore());
+    const requested = createDeferred();
+    const pending = createDeferred<Subscription>();
+    const { state, selected, unsubscribeMessages } = createSubscriptionState({
+      subscribeMessages: vi.fn(() => {
+        requested.resolve();
+        return pending.promise;
+      }),
+    });
+    state.hello = null;
+    if (failInitialRelease) {
+      unsubscribeMessages.mockRejectedValueOnce(new Error("temporary observer release failure"));
+    }
+    const sync = syncSelectedSessionMessageSubscription(state);
+    await requested.promise;
+    disposeSelectedSessionMessageSubscription(state);
+    pending.resolve(selected);
+    await sync;
+    expect(unsubscribeMessages).toHaveBeenCalledExactlyOnceWith(selected);
+    expect(unsubscribeMessages.mock.calls[0]?.[0]).toBe(selected);
+    expect(state.chatSessionMessageSubscription).toBeNull();
+    expect(warning).toHaveBeenCalledTimes(failInitialRelease ? 1 : 0);
+  },
+);
+
 it.each(["dispose", "selection", "capability", "deadline"] as const)(
   "settles transient subscription recovery on %s without touching drafts",
   async (change) => {
@@ -73,7 +154,7 @@ it.each(["dispose", "selection", "capability", "deadline"] as const)(
     onTestFinished(() => {
       vi.useRealTimers();
     });
-    const subscribeMessages = subscriptionTimeout();
+    const subscribeMessages = vi.fn<Subscribe>().mockRejectedValue(sessionChanged());
     const { state } = createSubscriptionState({ subscribeMessages });
     state.chatMessage = "New unsent draft";
     const pending = syncSelectedSessionMessageSubscription(state);
@@ -106,6 +187,22 @@ it.each(["dispose", "selection", "capability", "deadline"] as const)(
     expect(vi.getTimerCount()).toBe(0);
   },
 );
+
+it.each([
+  sessionChanged({ code: "FORBIDDEN" }),
+  sessionChanged({
+    details: { code: "SESSION_MUTATION_AUTHORIZATION_CHANGED", method: "chat.send" },
+  }),
+  sessionChanged({ details: { code: "SESSION_MUTATION_AUTHORIZATION_CHANGED" } }),
+  sessionChanged({ details: { code: "OTHER_ERROR", method: "sessions.messages.subscribe" } }),
+  new Error("session changed before sessions.messages.subscribe; retry the request"),
+])("does not retry a denial or an unqualified session-change error: %s", async (error) => {
+  const subscribeMessages = vi.fn<Subscribe>().mockRejectedValue(error);
+  const { state } = createSubscriptionState({ subscribeMessages });
+  await expect(syncSelectedSessionMessageSubscription(state)).resolves.toBe(false);
+  expect(subscribeMessages).toHaveBeenCalledOnce();
+  expect(getChatHistoryLoadState(state)).toMatchObject({ phase: "failed", retryable: false });
+});
 
 it("keeps a successful replacement and warns when the previous release fails", async () => {
   const warning = vi.spyOn(console, "warn").mockImplementation(() => {});

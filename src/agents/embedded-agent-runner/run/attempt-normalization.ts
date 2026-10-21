@@ -1,6 +1,6 @@
 import { isSqliteTranscriptMutationConflict } from "../../../config/sessions/session-mutation-conflict-error.js";
 import { projectAgentRunAttemptTerminal } from "../../agent-run-terminal-outcome.js";
-import { formatAssistantErrorText } from "../../embedded-agent-helpers.js";
+import { formatAssistantErrorText } from "../../embedded-agent-helpers/error-text.js";
 import { normalizeUsage, type UsageLike } from "../../usage.js";
 import { hasOutboundDeliveryEvidence } from "../delivery-evidence.js";
 import { log } from "../logger.js";
@@ -215,7 +215,6 @@ export async function normalizeEmbeddedRunAttempt(input: {
         lastRunPromptUsage,
       }),
       replayInvalid: input.replayState.replayInvalid ? true : undefined,
-      livenessState: "blocked",
     });
     // Escalating provider failures throw above; only returned results carry a terminal stop.
     result.meta.modelFallbackStopReason = "idle_timeout_circuit_breaker";

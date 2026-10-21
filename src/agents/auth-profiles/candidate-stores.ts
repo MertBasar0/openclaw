@@ -16,11 +16,10 @@ import { listOpenClawRegisteredAgentDatabasesAsync } from "../../state/openclaw-
 import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
 import { captureAuthProfileCredentialAuthority } from "../../state/user-model-account-authority.js";
 import { listAgentEntries, resolveAgentDir } from "../agent-scope.js";
-import { AUTH_STORE_VERSION, reportCommittedInlineAuthFailure } from "./constants.js";
+import { AUTH_STORE_VERSION } from "./constants.js";
 import { isSameOAuthRefreshGeneration } from "./oauth-refresh-marker.js";
 import { mergePersistedAuthProfileState } from "./persisted.js";
 import { getWorkerAuthProfileWrites } from "./runtime-scope.js";
-import { invalidateRuntimeAuthProfileStoreSnapshotsForOwner } from "./runtime-snapshots.js";
 import {
   loadPersistedAuthProfileStoreFromRows,
   prepareAgentAuthProfileRowsRead,
@@ -35,10 +34,12 @@ import { coerceAuthProfileState } from "./state.js";
 import { saveAuthProfileStoreWithPreparedOwner } from "./store-runtime.js";
 import type { SaveAuthProfileStoreOptions } from "./store-save.js";
 import { AuthProfileStoreUnreadableError } from "./store-unreadable-error.js";
-import { publishAuthProfileStoreUpdate } from "./store-update-publication.js";
-import { runAuthProfileStoreUpdate } from "./store-update.js";
+import {
+  createAuthProfileStoreUpdatePublisher,
+  runAuthProfileStoreUpdate,
+} from "./store-update.js";
 import type { AuthStoreUpdateInput } from "./store.worker-contract.js";
-import type { AuthProfileCredential, AuthProfileStore, OAuthCredential } from "./types.js";
+import type { AuthProfileStore, OAuthCredential } from "./types.js";
 import { runAuthProfileUsage } from "./usage-lifecycle.js";
 
 export type CandidateAuthProfileStore = {
@@ -173,7 +174,12 @@ export async function loadCandidateAuthProfileStoreAsync(
 export async function prepareCandidateAuthProfileCredentialRead(
   candidate: CandidateAuthProfileStore,
   profileId: string,
-): Promise<() => AuthProfileCredential | undefined> {
+): Promise<
+  Pick<
+    ReturnType<typeof captureAuthProfileCredentialAuthority>,
+    "readCurrentCredential" | "waitUntilCurrent"
+  >
+> {
   // Key the authority by the adopted file identity that later writes publish under.
   assertCandidateDatabaseIdentity(candidate);
   const authority = captureAuthProfileCredentialAuthority(
@@ -186,7 +192,8 @@ export async function prepareCandidateAuthProfileCredentialRead(
   );
   const store = await loadCandidateAuthProfileStoreAsync(candidate);
   authority.observe(store?.profiles[profileId]);
-  return authority.readCurrentCredential;
+  await authority.waitUntilCurrent();
+  return authority;
 }
 
 type CandidateAuthProfileUpdate = {
@@ -196,10 +203,22 @@ type CandidateAuthProfileUpdate = {
   updater: (store: AuthProfileStore) => boolean;
 };
 
-/** The writer can skip unrelated generations without opening a write transaction. */
+/** Skip unrelated generations before write admission; possible matches still use the writer. */
 export async function fenceCandidateAuthProfileStore(
   params: CandidateAuthProfileUpdate & { generation: OAuthCredential },
 ): Promise<void> {
+  const store = await loadCandidateAuthProfileStoreAsync(params.candidate);
+  const credential = store?.profiles[params.profileId];
+  if (
+    credential?.type !== "oauth" ||
+    !isSameOAuthRefreshGeneration({
+      profileId: params.profileId,
+      left: credential,
+      right: params.generation,
+    })
+  ) {
+    return;
+  }
   await runCandidateAuthProfileUpdate(params, {
     profileId: params.profileId,
     generation: params.generation,
@@ -330,25 +349,9 @@ async function runCandidateAuthProfileUpdate(
           }
         : { save: false };
     },
-    async publish(committed, owner, assertCurrent, nativeCommits, committedIsCurrent) {
-      if (committed) {
-        try {
-          await publishAuthProfileStoreUpdate(
-            owner,
-            committed,
-            assertCurrent,
-            nativeCommits,
-            committedIsCurrent,
-          );
-        } catch (error) {
-          invalidateRuntimeAuthProfileStoreSnapshotsForOwner(owner);
-          reportCommittedInlineAuthFailure(
-            "Auth candidate committed before publication failed",
-            error,
-          );
-        }
-      }
-    },
+    publish: createAuthProfileStoreUpdatePublisher(
+      "Auth candidate committed before publication failed",
+    ),
   });
   return result;
 }

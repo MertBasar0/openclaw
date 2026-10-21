@@ -506,7 +506,9 @@ it.for([
       let outcome: Awaited<ReturnType<typeof enqueueSessionEventForHost>["settled"]>;
       let accepted: Awaited<ReturnType<typeof enqueueSessionEventForHost>["accepted"]>;
       const route = toolOnly
-        ? vi.spyOn(routedReplies, "routeReply").mockResolvedValue({ ok: true, delivered: true })
+        ? vi
+            .spyOn(routedReplies, "routePreparedReply")
+            .mockResolvedValue({ ok: true, delivered: true })
         : undefined;
       try {
         const text = "Process the event; record the result.";
@@ -780,7 +782,8 @@ it.for([
           releaseFirst.resolve();
           await expect(first.settled).resolves.toMatchObject({ status: "completed" });
           for (const notice of cancelledBatch ? [] : notices) {
-            await expect(notice.settled).resolves.toMatchObject({
+            const outcome = await notice.settled;
+            expect(outcome, outcome.error).toMatchObject({
               status: "completed",
               executionStarted: true,
             });

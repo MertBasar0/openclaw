@@ -28,8 +28,37 @@ const CATALOG_LIST_PHASES = new Set([
   "projection_final",
   "delivery",
 ]);
+const DIFF_CACHE_MISS_REASONS = new Set([
+  "cold",
+  "evicted",
+  "pending",
+  "no-revision",
+  "no-revision-environment",
+  "no-revision-platform",
+  "no-revision-metadata",
+  "no-revision-git-installation",
+  "no-revision-config",
+  "no-revision-reftable",
+  "no-revision-alternates",
+  "no-revision-symlink",
+  "no-revision-nested-repository",
+  "no-revision-status",
+  "no-revision-unmerged",
+  "no-revision-submodule",
+  "no-revision-permission",
+  "no-revision-missing",
+  "no-revision-io",
+  "oversized",
+  "revision-changed-head",
+  "revision-changed-index",
+  "revision-changed-untracked-set",
+  "revision-changed-worktree-mtime",
+  "revision-changed-metadata",
+]);
 const CHAT_SEND_PHASE =
   /^chat\.send\.(authority|admission|preparation|attachments|replyContext|authoring|persist|runAdmission|replyInitialization|snapshot|worktree|effects|response|dispatch)$/;
+const CONTROL_UI_DOCUMENT_STAGE =
+  /^control-ui\.document\.(auth_grants|identity_avatar|plugin_catalog|git_branch|preferences|render|total)$/;
 
 export function recordOperationTimingEvent(
   store: PrometheusMetricStore,
@@ -133,6 +162,52 @@ export function recordOperationTimingEvent(
       if (!metadata.trusted) {
         return;
       }
+      const documentStage = CONTROL_UI_DOCUMENT_STAGE.exec(evt.name)?.[1];
+      if (documentStage) {
+        store.histogram(
+          "openclaw_control_ui_document_duration_seconds",
+          "Elapsed Control UI HTML document handler stages in seconds; stages can overlap.",
+          { stage: documentStage },
+          seconds(evt.durationMs),
+        );
+        return;
+      }
+      if (evt.name === "sessions.diff" || evt.name === "checkout.diff") {
+        const outcome = evt.details?.outcome;
+        if (outcome !== "cache-hit" && outcome !== "cache-miss") {
+          return;
+        }
+        const reason = evt.details?.missReason;
+        if (
+          outcome === "cache-miss" &&
+          typeof reason === "string" &&
+          DIFF_CACHE_MISS_REASONS.has(reason)
+        ) {
+          store.counter(
+            "openclaw_diff_cache_misses_total",
+            "Local diff cache misses by bounded reason; pending reads join an existing load.",
+            { method: evt.name, reason },
+          );
+        }
+        for (const stage of [
+          "admission",
+          "checkout-resolve",
+          "cache-validate",
+          "worker-queue",
+          "git-wall",
+          "encode",
+        ]) {
+          const elapsed = evt.details?.[stage];
+          store.histogram(
+            "openclaw_diff_stage_seconds",
+            "Elapsed local diff stages; cache validation includes its worker queue and Git wall time.",
+            { method: evt.name, stage, outcome },
+            typeof elapsed === "number" ? seconds(elapsed) : undefined,
+            RPC_DURATION_BUCKETS_SECONDS,
+          );
+        }
+        return;
+      }
       if (evt.name === "worktree.preparation") {
         recordWorktreePreparation(store, evt);
         return;
@@ -183,6 +258,12 @@ export function recordOperationTimingEvent(
           "openclaw_gateway_rpc_requests_total",
           "Authenticated Gateway WebSocket requests received.",
           labels,
+        );
+        // One extra sample per observed kind/method, without multiplying histogram buckets.
+        store.counter(
+          "openclaw_gateway_rpc_client_requests_total",
+          "Gateway RPC requests by bounded handshake client kind.",
+          { method: evt.method, client_kind: evt.clientKind ?? "other" },
         );
         if (evt.method === "models.list" && evt.modelsList) {
           const catalog = evt.modelsList;

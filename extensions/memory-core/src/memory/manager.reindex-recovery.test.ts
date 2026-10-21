@@ -30,6 +30,7 @@ import "./test-runtime-mocks.js";
 import { runInMemoryTestBackgroundContext } from "./background-context.test-support.js";
 import type { EmbeddingProvider } from "./embeddings.js";
 import { memoryCpuProcessEntrypoints } from "./manager-cpu-entrypoints.js";
+import { MemoryIndexDatabase } from "./manager-database-context.js";
 import { resetMemoryDatabase } from "./manager-db.js";
 import { memoryPublicationFaultEntrypoint } from "./manager-publication-fault-entrypoint.test-support.js";
 import {
@@ -38,7 +39,6 @@ import {
   reservePublishedWriter,
 } from "./manager-publication-observer.test-support.js";
 import { waitForMemoryReindexLock } from "./manager-reindex-lock.js";
-import type { MemoryIndexMeta } from "./manager-reindex-state.js";
 import type { MemoryIndexManager } from "./manager.js";
 import { isolateMemoryManagerTestConfig } from "./test-config-helpers.js";
 
@@ -49,7 +49,7 @@ type ReindexHarness = {
   syncArchiveFiles: (params: SyncArchiveParams) => Promise<unknown>;
   db: DatabaseSync;
   cache: { enabled: boolean; maxEntries?: number };
-  writeMeta: (meta: MemoryIndexMeta) => Promise<void>;
+  database: MemoryIndexDatabase;
   providerKey: string | null;
   provider: EmbeddingProvider | null;
   dirty: boolean;
@@ -208,7 +208,7 @@ describe("memory manager reindex recovery", () => {
     await writeSources("replacement");
     harness.sessionsDirty = true;
     harness.sessionsDirtyFiles.add(transcript);
-    vi.spyOn(harness, "writeMeta").mockImplementationOnce(() => {
+    vi.spyOn(MemoryIndexDatabase.prototype, "writeMetadata").mockImplementationOnce(() => {
       throw new Error("late reindex failure");
     });
     await expect(memoryManager.sync({ force: true })).rejects.toThrow("late reindex failure");
@@ -652,13 +652,14 @@ describe("memory manager reindex recovery", () => {
       await fs.writeFile(betaPath, "published beta");
       const memoryManager = await openManager(cfg);
       await memoryManager.sync({ reason: "cli", force: true });
-      const harness = memoryManager as unknown as ReindexHarness;
       await fs.writeFile(alphaPath, "replacement alpha");
       await fs.writeFile(betaPath, "replacement beta");
       batchEmbeddingCalls = [];
-      const metadata = vi.spyOn(harness, "writeMeta").mockImplementationOnce(() => {
-        throw new Error("late runtime batch failure");
-      });
+      const metadata = vi
+        .spyOn(MemoryIndexDatabase.prototype, "writeMetadata")
+        .mockImplementationOnce(() => {
+          throw new Error("late runtime batch failure");
+        });
 
       await expect(memoryManager.sync({ reason: "cli", force: true })).rejects.toThrow(
         "late runtime batch failure",
@@ -678,7 +679,7 @@ describe("memory manager reindex recovery", () => {
     },
   );
 
-  it("bounds the shadow cache before any entries reach the primary", async () => {
+  it("bounds the canonical cache before every transaction commits", async () => {
     const databasePath = resolveOpenClawAgentSqlitePath({ agentId: "main" });
     const open = sqliteRuntime.openOpenClawAgentSqliteWorkerStoreV2;
     const interceptedPaths: Array<string | undefined> = [];
@@ -709,8 +710,8 @@ describe("memory manager reindex recovery", () => {
     for (let i = 0; i < 4; i += 1) {
       await fs.writeFile(path.join(memoryDir, `${i}.md`), `unique cache content ${i}`);
     }
-    // Reject transient overflow too: checking only the final row count misses
-    // primary-file high-water growth followed by post-publication deletion.
+    // Allow UPSERT-before-prune within a transaction, but reject overflow at
+    // every commit so a later transaction cannot hide a published excess.
     await memoryManager.sync({ reason: "cli", force: true });
 
     expect(interceptedPaths.length).toBeGreaterThan(0);
@@ -764,9 +765,9 @@ describe("memory manager reindex recovery", () => {
 
   it("leaves even an oversized published cache untouched when a full rebuild fails", async () => {
     const { memoryManager, harness, before } = await createOversizedPublishedCache();
-    harness.writeMeta = () => {
+    vi.spyOn(MemoryIndexDatabase.prototype, "writeMetadata").mockImplementation(() => {
       throw new Error("failed shadow metadata");
-    };
+    });
 
     await expect(memoryManager.sync({ reason: "cli", force: true })).rejects.toThrow(
       "failed shadow metadata",
@@ -990,7 +991,7 @@ describe("memory manager reindex recovery", () => {
           Date.now(),
         );
     }
-    await harness.writeMeta({
+    await harness.database.writeMetadata({
       model: "fts-only",
       provider: "none",
       providerKey: harness.providerKey ?? undefined,

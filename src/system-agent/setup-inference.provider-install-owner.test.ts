@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createWizardPrompter } from "../../test/helpers/wizard-prompter.js";
 import * as embeddedAgent from "../agents/embedded-agent.js";
 import { fingerprintResolvedProviderAuth } from "../agents/execution-auth-binding.js";
+import * as modelAuth from "../agents/model-auth.js";
 import { readConfigFileSnapshot } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
@@ -17,13 +18,14 @@ import * as loader from "../plugins/loader.js";
 import { resetPluginLoaderTestStateForTest } from "../plugins/loader.test-fixtures.js";
 import { withPluginLifecycleLease } from "../plugins/plugin-lifecycle-lease.js";
 import { resolvePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
+import * as providerChoices from "../plugins/provider-auth-choices.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { getActivePluginRegistry, setActivePluginRegistry } from "../plugins/runtime.js";
 import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { createNonExitingRuntime } from "../runtime.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { activateSetupInference } from "./setup-inference-activate.js";
-import { captureSystemAgentOwnerPluginArtifacts } from "./verified-inference.js";
+import * as verifiedInference from "./verified-inference.js";
 
 // mock-isolation: Setup probes replace model I/O without loading the embedded runtime.
 vi.mock("../agents/embedded-agent.js", () => ({ runEmbeddedAgent: vi.fn() }));
@@ -157,7 +159,7 @@ it.each([false, true])(
             { id: providerId, label: "Fixture", auth: [] },
           );
         });
-        const capture = vi.fn(captureSystemAgentOwnerPluginArtifacts);
+        const capture = vi.spyOn(verifiedInference, "captureSystemAgentOwnerPluginArtifacts");
         const runEmbeddedAgent = vi.fn<typeof embeddedAgent.runEmbeddedAgent>(async (params) => {
           expect(onPreparationComplete).toHaveBeenCalledOnce();
           params.onSuccessfulAuthBinding?.({
@@ -192,6 +194,15 @@ it.each([false, true])(
             pluginRegistry: runningRegistry,
           },
           async () => {
+            vi.spyOn(modelAuth, "resolveApiKeyForProviderCore").mockResolvedValue(resolvedAuth);
+            vi.spyOn(providerChoices, "resolveManifestProviderAuthChoice").mockReturnValue({
+              pluginId: providerId,
+              providerId,
+              methodId: "key",
+              choiceId: "fixture-provider-key",
+              choiceLabel: "Fixture",
+              appGuidedSecret: true,
+            });
             const result = await activateSetupInference({
               kind: "provider-auth",
               authChoice: "fixture-provider-key",
@@ -202,18 +213,6 @@ it.each([false, true])(
               runtime: createNonExitingRuntime(),
               onPreparationComplete,
               prompter: createWizardPrompter(),
-              deps: {
-                resolveManifestProviderAuthChoice: () => ({
-                  pluginId: providerId,
-                  providerId,
-                  methodId: "key",
-                  choiceId: "fixture-provider-key",
-                  choiceLabel: "Fixture",
-                  appGuidedSecret: true,
-                }),
-                captureSystemAgentOwnerPluginArtifacts: capture,
-                resolveApiKeyForProvider: async () => resolvedAuth,
-              },
             });
             expect(onPreparationComplete).toHaveBeenCalledOnce();
             expect(runEmbeddedAgent).toHaveBeenCalledOnce();

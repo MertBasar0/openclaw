@@ -1,5 +1,15 @@
 import type { Question } from "@openclaw/gateway-protocol";
-import { createEffect, createSignal, For, onSettled, Show, untrack } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  createStore,
+  For,
+  lazy,
+  Loading,
+  onSettled,
+  reconcile,
+  Show,
+} from "solid-js";
 import { isQuestionThumbnail } from "../../../../../packages/gateway-protocol/src/question-media.js";
 import type {
   QuestionResourceAction,
@@ -21,32 +31,30 @@ type ResourceProps = {
   agentId?: string;
   selected: ReadonlySet<string>;
   disabled: boolean;
-  "onResource-selection"?: (event: CustomEvent<{ values: string[] }>) => void;
+  onSelection?: (values: string[]) => void;
 };
+
+type OperationScope = { live: boolean; abort: AbortController | undefined };
+
+const ResourcePreview = lazy(() => import("../../../components/mcp-app-view-registration.ts"), {
+  export: "McpAppView",
+});
 
 /** Local presentation only; the pending question and MCP view own all resource grants. */
 export function ChatQuestionResource(props: ResourceProps) {
   let host!: HTMLElement;
   const context = useOptionalApplication();
   const gateway = context && projectGateway(context.gateway);
-  const [operationRevision, setOperationRevision] = createSignal(0);
-  const isBusy = () => {
-    operationRevision();
-    return Boolean(operationAbort);
-  };
+  const [pendingOperation, setPendingOperation] = createSignal<AbortController>();
+  const isBusy = () => Boolean(pendingOperation());
   const [error, setError] = createSignal("");
-  const [uploaded, setUploaded] = createSignal<Array<{ uri: string; name: string }>>([]);
+  const [uploaded, setUploaded] = createStore<Array<{ uri: string; name: string }>>([]);
   const [preview, setPreview] = createSignal<{
-    view?: {
-      id: string;
-      View: (typeof import("../../../components/mcp-app-view-registration.ts"))["McpAppView"];
-    };
+    view?: { id: string };
     text?: string;
     images?: string[];
   } | null>(null);
-  let generation = 0;
-  let operationAbort: AbortController | undefined;
-  let live = true;
+  let operationScope: OperationScope | undefined;
   const key = () =>
     JSON.stringify([
       props.requestId,
@@ -56,62 +64,38 @@ export function ChatQuestionResource(props: ResourceProps) {
       props.agentId,
       context ? gatewayPresentationScope(context.gateway).key : -1,
     ]);
-  // The initial request identifies local results until the first scope transition.
-  let identity = untrack(key);
-  // Retire transport work and its local results when the question loses authority.
-  createEffect(
-    () => {
-      gateway?.read();
-      return [key(), props.disabled] as const;
-    },
-    ([nextIdentity, disabled]) => {
-      if (nextIdentity !== identity || disabled) {
-        operationAbort?.abort();
-        generation++;
-        if (nextIdentity !== identity) {
-          setUploaded([]);
-        }
-        identity = nextIdentity;
-        operationAbort = undefined;
-        setOperationRevision((revision) => revision + 1);
-        setError("");
-        setPreview(null);
-      }
-    },
-  );
-  onSettled(() => () => {
-    live = false;
-    operationAbort?.abort();
-    generation++;
+  const identity = createMemo(() => {
+    gateway?.read();
+    return key();
   });
   async function operation(action: (isCurrent: () => boolean) => Promise<QuestionResourceAction>) {
     const client = context?.gateway.snapshot.client;
     const question = props.question;
+    const active = operationScope;
     if (
       !context ||
       context.gateway.snapshot.phase !== "connected" ||
       !client ||
       !question?.resource?.viewId ||
       props.disabled ||
-      operationAbort ||
+      !active?.live ||
+      active.abort ||
       !props.sessionKey
     ) {
       return;
     }
-    const operationGeneration = ++generation;
     const abort = new AbortController();
-    operationAbort = abort;
+    active.abort = abort;
     const scope = gatewayPresentationScope(context.gateway).key;
     const operationIdentity = key();
     const current = () =>
       host.isConnected &&
-      live &&
+      active.live &&
       !props.disabled &&
-      operationGeneration === generation &&
       operationIdentity === key() &&
       context.gateway.snapshot.client === client &&
       gatewayPresentationScope(context.gateway).key === scope;
-    setOperationRevision((revision) => revision + 1);
+    setPendingOperation(abort);
     setError("");
     try {
       const request = await action(current);
@@ -147,12 +131,12 @@ export function ChatQuestionResource(props: ResourceProps) {
           throw new Error("Invalid resource upload result");
         }
         const allUploaded = new Map(
-          [...uploaded(), ...result.resources].map((resource) => [resource.uri, resource]),
+          [...uploaded, ...result.resources].map((resource) => [resource.uri, resource]),
         );
         if (allUploaded.size > 64 || (!question.multiSelect && result.resources.length !== 1)) {
           throw new Error("Invalid resource upload count");
         }
-        setUploaded([...allUploaded.values()]);
+        setUploaded(reconcile([...allUploaded.values()], "uri"));
         const values = question.multiSelect ? new Set(props.selected) : new Set<string>();
         for (const resource of result.resources) {
           values.add(resource.uri);
@@ -160,11 +144,12 @@ export function ChatQuestionResource(props: ResourceProps) {
         dispatchSelection([...values]);
       } else if ("preview" in result) {
         if (result.preview.viewId) {
-          const { McpAppView } = await import("../../../components/mcp-app-view-registration.ts");
+          // Keep the previous preview and operation busy until its renderer is ready.
+          await ResourcePreview.preload();
           if (!current()) {
             return;
           }
-          setPreview({ view: { id: result.preview.viewId, View: McpAppView } });
+          setPreview({ view: { id: result.preview.viewId } });
         } else {
           const text = result.preview.contents?.map((entry) => entry.text ?? "").join("\n") ?? "";
           const images = result.preview.contents
@@ -185,8 +170,8 @@ export function ChatQuestionResource(props: ResourceProps) {
       }
     } finally {
       if (current()) {
-        operationAbort = undefined;
-        setOperationRevision((revision) => revision + 1);
+        active.abort = undefined;
+        setPendingOperation(undefined);
       }
     }
   }
@@ -202,7 +187,7 @@ export function ChatQuestionResource(props: ResourceProps) {
       const limits = resolveChatAttachmentLimits(context?.gateway.snapshot.hello?.policy);
       if (
         !limits ||
-        files.length + uploaded().length > 64 ||
+        files.length + uploaded.length > 64 ||
         admitAttachmentFiles(files, limits, 0).length !== files.length
       ) {
         throw new Error(t("chat.questions.resourceUploadTooLarge"));
@@ -225,21 +210,39 @@ export function ChatQuestionResource(props: ResourceProps) {
     });
   }
 
-  const dispatchSelection = (values: string[]) =>
-    host.dispatchEvent(
-      new CustomEvent("resource-selection", {
-        detail: { values },
-        bubbles: true,
-        composed: true,
-      }),
-    );
+  const dispatchSelection = (values: string[]) => props.onSelection?.(values);
   return (
     <openclaw-chat-question-resource
       ref={(element) => {
         host = element;
       }}
-      onResource-selection={(event) => props["onResource-selection"]?.(event)}
     >
+      {/* Request scope owns uploads; disabled transitions retire only operation state. */}
+      <For each={[identity()]}>
+        {() => {
+          onSettled(() => {
+            setUploaded(() => []);
+          });
+          return (
+            <For each={[props.disabled]}>
+              {() => {
+                onSettled(() => {
+                  const next: OperationScope = { live: true, abort: undefined };
+                  operationScope = next;
+                  setPendingOperation(undefined);
+                  setError("");
+                  setPreview(null);
+                  return () => {
+                    next.live = false;
+                    next.abort?.abort();
+                  };
+                });
+                return null;
+              }}
+            </For>
+          );
+        }}
+      </For>
       {props.question?.resource?.viewId && (
         <div class="chat-question-panel__resource-actions">
           <For each={props.question.options}>
@@ -279,7 +282,7 @@ export function ChatQuestionResource(props: ResourceProps) {
               />
             </label>
           )}
-          <For each={uploaded().filter((entry) => props.selected.has(entry.uri))}>
+          <For each={uploaded.filter((entry) => props.selected.has(entry.uri))}>
             {(entry) => (
               <div>
                 {entry.name}
@@ -318,7 +321,11 @@ export function ChatQuestionResource(props: ResourceProps) {
               )
             }
           >
-            {(view) => <view.View sessionKey={props.sessionKey} viewId={view.id} />}
+            {(view) => (
+              <Loading>
+                <ResourcePreview sessionKey={props.sessionKey} viewId={view.id} />
+              </Loading>
+            )}
           </Show>
         </div>
       )}
@@ -329,8 +336,7 @@ export function ChatQuestionResource(props: ResourceProps) {
 declare module "@solidjs/web" {
   namespace JSX {
     interface IntrinsicElements {
-      "openclaw-chat-question-resource": HTMLAttributes<HTMLElement> &
-        Pick<ResourceProps, "onResource-selection">;
+      "openclaw-chat-question-resource": HTMLAttributes<HTMLElement>;
     }
   }
 }

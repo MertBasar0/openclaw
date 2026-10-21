@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentHarnessCompletionCustody as CompletionCustody } from "../agents/agent-harness-completion-custody.js";
 import type { AgentHarnessCompletionScope as CompletionScope } from "../agents/agent-harness-completion-scope.js";
 import {
@@ -14,11 +14,12 @@ const mocks = vi.hoisted(() => ({
   reconcile: vi.fn(async () => "unowned"),
   resolveCompletionOrigin: vi.fn(async () => undefined),
   custodyCurrent: true,
+  custodyError: new Error("Completion custody retired"),
   isCustodyCurrent: vi.fn((custody: CompletionCustody) => custody.isCurrent()),
   runWithCustody: vi.fn(
     <T>(custody: CompletionCustody, _scope: CompletionScope, run: () => T): T => {
       if (!custody.isCurrent()) {
-        throw new Error("Completion custody retired");
+        throw mocks.custodyError;
       }
       return run();
     },
@@ -53,7 +54,11 @@ vi.mock("../agents/subagents/announce/subagent-announce-origin.js", () => ({
   resolveSubagentCompletionOrigin: mocks.resolveCompletionOrigin,
 }));
 import * as completionSdk from "./agent-harness-completion.js";
-import { deliverAgentHarnessCompletion } from "./agent-harness-completion.js";
+import {
+  deliverAgentHarnessCompletion,
+  isDurableAgentHarnessCompletionDelivery,
+  type AgentHarnessCompletionDelivery,
+} from "./agent-harness-completion.js";
 
 const source = {
   requesterSessionKey: "main",
@@ -103,6 +108,76 @@ function retireDuringOriginResolution(retire: () => void) {
   });
 }
 
+describe("SDK harness completion delivery contract", () => {
+  it.each<{ name: string; delivery: AgentHarnessCompletionDelivery; durable: boolean }>([
+    {
+      name: "direct result without phases",
+      delivery: { delivered: true, path: "direct" },
+      durable: true,
+    },
+    {
+      name: "direct result with no executed phase",
+      delivery: { delivered: true, path: "direct", phases: [] },
+      durable: false,
+    },
+    {
+      name: "completed direct phase",
+      delivery: {
+        delivered: true,
+        path: "direct",
+        phases: [
+          {
+            phase: "direct-primary",
+            delivered: true,
+            path: "direct",
+            deliveredAt: 123,
+            enqueuedAt: 100,
+          },
+        ],
+      },
+      durable: true,
+    },
+    {
+      name: "unsuccessful direct phase",
+      delivery: {
+        delivered: true,
+        path: "direct",
+        phases: [
+          {
+            phase: "direct-primary",
+            delivered: false,
+            path: "none",
+            reason: "requester_turn_pending",
+            error: "requester is pending",
+          },
+        ],
+      },
+      durable: false,
+    },
+    {
+      name: "steer evidence does not prove direct delivery",
+      delivery: {
+        delivered: true,
+        path: "direct",
+        phases: [
+          { phase: "steer-primary", delivered: true, path: "steered" },
+          { phase: "steer-fallback", delivered: false, path: "none", reason: "steer_dropped" },
+        ],
+      },
+      durable: false,
+    },
+    {
+      name: "successful steer",
+      delivery: { delivered: true, path: "steered", phases: [] },
+      durable: true,
+    },
+    { name: "queued result", delivery: { delivered: true, path: "queued" }, durable: false },
+    { name: "failed result", delivery: { delivered: false, path: "direct" }, durable: false },
+  ])("preserves $name", ({ delivery, durable }) => {
+    expect(isDurableAgentHarnessCompletionDelivery(delivery)).toBe(durable);
+  });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.custodyCurrent = true;
@@ -127,7 +202,10 @@ it("enters retained custody without exposing its internal execution callback", a
   const custody = custodyFixture();
   const input = params();
   mocks.deliver.mockImplementation(async () => {
-    expect(mocks.runWithCustody.mock.calls).toEqual([[custody, input.scope, expect.any(Function)]]);
+    expect(mocks.runWithCustody).toHaveBeenCalled();
+    for (const call of mocks.runWithCustody.mock.calls) {
+      expect(call).toEqual([custody, input.scope, expect.any(Function)]);
+    }
     assertAdmission(source);
     return { delivered: true, path: "direct" };
   });
@@ -143,7 +221,10 @@ it("rejects custody retired during awaited origin resolution", async () => {
   retireDuringOriginResolution(() => {
     mocks.custodyCurrent = false;
   });
-  await rejects({ completionCustody: custody }, "custody retired");
+  await expect(deliver({ completionCustody: custody })).rejects.toMatchObject({
+    message: "Harness completion custody retired",
+    cause: mocks.custodyError,
+  });
   expect(mocks.deliver).not.toHaveBeenCalled();
 });
 

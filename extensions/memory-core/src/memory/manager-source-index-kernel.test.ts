@@ -237,23 +237,71 @@ describe("memory source index native kernel", () => {
     },
   );
 
-  it.each([2, 129])("keeps the last embedding for repeated IDs across %s rows", async (rows) => {
-    const value = replacement("memory/current.md");
-    write(value);
-    markMemoryVectorIndexClean(conn);
-    const chunk = value.chunks[0];
-    assert.ok(chunk);
-    write({
-      ...value,
-      chunks: Array.from({ length: rows }, () => chunk),
-      embeddings: Array.from({ length: rows }, (_, index) =>
-        index === rows - 1 ? [1, 0, 0] : [0, 1, 0],
-      ),
-    });
-    expect(select("chunks_vec", "hex(embedding) AS embedding").all()).toEqual([
-      { embedding: embeddingHex([1, 0, 0]) },
-    ]);
-  });
+  it.each([
+    { count: 2, retainedLast: false },
+    { count: 129, retainedLast: false },
+    { count: 2, retainedLast: true },
+  ])(
+    "keeps last-write values for repeated IDs ($count, retained=$retainedLast)",
+    ({ count, retainedLast }) => {
+      const value = replacement("memory/current.md");
+      write(value);
+      markMemoryVectorIndexClean(conn);
+      const chunk = value.chunks[0];
+      assert.ok(chunk);
+      const rows: MemorySourceIndexRow[] = Array.from({ length: count }, (_, index) => {
+        const last = index === count - 1;
+        return {
+          chunk: {
+            ...chunk,
+            text: last ? "latest text" : "earlier text",
+            importance: last ? 9 : 1,
+            triggers: last ? "latest" : "earlier",
+            projectKey: last ? "latest-project" : "earlier-project",
+            provenance: {
+              originClass: last ? "owner" : "untrusted",
+              sessionKind: last ? "interactive" : "unknown",
+              observedAt: last ? 200 : 100,
+              supersedesKey: last ? "latest-source" : "earlier-source",
+            },
+          },
+          embedding: last && !retainedLast ? [1, 0, 0] : [0, 1, 0],
+          ...(last && retainedLast ? { retained: true } : {}),
+        };
+      });
+      runSqliteImmediateTransactionSync(conn, () =>
+        new MemorySourceIndexKernel(conn, store).replaceRows({ ...value, now: 200 }, rows),
+      );
+      expect(
+        conn
+          .prepare(`SELECT c.text, hex(c.embedding) AS embedding, c.updated_at,
+      m.importance, m.triggers, m.project_key, p.origin_class, p.session_kind,
+      p.observed_at, p.supersedes_key
+      FROM memory_index_chunks c
+      JOIN memory_index_chunk_recall_metadata m ON m.chunk_id = c.id
+      JOIN memory_index_chunk_provenance p ON p.chunk_id = c.id`)
+          .all(),
+      ).toEqual([
+        {
+          text: retainedLast ? "earlier text" : "latest text",
+          embedding: retainedLast
+            ? "0000000000000000000000000000F03F0000000000000000"
+            : "000000000000F03F00000000000000000000000000000000",
+          updated_at: 200,
+          importance: 9,
+          triggers: "latest",
+          project_key: "latest-project",
+          origin_class: "owner",
+          session_kind: "interactive",
+          observed_at: 200,
+          supersedes_key: "latest-source",
+        },
+      ]);
+      expect(select("chunks_vec", "hex(embedding) AS embedding").all()).toEqual([
+        { embedding: embeddingHex(retainedLast ? [0, 1, 0] : [1, 0, 0]) },
+      ]);
+    },
+  );
 
   it.each(["unverified", "incomplete"])(
     "repairs stale same-ID vectors in a %s index",
@@ -358,7 +406,11 @@ describe("memory source index native kernel", () => {
       };
     });
     let inserts = 0;
+    const savepoints: string[] = [];
     const statements = observeHostDataSql((sql, preparingDatabase) => {
+      if (/^SAVEPOINT\b/i.test(sql)) {
+        savepoints.push(sql);
+      }
       if (
         !preparingDatabase &&
         /^insert into ["`]?memory_index_(?:chunks|chunk_recall_metadata|chunk_provenance)["`]?\s/i.test(
@@ -374,6 +426,7 @@ describe("memory source index native kernel", () => {
       statements.restore();
     }
     expect(inserts).toBe(3);
+    expect(savepoints).toEqual([]);
     expect(
       conn
         .prepare(
@@ -589,6 +642,32 @@ describe("memory source index native kernel", () => {
       expect(select(table, "path").all()).toEqual([{ path: "memory/sibling.md" }]);
     }
     expectCounts(derivedTables, 1);
+  });
+
+  it("aborts source removal when reading vector cleanup targets fails", () => {
+    const pathname = "memory/current.md";
+    write(replacement(pathname));
+    const before = snapshot();
+    let refused = false;
+    conn.setAuthorizer((action, table, column) => {
+      if (
+        !refused &&
+        action === constants.SQLITE_READ &&
+        table === "memory_index_chunks" &&
+        column === "id"
+      ) {
+        refused = true;
+        return constants.SQLITE_DENY;
+      }
+      return constants.SQLITE_OK;
+    });
+    try {
+      expect(() => remove(pathname, "original")).toThrow();
+    } finally {
+      conn.setAuthorizer(null);
+    }
+    expect(refused).toBe(true);
+    expect(snapshot()).toEqual(before);
   });
 });
 

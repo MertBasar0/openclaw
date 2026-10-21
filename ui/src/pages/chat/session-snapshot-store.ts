@@ -6,6 +6,7 @@ import {
   isChatTranscriptMetadata,
   isProgressCard,
 } from "../../lib/protocol-validators.generated/transcript.js";
+import { listen } from "../../lib/reactive/listener.ts";
 import * as json from "../../lib/snapshot-json.ts";
 import {
   getSessionCacheValue,
@@ -72,6 +73,9 @@ const paginationSchema = {
 };
 const snapshotSchema = json.object(
   {
+    board: json.optional(
+      json.nullable(json.object({ snapshot: json.unknown, receivedAtMs: nonnegative }, true)),
+    ),
     widgetHeights: json.optional(
       json.refine(
         json.record(json.refine(json.number, (height) => height >= 48 && height <= 8000)),
@@ -144,6 +148,7 @@ const activeStores = new Set<SessionSnapshotStore>();
 async function parseSnapshotRecord(
   value: unknown,
   sessionKey?: string,
+  onBoard?: (board: ChatSessionSnapshot["board"]) => void,
 ): Promise<SessionSnapshotRecord | null> {
   const parsed = json.parseSnapshot(recordSchema, value);
   if (!parsed || (sessionKey && parsed.sessionKey !== sessionKey)) {
@@ -151,6 +156,8 @@ async function parseSnapshotRecord(
   }
   const historyState = parsed.snapshot.historyState;
   if (historyState !== undefined) {
+    // Do not hold board restoration behind the lazy transcript validator.
+    onBoard?.(parsed.snapshot.board);
     const { isChatHistoryState } =
       await import("../../lib/protocol-validators.generated/history-state.js");
     if (!isChatHistoryState(historyState)) {
@@ -480,7 +487,10 @@ export class SessionSnapshotStore implements ChatCacheObserver {
     }
   }
 
-  async read(sessionKey: string): Promise<ChatSessionSnapshot | null> {
+  async read(
+    sessionKey: string,
+    onBoard?: (board: ChatSessionSnapshot["board"]) => void,
+  ): Promise<ChatSessionSnapshot | null> {
     const isCurrent = this.captureReadScope(sessionKey);
     const prewarm = consumePrewarmedChatSnapshot(sessionKey);
     const value = await (prewarm?.promise ?? readStoredChatSnapshotRecord(sessionKey));
@@ -491,7 +501,7 @@ export class SessionSnapshotStore implements ChatCacheObserver {
     if (asOptionalRecord(value)?.projectionVersion !== CHAT_SNAPSHOT_PROJECTION_VERSION) {
       return null;
     }
-    const record = await parseSnapshotRecord(value, sessionKey);
+    const record = await parseSnapshotRecord(value, sessionKey, onBoard);
     if (!isCurrent()) {
       return null;
     }
@@ -677,8 +687,8 @@ function flushActiveStores(): void {
 
 // Module-lifetime browser events flush every active store, including during page teardown.
 if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", flushActiveStores);
-  document.addEventListener("visibilitychange", () => {
+  listen(window, "pagehide", flushActiveStores);
+  listen(document, "visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       flushActiveStores();
     }

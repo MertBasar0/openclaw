@@ -1,6 +1,8 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import * as configModule from "../../config/config.js";
+import { createConfigFileSnapshot } from "../../config/io.snapshot-shared.js";
 import {
   getRuntimeConfigAppliedHash,
   setRuntimeConfigAppliedHash,
@@ -90,12 +92,28 @@ export function useSystemAgentGatewayTestFixture() {
   const requireFixture = () =>
     expectDefined(fixture, "verified inference fixture was not initialized");
   const requireVerifiedInferenceFixture = () => requireFixture().binding;
-  const requireVerifiedInferenceDeps = () => ({ ...requireFixture().deps });
+  const installVerifiedConfigReader = () => {
+    vi.spyOn(configModule, "readConfigFileSnapshot").mockResolvedValue(
+      createConfigFileSnapshot({
+        exists: true,
+        valid: true,
+        path: "/tmp/openclaw.json",
+        hash: "verified-config",
+        raw: null,
+        parsed: verifiedConfig,
+        runtimeConfig: verifiedConfig,
+        sourceConfig: verifiedConfig,
+        issues: [],
+        warnings: [],
+        legacyIssues: [],
+      }),
+    );
+  };
 
   function makeVerifiedEngine(): SystemAgentChatEngine {
+    installVerifiedConfigReader();
     return new SystemAgentChatEngine({
       verifiedInference: requireVerifiedInferenceFixture(),
-      deps: requireVerifiedInferenceDeps(),
     });
   }
 
@@ -109,30 +127,20 @@ export function useSystemAgentGatewayTestFixture() {
     };
   }
 
-  beforeAll(async () => {
+  beforeAll(() => {
     pluginMetadataSnapshot = createSystemAgentPluginMetadataTestSnapshot(verifiedConfig);
-    fixture = await pluginMetadataSnapshot.run(() =>
-      createSystemAgentVerifiedInferenceTestFixture(verifiedConfig),
-    );
-    fixture.deps.readConfigFileSnapshot = async () =>
-      ({
-        exists: true,
-        valid: true,
-        path: "/tmp/openclaw.json",
-        hash: "verified-config",
-        config: verifiedConfig,
-        runtimeConfig: verifiedConfig,
-        sourceConfig: verifiedConfig,
-        issues: [],
-      }) as never;
   });
 
   afterAll(() => {
     fixture = undefined;
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     previousAppliedHash = getRuntimeConfigAppliedHash();
+    fixture = await expectDefined(
+      pluginMetadataSnapshot,
+      "metadata fixture was not initialized",
+    ).run(() => createSystemAgentVerifiedInferenceTestFixture(verifiedConfig));
     const ready = {
       ok: true,
       modelRef: "openai/gpt-5.5",
@@ -151,10 +159,9 @@ export function useSystemAgentGatewayTestFixture() {
       recentExternalEdit: false,
       auditSequence: 0,
     });
-    greetingMocks.resolveSystemAgentGreeting.mockResolvedValue({
-      text: "I'm OpenClaw. All systems nominal.",
-      source: "model",
-    });
+    greetingMocks.resolveSystemAgentGreeting.mockResolvedValue(
+      "I'm OpenClaw. All systems nominal.",
+    );
     onboardingWelcomeMocks.buildOnboardingWelcome.mockResolvedValue({
       text: "Inference is ready. Let's finish setup.",
     });
@@ -173,7 +180,7 @@ export function useSystemAgentGatewayTestFixture() {
   return {
     systemAgentTempDirs,
     requireVerifiedInferenceFixture,
-    requireVerifiedInferenceDeps,
+    installVerifiedConfigReader,
     makeVerifiedEngine,
     seededSession,
   };

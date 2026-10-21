@@ -3,7 +3,7 @@ import type { JSX } from "@solidjs/web";
 import { createMemo, Show } from "solid-js";
 import { subtitleForRoute, titleForRoute } from "../../app-navigation.ts";
 import { pathForRoute } from "../../app-route-paths.ts";
-import type { SolidRouteProps } from "../../app-route-types.ts";
+import type { SolidRouteProps } from "../../app-route-types.tsx";
 import { hasNativeBrowserBridge } from "../../app/native-browser-host.ts";
 import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
 import { isBrowserPanelAvailable } from "../../app/panel-availability.ts";
@@ -15,14 +15,14 @@ import {
 import { SettingsWorkspace } from "../../components/solid/settings-workspace.tsx";
 import { useApplication } from "../../lib/reactive/context.ts";
 import { t } from "../../lib/reactive/i18n.ts";
-import { createConfigPage, extractQuickSettingsSecurity } from "./config-page-state.ts";
+import { createConfigPage } from "./config-page-state.ts";
 import type { ConfigPageId } from "./config-sections.ts";
 import { Mcp, McpIntro } from "./mcp.tsx";
 import { MeetingCaptureSettings } from "./meeting-capture.tsx";
 import { MemorySettingsPage } from "./memory-page.tsx";
 import { memorySettingsSchema } from "./memory-schema.ts";
 import type { ConfigRouteData } from "./route-data.ts";
-import { Security } from "./security.tsx";
+import { extractQuickSettingsSecurity, Security } from "./security.tsx";
 import { SessionStorageSettings } from "./session-storage.tsx";
 import { TalkSettingsPage } from "./talk-page.tsx";
 import { UpdatesPage } from "./updates-page.tsx";
@@ -147,6 +147,7 @@ function ConfigBody(props: {
           pluginsHref={pathForRoute("plugins", context().basePath)}
           memoryImportHref={pathForRoute("memory-import", context().basePath)}
           routeData={props.routeData}
+          admittedRoute={props.state.admittedRoute}
           buildEditor={() =>
             editor("memory", t("tabs.memory"), memorySettingsSchema(config().schema))
           }

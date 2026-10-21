@@ -27,7 +27,6 @@ import type {
   OpenClawStateReadCommand,
   OpenClawStateReadLocation,
 } from "../../state/openclaw-state-read.types.js";
-import { statePostgresRuntime } from "../../state/postgres-schema.generated/runtime.js";
 import { stateBootstrapReadOperations } from "../../state/state-bootstrap-read.worker.js";
 import { acquireGatewayLock } from "../gateway-lock.js";
 import { inspectGatewayOwnerLease } from "../gateway-owner-lease.worker.js";
@@ -41,6 +40,7 @@ import { restoreUpdateDatabaseBackup } from "../update-database-restore.js";
 import { createUpdateDoctorDatabaseWriteCapture } from "../update-doctor-result.js";
 import { createUpdateRun, recordUpdateRunPhase } from "../update-run-ledger.js";
 import { withEngineStoreAdmission } from "./admission-scope.js";
+import { createUpdateDatabaseBackupWithFixtureTransport } from "./backup-capture.test-support.js";
 import { installDatabaseEngineSelection } from "./context.js";
 import { resetDatabaseEngineSelectionForTest } from "./context.test-support.js";
 import type { StoreSchema } from "./contract.js";
@@ -103,8 +103,8 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
   let namespace: string;
   let predecessor: StoreSchema;
   let backup: PortDescriptor;
-  let indexSql: string;
   let targetFingerprint: unknown;
+  let targetAgentCatalog: string[];
   const config = {
     database: { engine: "postgres" as const, postgres: { connection: connection! } },
   };
@@ -120,7 +120,7 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
   const archives = () =>
     fs.readdirSync(path.dirname(pathname)).filter((name) => name.endsWith(".postgres.bak"));
 
-  function admit(schema: StoreSchema, file = pathname) {
+  function admit(schema: StoreSchema, file = pathname, existingOnly = true) {
     return withEngineStoreAdmission(() => {
       using anchor = openNodeSqliteDatabase(file);
       const db = openEngineStore({
@@ -132,7 +132,7 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
         openSqlite() {
           throw new Error("Expected PostgreSQL");
         },
-        existingOnly: true,
+        existingOnly,
       });
       try {
         return getPostgresPhysicalFacts(db);
@@ -141,6 +141,12 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
       }
     });
   }
+
+  // Fingerprints include namespace-qualified definitions; compare catalogs after relocation.
+  const readAgentCatalog = async (schema: string) =>
+    readPostgresCatalog((await client.query(postgresCatalogQuery(schema, true))).rows[0].catalog)
+      .map((fact) => JSON.stringify(fact).replaceAll(schema, "fixture_namespace"))
+      .toSorted();
 
   beforeAll(async () => {
     const worker = await vi.importActual<typeof StateReadWorker>(
@@ -174,25 +180,41 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
     namespaces.add(namespace);
     closeOpenClawStateDatabaseForTest();
     targetFingerprint = (await readMeta()).fingerprint;
-    indexSql = stateEngineSchema.postgres!.match(/CREATE INDEX "idx_state_leases_owner"[^;]+;/)![0];
+    const source = originalMigrations?.find(
+      (migration) => migration.version === target,
+    )?.fromSchema;
+    if (!source?.postgres) {
+      throw new Error("The Doctor fixture requires the exact preceding state schema");
+    }
     predecessor = {
       ...stateEngineSchema,
+      ...source,
       version: target - 1,
-      postgres: stateEngineSchema.postgres!.replace(indexSql, ""),
     };
-    const descriptor = await statePortProvider.loadDescriptor();
-    backup = {
-      ...descriptor,
-      version: target - 1,
-      admit: undefined,
-      sqlite: descriptor.sqlite.replace(/CREATE INDEX[^;]*idx_state_leases_owner[^;]*;/, ""),
-      postData: descriptor.postData.replace(indexSql, ""),
-      expectedCatalog: descriptor.expectedCatalog.map((fact) =>
-        fact.table === "state_leases" && fact.kind === "indexes"
-          ? { table: "state_leases", kind: "indexes", value: 2 }
-          : fact,
-      ),
-    };
+    backup = await statePortProvider.loadDescriptor(undefined, target - 1);
+
+    // The reference anchor must stay outside the update backup's state inventory.
+    const referenceRoot = dirs.make("doctor-pg-agent-reference-");
+    const targetNamespace = withEngineStoreAdmission(() => {
+      using anchor = openNodeSqliteDatabase(path.join(referenceRoot, "agent.sqlite"));
+      const engine = openEngineStore({
+        anchor,
+        schema: agentEngineSchema,
+        input: { connection: connection!, schemaPrefix: "doctor_fixture" },
+        inspectSqlite: () => ({ hasExistingData: false, hasEngineAnchor: false }),
+        prepareAnchor() {},
+        openSqlite() {
+          throw new Error("Expected PostgreSQL");
+        },
+      });
+      try {
+        return getPostgresPhysicalFacts(engine)!.namespace;
+      } finally {
+        engine.close();
+      }
+    });
+    namespaces.add(targetNamespace);
+    targetAgentCatalog = await readAgentCatalog(targetNamespace);
   });
 
   afterAll(async () => {
@@ -206,17 +228,26 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
     await client.end();
   });
 
-  async function prepare(fail = false) {
+  async function prepareSource(schema: StoreSchema) {
     closeOpenClawStateDatabaseForTest();
-    await client.query(`DROP INDEX IF EXISTS "${namespace}".idx_state_leases_owner;
-      UPDATE "${namespace}".openclaw_schema_meta SET version = ${target - 1}, fingerprint = NULL, ddl_hash = NULL, server_major = NULL;
-      UPDATE "${namespace}".schema_meta SET schema_version = ${target - 1};
-      UPDATE "${namespace}".config_machine_state SET value_json = '${target - 1}' WHERE state_key = 'state.schema.contentVersion';
-      INSERT INTO "${namespace}".config_machine_state VALUES ('doctor.fixture', '"before"', 1) ON CONFLICT (state_key) DO UPDATE SET value_json = '"before"';`);
-    // R2 compares and seals the predecessor against its complete DDL.
+    // Historical versions own different credentials, publication columns, and indexes.
+    // Build their registered DDL instead of relabeling the current predecessor.
+    await client.query(`DROP SCHEMA "${namespace}" CASCADE`);
     using anchor = openNodeSqliteDatabase(pathname);
     publishSqliteDatabaseSchemaChange(anchor);
-    admit(predecessor);
+    admit(schema, pathname, false);
+    await client.query(`
+      INSERT INTO "${namespace}".schema_meta
+        (meta_key, role, schema_version, agent_id, app_version, created_at, updated_at)
+        VALUES ('primary', 'global', ${schema.version}, NULL, NULL, 1, 1);
+      INSERT INTO "${namespace}".config_machine_state VALUES
+        ('state.schema.contentVersion', '${schema.version}', 1),
+        ('doctor.fixture', '"before"', 1);
+    `);
+  }
+
+  async function prepare(fail = false) {
+    await prepareSource(predecessor);
     stateEngineSchema.postgresMigrations = [
       {
         version: target,
@@ -229,7 +260,7 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
           postgresFragments: stateEngineSchema.postgresFragments,
         },
         backup,
-        sql: `${indexSql} UPDATE config_machine_state SET value_json = '"after"' WHERE state_key = 'doctor.fixture'; ${fail ? "SELECT doctor_fixture_midway_failure;" : ""} UPDATE schema_meta SET schema_version = ${target}; UPDATE config_machine_state SET value_json = '${target}' WHERE state_key = 'state.schema.contentVersion';`,
+        sql: `UPDATE config_machine_state SET value_json = '"after"' WHERE state_key = 'doctor.fixture'; ${fail ? "SELECT doctor_fixture_midway_failure;" : ""} UPDATE schema_meta SET schema_version = ${target}; UPDATE config_machine_state SET value_json = '${target}' WHERE state_key = 'state.schema.contentVersion';`,
       },
     ];
   }
@@ -262,10 +293,9 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
     }
   }
 
-  it.each([24, 25, 26])(
+  it.each([24, 25, 26, 27, 28])(
     "backs up and restores the real version %s before the registered migration",
     async (sourceVersion) => {
-      closeOpenClawStateDatabaseForTest();
       stateEngineSchema.postgresMigrations = originalMigrations;
       const sourceSchema = {
         ...stateEngineSchema,
@@ -273,28 +303,11 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
           .fromSchema,
         version: sourceVersion,
       };
+      await prepareSource(sourceSchema);
       await client.query(`
-        SET search_path TO "${namespace}";
-        DROP INDEX IF EXISTS idx_state_leases_owner;
-        DROP INDEX IF EXISTS idx_skill_usage_key;
-        DROP INDEX IF EXISTS idx_acp_replay_events_session_seq;
-        ${Object.values(statePostgresRuntime.preWriteIndexesV27Sql).join("\n")}
-        UPDATE "${namespace}".openclaw_schema_meta
-          SET version = ${sourceVersion}, fingerprint = NULL, ddl_hash = NULL, server_major = NULL;
-        UPDATE "${namespace}".schema_meta SET schema_version = ${sourceVersion};
-        UPDATE "${namespace}".config_machine_state SET value_json = '${sourceVersion}'
-          WHERE state_key = 'state.schema.contentVersion';
-        INSERT INTO "${namespace}".config_machine_state VALUES ('doctor.fixture', '"before"', 1)
-          ON CONFLICT (state_key) DO UPDATE SET value_json = '"before"';
         INSERT INTO "${namespace}".session_state_heads
           (session_key, agent_id, last_sequence, pruned_max_sequence, updated_at)
-          VALUES ('doctor.fixture', 'main', 81, 7, 1)
-          ON CONFLICT (session_key, agent_id) DO UPDATE
-            SET last_sequence = 81, pruned_max_sequence = 7, updated_at = 1;`);
-      {
-        using anchor = openNodeSqliteDatabase(pathname);
-        publishSqliteDatabaseSchemaChange(anchor);
-      }
+          VALUES ('doctor.fixture', 'main', 81, 7, 1);`);
       expect(admit(sourceSchema)?.version).toBe(sourceVersion);
       const before = new Set(archives());
       const result = await runDoctor(sourceVersion);
@@ -363,7 +376,14 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
         .prepare("SELECT value_json FROM config_machine_state WHERE state_key = 'doctor.fixture'")
         .get(),
     ).toEqual({ value_json: '"before"' });
-    expect(original.fingerprint).not.toBe(targetFingerprint);
+    expect(image.prepare("PRAGMA user_version").get()?.user_version).toBe(target - 1);
+    expect(original.version).toBe(String(target - 1));
+    if (target === 30) {
+      // The v30 automation policy fence changes metadata, not the PostgreSQL catalog.
+      expect(original.fingerprint).toBe(targetFingerprint);
+    } else {
+      expect(original.fingerprint).not.toBe(targetFingerprint);
+    }
     expect(fs.readFileSync(pathname)).toEqual(anchorBytes);
   });
 
@@ -457,7 +477,7 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
       try {
         try {
           saved = await lock!.run(() =>
-            createUpdateDatabaseBackup({
+            createUpdateDatabaseBackupWithFixtureTransport({
               backupRoot: path.join(env.OPENCLAW_STATE_DIR!, `update-capture-${foreignWrite}`),
               stateDir: env.OPENCLAW_STATE_DIR!,
               config,
@@ -586,6 +606,7 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
       }
     },
   );
+  // Green CI runs 39068774273/39071119824 measured p95 at 104s before fixture reuse.
   it.each([
     [27, false],
     [27, true],
@@ -595,6 +616,8 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
     async (sourceVersion, foreignWrite) => {
       // The preceding foreign-write case deliberately retains the candidate state schema.
       closeOpenClawStateDatabaseForTest();
+      // Each case backs up only its own synthetic agent, never previous case registrations.
+      await client.query(`DELETE FROM "${namespace}".agent_databases WHERE agent_id = 'main'`);
       await client.query(`DROP INDEX IF EXISTS "${namespace}".idx_doctor_future`);
       await prepare();
       await runDoctor();
@@ -618,35 +641,6 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
         postgres: migration.fromSchema.postgres,
         postgresMigrations: [],
       };
-      // The reference anchor must stay outside the update backup's state inventory.
-      const referenceRoot = dirs.make("doctor-pg-agent-reference-");
-      const targetNamespace = withEngineStoreAdmission(() => {
-        using anchor = openNodeSqliteDatabase(path.join(referenceRoot, "agent.sqlite"));
-        const engine = openEngineStore({
-          anchor,
-          schema: candidate,
-          input: { connection: connection!, schemaPrefix: "doctor_fixture" },
-          inspectSqlite: () => ({ hasExistingData: false, hasEngineAnchor: false }),
-          prepareAnchor() {},
-          openSqlite() {
-            throw new Error("Expected PostgreSQL");
-          },
-        });
-        try {
-          return getPostgresPhysicalFacts(engine)!.namespace;
-        } finally {
-          engine.close();
-        }
-      });
-      namespaces.add(targetNamespace);
-      // Fingerprints include namespace-qualified definitions; compare catalogs after relocation.
-      const readAgentCatalog = async (schema: string) =>
-        readPostgresCatalog(
-          (await client.query(postgresCatalogQuery(schema, true))).rows[0].catalog,
-        )
-          .map((fact) => JSON.stringify(fact).replaceAll(schema, "fixture_namespace"))
-          .toSorted();
-      const targetAgentCatalog = await readAgentCatalog(targetNamespace);
       // Build the actual historical layout; dropping current columns would leave
       // PostgreSQL attribute-number holes and change the later migration catalog.
       let agentNamespace = withEngineStoreAdmission(() => {
@@ -787,7 +781,7 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
       try {
         try {
           saved = await lock!.run(() =>
-            createUpdateDatabaseBackup({
+            createUpdateDatabaseBackupWithFixtureTransport({
               backupRoot: path.join(
                 env.OPENCLAW_STATE_DIR!,
                 `agent-capture-${sourceVersion}-${foreignWrite}`,
@@ -891,10 +885,6 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
           expect(capture.receipt?.unchanged).toBe(!foreignWrite);
           recordUpdateDatabaseWrites(saved, capture.receipt, {
             name: "candidate agent Doctor",
-            command: "doctor --fix",
-            cwd: env.OPENCLAW_STATE_DIR!,
-            durationMs: 0,
-            exitCode: 0,
           });
           expect(saved.restoreRefusal !== undefined).toBe(foreignWrite);
         } finally {
@@ -958,5 +948,6 @@ describe.skipIf(!connection)("Doctor PostgreSQL version migration", () => {
         vi.unstubAllEnvs();
       }
     },
+    220_000,
   );
 });

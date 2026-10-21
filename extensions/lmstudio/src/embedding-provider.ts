@@ -1,4 +1,4 @@
-import { createAsyncLock } from "openclaw/plugin-sdk/async-lock-runtime";
+import { createPermitPool } from "openclaw/plugin-sdk/concurrency-runtime";
 import { toErrorObject } from "openclaw/plugin-sdk/error-runtime";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/logging-core";
 import {
@@ -16,7 +16,6 @@ import {
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 import { resolveMemorySecretInputString } from "openclaw/plugin-sdk/memory-core-host-secret";
 import { findNormalizedProviderKey } from "openclaw/plugin-sdk/provider-model-metadata";
-import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-model-shared";
 import { formatErrorMessage } from "openclaw/plugin-sdk/ssrf-runtime";
 import { LMSTUDIO_DEFAULT_EMBEDDING_MODEL, LMSTUDIO_PROVIDER_ID } from "./defaults.js";
 import {
@@ -91,16 +90,6 @@ async function resolveLmstudioApiKey(
   }
 }
 
-function resolveEmbeddingPreloadContextLength(params: {
-  model: string;
-  models: readonly ModelDefinitionConfig[] | undefined;
-}): number | undefined {
-  const configuredModel = params.models?.find(
-    (entry) => normalizeLmstudioModel(entry.id) === params.model,
-  );
-  return configuredModel?.contextTokens ?? configuredModel?.contextWindow;
-}
-
 function resolveConfiguredLmstudioProvider(options: MemoryEmbeddingProviderCreateOptions) {
   const providers = options.config.models?.providers;
   if (!providers) {
@@ -130,24 +119,6 @@ function resolveLmstudioLocalServiceBaseUrl(
 function resolveLmstudioEmbeddingBaseUrl(configuredBaseUrl?: string): string {
   const query = configuredBaseUrl?.match(/\?[^#]*/u)?.[0] ?? "";
   return `${resolveLmstudioInferenceBase(configuredBaseUrl)}${query}`;
-}
-
-async function resolveLmstudioEmbeddingModelKey(
-  params: LmstudioEmbeddingClient & { apiKey?: string },
-): Promise<string> {
-  const discovered = await fetchLmstudioModels({
-    baseUrl: params.baseUrl,
-    apiKey: params.apiKey,
-    headers: params.headers,
-    ssrfPolicy: params.ssrfPolicy,
-  });
-  if (!discovered.reachable || (discovered.status !== undefined && discovered.status >= 400)) {
-    return params.model;
-  }
-  return resolveLmstudioCanonicalModelKey({
-    modelKey: params.model,
-    models: discovered.models,
-  });
 }
 
 /** Creates the LM Studio embedding provider client and preloads the target model before return. */
@@ -218,10 +189,10 @@ export async function createLmstudioEmbeddingProvider(
     headers,
     ssrfPolicy,
   };
-  const requestedContextLength = resolveEmbeddingPreloadContextLength({
-    model,
-    models: providerConfig?.models,
-  });
+  const configuredModel = providerConfig?.models?.find(
+    (entry) => normalizeLmstudioModel(entry.id) === model,
+  );
+  const requestedContextLength = configuredModel?.contextTokens ?? configuredModel?.contextWindow;
   const localServiceTarget =
     providerConfig?.localService && !remoteBaseUrl
       ? {
@@ -260,7 +231,7 @@ export async function createLmstudioEmbeddingProvider(
     }
   };
 
-  const withPreloadLock = createAsyncLock();
+  const preloadPermits = createPermitPool(1);
   const preloadModel = async (
     signal?: AbortSignal,
     initializeIdentity = false,
@@ -269,9 +240,11 @@ export async function createLmstudioEmbeddingProvider(
       return undefined;
     }
     // Serialize discovery/load, keeping embedding requests themselves concurrent.
-    let entered = false;
-    const preparation = withPreloadLock(async () => {
-      entered = true;
+    const release = await preloadPermits.acquire({ signal });
+    if (!release) {
+      throw toErrorObject(signal?.reason, "LM Studio preload aborted");
+    }
+    try {
       signal?.throwIfAborted();
       try {
         const prepared = await prepareLmstudioModelForInference({
@@ -305,34 +278,12 @@ export async function createLmstudioEmbeddingProvider(
         }
         return undefined;
       }
-    });
-    if (!signal) {
-      return await preparation;
+    } catch (error) {
+      throw signal ? toErrorObject(error, "LM Studio model preload failed") : error;
+    } finally {
+      // Once admitted, transport cleanup must finish before the service lease is released.
+      release();
     }
-    // A queued cancellation owns no load. Once entered, wait for transport cleanup
-    // before the caller releases its service lease.
-    return await new Promise<LmstudioPreparedModel | undefined>((resolve, reject) => {
-      const onAbort = () => {
-        if (!entered) {
-          signal.removeEventListener("abort", onAbort);
-          reject(toErrorObject(signal.reason, "LM Studio preload aborted"));
-        }
-      };
-      signal.addEventListener("abort", onAbort, { once: true });
-      void preparation.then(
-        (prepared) => {
-          signal.removeEventListener("abort", onAbort);
-          resolve(prepared);
-        },
-        (error: unknown) => {
-          signal.removeEventListener("abort", onAbort);
-          reject(toErrorObject(error, "LM Studio model preload failed"));
-        },
-      );
-      if (signal.aborted) {
-        onAbort();
-      }
-    });
   };
 
   // Resolve the canonical embedding/cache identity before returning the provider.
@@ -343,13 +294,23 @@ export async function createLmstudioEmbeddingProvider(
     // only the stable wire/cache identity here; JIT still owns the actual load.
     try {
       await withLocalServiceLease(undefined, async () => {
-        client.model = await resolveLmstudioEmbeddingModelKey({
+        const discovered = await fetchLmstudioModels({
           baseUrl,
           apiKey,
           headers: headerOverrides,
           ssrfPolicy,
-          model,
         });
+        if (
+          !discovered.reachable ||
+          (discovered.status !== undefined && discovered.status >= 400)
+        ) {
+          client.model = model;
+        } else {
+          client.model = resolveLmstudioCanonicalModelKey({
+            modelKey: model,
+            models: discovered.models,
+          });
+        }
       });
     } catch (error) {
       log.debug("lmstudio embedding variant discovery failed; using requested model", {

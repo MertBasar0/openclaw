@@ -5,6 +5,7 @@ import {
   isPathInside,
   root as fsRoot,
 } from "openclaw/plugin-sdk/file-access-runtime";
+import { lstatIfExists } from "openclaw/plugin-sdk/path-existence-runtime";
 import type {
   DirectoryEntry,
   SandboxFsBridge,
@@ -29,14 +30,7 @@ type ResolvedMountPath = SandboxResolvedPath & {
   writable: boolean;
 };
 
-export function createOpenShellFsBridge(params: {
-  sandbox: OpenShellFsBridgeContext;
-  backend: OpenShellMirrorBackend;
-}) {
-  return new OpenShellFsBridge(params.sandbox, params.backend);
-}
-
-class OpenShellFsBridge implements SandboxFsBridge {
+export class OpenShellFsBridge implements SandboxFsBridge {
   private readonly resolveRenameTargets = createWritableRenameTargetResolver(
     (target) => this.resolveTarget(target),
     (target, action) => this.ensureWritable(target, action, true),
@@ -186,7 +180,7 @@ class OpenShellFsBridge implements SandboxFsBridge {
   async stat(params: Parameters<SandboxFsBridge["stat"]>[0]): Promise<SandboxFsStat | null> {
     const target = this.resolveTarget(params);
     const hostPath = target.hostPath;
-    const stats = await fsPromises.lstat(hostPath).catch(() => null);
+    const stats = await lstatIfExists(hostPath, "ENOENT");
     if (!stats) {
       return null;
     }
@@ -444,12 +438,7 @@ async function nearestExistingDirectoryStats(params: {
   const rootPath = path.resolve(params.root);
   let cursor = path.resolve(params.targetPath);
   while (isPathInside(rootPath, cursor)) {
-    const stats = await fsPromises.lstat(cursor).catch((err: unknown) => {
-      if (isNotFoundError(err)) {
-        return null;
-      }
-      throw err;
-    });
+    const stats = await lstatIfExists(cursor, "ENOENT");
     if (stats) {
       if (!stats.isDirectory()) {
         throw new Error(`Sandbox rename destination parent is not a directory: ${cursor}`);
@@ -479,14 +468,7 @@ async function assertLocalPathSafety(params: {
   const unlinkSymlink =
     params.allowFinalSymlinkForUnlink &&
     hostPath !== mountHostRoot &&
-    (
-      await fsPromises.lstat(hostPath).catch((error: unknown) => {
-        if (isNotFoundError(error)) {
-          return null;
-        }
-        throw error;
-      })
-    )?.isSymbolicLink();
+    (await lstatIfExists(hostPath, "ENOENT"))?.isSymbolicLink();
   await assertNoSymlinkParents({
     rootDir: mountHostRoot,
     targetPath: unlinkSymlink ? path.dirname(hostPath) : hostPath,

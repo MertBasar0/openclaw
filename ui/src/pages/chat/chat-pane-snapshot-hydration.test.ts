@@ -6,7 +6,7 @@ import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { loadSettings } from "../../app/settings.ts";
 import { gatewayHelloForMethods } from "../../test-helpers/gateway-methods.ts";
-import { flush } from "../../test-helpers/solid-settle.ts";
+import { flush, waitForSolid } from "../../test-helpers/solid-settle.ts";
 import type { ChatHistoryResult } from "./chat-history-snapshot.ts";
 import { loadChatHistory } from "./chat-history.ts";
 import { ChatPaneRuntime } from "./chat-pane-render.ts";
@@ -226,9 +226,12 @@ describe("stored chat snapshot hydration", () => {
         const { container } = renderPane();
         transcript.start();
         flush();
-        const displayed = expectDefined(
-          container.querySelector<HTMLImageElement>(".chat-message-image"),
-          "remounted initial image",
+        await vi.dynamicImportSettled();
+        const displayed = await waitForSolid(() =>
+          expectDefined(
+            container.querySelector<HTMLImageElement>(".chat-message-image"),
+            "remounted initial image",
+          ),
         );
         // jsdom has no decoder; deliver the loaded-preview boundary before custody.
         Object.defineProperty(displayed, "naturalWidth", { value: 1 });
@@ -302,7 +305,7 @@ describe("stored chat snapshot hydration", () => {
     },
   );
 
-  it("paints a persistent snapshot while the network refresh is already in flight", async () => {
+  it("paints a persistent snapshot before requesting its network refresh", async () => {
     vi.stubGlobal("indexedDB", new IDBFactory());
     const targetSessionKey = "agent:main:persistent";
     const cachedMessages = [nativeHistoryMessage(1, "persistent history")];
@@ -315,12 +318,13 @@ describe("stored chat snapshot hydration", () => {
 
     try {
       const attachedState = hydration.start();
+      expect(request).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(attachedState?.chatMessages).toEqual(cachedMessages));
       expect(request).toHaveBeenCalledWith(
         "chat.history",
         expect.objectContaining({ sessionKey: targetSessionKey }),
         { signal: expect.any(AbortSignal), timeoutMs: 30_000 },
       );
-      await vi.waitFor(() => expect(attachedState?.chatMessages).toEqual(cachedMessages));
 
       response.resolve({ messages: networkMessages, sessionId: "network-session" });
       await vi.waitFor(() => expect(attachedState?.chatMessages).toEqual(networkMessages));
@@ -329,7 +333,7 @@ describe("stored chat snapshot hydration", () => {
     }
   });
 
-  it("discards persistent hydration when the network snapshot lands first", async () => {
+  it("keeps the authoritative snapshot after a fast network refresh", async () => {
     vi.stubGlobal("indexedDB", new IDBFactory());
     const targetSessionKey = "agent:main:network-first";
     await writeStoredSnapshot(targetSessionKey, [
