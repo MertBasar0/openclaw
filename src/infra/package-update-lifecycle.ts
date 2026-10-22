@@ -1,3 +1,4 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ignoreMissingPath } from "./errno.js";
@@ -16,6 +17,7 @@ import { mergePathPrepend } from "./path-prepend.js";
 import { resolveEnvironmentValue } from "./process-env.js";
 import { verifyPackageUpdateRecovery, type ResolvedGlobalInstallTarget } from "./update-global.js";
 import { prepareNativePackageStage } from "./update-native-package-stage.js";
+import { UPDATE_NETWORK_TIMEOUT_MS } from "./update-network-budget.js";
 import {
   resolveNpmGlobalPrefixLayoutFromGlobalRoot,
   resolveNpmGlobalPrefixLayoutFromPrefix,
@@ -24,11 +26,64 @@ import type { UpdateRecovery } from "./update-recovery.js";
 import { isFailedUpdateStep } from "./update-run-step.js";
 import type { UpdateStepResult } from "./update-step-result.js";
 
+function readStageActivitySignature(root: string): string {
+  let count = 0;
+  let bytes = 0;
+  let latestMtimeMs = 0;
+  for (const stack = [root]; stack.length > 0;) {
+    const dir = stack.pop()!;
+    let entries: fsSync.Dirent[] = [];
+    try {
+      entries = fsSync.readdirSync(dir, { withFileTypes: true });
+    } catch {}
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      const stat = fsSync.lstatSync(fullPath, { throwIfNoEntry: false });
+      if (stat) {
+        count += 1;
+        bytes += stat.size;
+        latestMtimeMs = Math.max(latestMtimeMs, stat.mtimeMs);
+        if (entry.isDirectory()) {
+          stack.push(fullPath);
+        }
+      }
+    }
+  }
+  return `${count}:${bytes}:${latestMtimeMs}`;
+}
+
+export async function withStageActivityWatchdog<T>(
+  stagePrefix: string,
+  workTimeoutMs: number | undefined,
+  run: (signal?: AbortSignal) => Promise<T>,
+): Promise<T> {
+  if (workTimeoutMs !== undefined) {
+    return await run();
+  }
+  const controller = new AbortController();
+  let lastSignature = readStageActivitySignature(stagePrefix);
+  const timer = setInterval(() => {
+    const signature = readStageActivitySignature(stagePrefix);
+    if (signature === lastSignature) {
+      controller.abort();
+    } else {
+      lastSignature = signature;
+    }
+  }, UPDATE_NETWORK_TIMEOUT_MS);
+  timer.unref?.();
+  try {
+    return await run(controller.signal);
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 export type PackageUpdateStepRunner = (params: {
   name: string;
   argv: string[];
   cwd?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   input?: string;
 }) => Promise<UpdateStepResult>;
@@ -114,6 +169,12 @@ export async function prepareStagedPackageInstall(
   | { stagedInstall: null; failedStep: UpdateStepResult }
 > {
   const startedAt = Date.now();
+  const targetLayout =
+    installTarget.manager === "npm"
+      ? resolveNpmGlobalPrefixLayoutFromGlobalRoot(installTarget.globalRoot, {
+          allowDirectNodeModulesRoot: installTarget.directNodeModulesRoot === true,
+        })
+      : null;
   try {
     let native: StagedPackageInstall["native"];
     let prefix: string;
@@ -131,9 +192,6 @@ export async function prepareStagedPackageInstall(
       prefix = native.projectRoot;
       layout = { prefix, globalRoot: native.globalRoot, binDir: native.binDir };
     } else {
-      const targetLayout = resolveNpmGlobalPrefixLayoutFromGlobalRoot(installTarget.globalRoot, {
-        allowDirectNodeModulesRoot: installTarget.directNodeModulesRoot === true,
-      });
       if (!targetLayout) {
         throw new Error(
           `The ${installTarget.manager} global install layout cannot prepare the update. Reinstall with ${installTarget.manager} into its default global layout, then retry the update.`,
@@ -161,12 +219,6 @@ export async function prepareStagedPackageInstall(
       failedStep: null,
     };
   } catch (err) {
-    const targetLayout =
-      installTarget.manager === "npm"
-        ? resolveNpmGlobalPrefixLayoutFromGlobalRoot(installTarget.globalRoot, {
-            allowDirectNodeModulesRoot: installTarget.directNodeModulesRoot === true,
-          })
-        : null;
     return {
       stagedInstall: null,
       failedStep: await classifyPackageUpdatePermissionFailure(

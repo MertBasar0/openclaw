@@ -66,9 +66,16 @@ function resolveEnvPath(env: NodeJS.ProcessEnv, name: string): string | null {
   return raw ? resolveNpmConfigPath(raw, env) : null;
 }
 
+function resolveNpmHome(env: NodeJS.ProcessEnv): string {
+  return env.HOME?.trim() || env.USERPROFILE?.trim() || os.homedir();
+}
+
 function resolveHomeNpmrc(env: NodeJS.ProcessEnv): string {
-  const home = env.HOME?.trim() || env.USERPROFILE?.trim() || os.homedir();
-  return path.join(home, ".npmrc");
+  return path.join(resolveNpmHome(env), ".npmrc");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function replaceNpmEnvRefs(value: string, env: NodeJS.ProcessEnv): string {
@@ -87,7 +94,7 @@ function replaceNpmEnvRefs(value: string, env: NodeJS.ProcessEnv): string {
 
 function resolveNpmConfigPath(rawPath: string, env: NodeJS.ProcessEnv): string {
   const expanded = replaceNpmEnvRefs(rawPath, env);
-  const home = env.HOME?.trim() || env.USERPROFILE?.trim() || os.homedir();
+  const home = resolveNpmHome(env);
   const homePattern = process.platform === "win32" ? /^~(\/|\\)/u : /^~\//u;
   return homePattern.test(expanded) && home
     ? path.resolve(home, expanded.slice(2))
@@ -144,17 +151,12 @@ function runNpmConfigProbe(params: {
 }
 
 function readNpmGlobalConfigPath(env: NodeJS.ProcessEnv, scope: NpmConfigScope): string | null {
-  const scopedGlobalConfig = resolveScopedGlobalNpmrc(scope);
-  if (scopedGlobalConfig) {
-    return scopedGlobalConfig;
-  }
-  const configuredGlobalConfig = resolveEnvPath(env, "GLOBALCONFIG");
-  if (configuredGlobalConfig) {
-    return configuredGlobalConfig;
-  }
-  const configuredPrefix = resolveEnvPath(env, "PREFIX");
-  if (configuredPrefix) {
-    return path.join(configuredPrefix, "etc", "npmrc");
+  const direct =
+    resolveScopedGlobalNpmrc(scope) ??
+    resolveEnvPath(env, "GLOBALCONFIG") ??
+    resolveScopedGlobalNpmrc({ npmConfigPrefix: resolveEnvPath(env, "PREFIX") });
+  if (direct) {
+    return direct;
   }
   const cacheKey = buildNpmGlobalConfigPathCacheKey(env, scope);
   if (NPM_GLOBAL_CONFIG_PATH_CACHE.has(cacheKey)) {
@@ -217,10 +219,9 @@ function resolveNpmConfigFiles(
 
 function hasNpmrcConfigKey(filePath: string, key: string): boolean {
   try {
-    const raw = fsSync.readFileSync(filePath, "utf-8");
-    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-    const pattern = new RegExp(`^\\s*${escapedKey}\\s*=`, "imu");
-    return pattern.test(raw);
+    return new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`, "imu").test(
+      fsSync.readFileSync(filePath, "utf-8"),
+    );
   } catch {
     return false;
   }
@@ -262,8 +263,7 @@ export function findExplicitNpmConfigKeys(
     });
     const installConfig = raw.split(/^; "publishConfig" from /mu, 1)[0] ?? raw;
     for (const key of remaining) {
-      const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-      if (new RegExp(`^${escapedKey}\\s*=`, "mu").test(installConfig)) {
+      if (new RegExp(`^${escapeRegExp(key)}\\s*=`, "mu").test(installConfig)) {
         found.add(key);
       }
     }
@@ -282,12 +282,9 @@ function resolveNpmFreshnessBypassMode(
   if (process.platform === "win32") {
     return "before";
   }
-  const hasRawKey = (key: string) =>
-    resolveNpmConfigFiles(env, scope, true).some((file) => hasNpmrcConfigKey(file, key));
-  if (hasRawKey("min-release-age")) {
-    return "min-release-age";
-  }
-  return hasRawKey("before") ? "before" : "min-release-age";
+  const files = resolveNpmConfigFiles(env, scope, true);
+  const hasRawKey = (key: string) => files.some((file) => hasNpmrcConfigKey(file, key));
+  return !hasRawKey("min-release-age") && hasRawKey("before") ? "before" : "min-release-age";
 }
 
 /**
@@ -299,10 +296,9 @@ export function createNpmFreshnessBypassArgs(
   now = new Date(),
   scope: NpmConfigScope = {},
 ): string[] {
-  if (resolveNpmFreshnessBypassMode(env, scope) === "min-release-age") {
-    return ["--min-release-age=0"];
-  }
-  return [`--before=${now.toISOString()}`];
+  return resolveNpmFreshnessBypassMode(env, scope) === "min-release-age"
+    ? ["--min-release-age=0"]
+    : [`--before=${now.toISOString()}`];
 }
 
 export function applyNpmFreshnessBypassEnv(
@@ -315,14 +311,33 @@ export function applyNpmFreshnessBypassEnv(
   for (const key of NPM_FRESHNESS_BYPASS_KEYS) {
     if (process.platform === "win32" && key.includes("-")) {
       delete env[key];
-      continue;
+    } else {
+      env[key] = "";
     }
-    env[key] = "";
   }
   if (before !== undefined) {
     env.npm_config_before = before;
   } else {
     env.npm_config_min_release_age = "0";
+  }
+}
+
+/** Applies default npm registry fetch retry and timeout limits without overriding explicit keys. */
+export function applyNpmFetchTimeoutEnv(env: NodeJS.ProcessEnv): void {
+  // npm accepts every casing; a new lowercase key can shadow an explicit setting.
+  for (const [key, fallback] of Object.entries({
+    npm_config_fetch_retries: "5",
+    npm_config_fetch_retry_maxtimeout: "120000",
+    npm_config_fetch_retry_mintimeout: "10000",
+    npm_config_fetch_timeout: String(UPDATE_NETWORK_TIMEOUT_MS),
+  })) {
+    if (
+      !Object.entries(env).some(
+        ([name, value]) => name.toLowerCase() === key && value !== undefined,
+      )
+    ) {
+      env[key] = fallback;
+    }
   }
 }
 
@@ -341,21 +356,7 @@ export function createNpmProjectInstallEnv(
       delete nextEnv[key];
     }
   }
-  // npm accepts every casing; a new lowercase key can shadow an explicit setting.
-  for (const [key, fallback] of Object.entries({
-    npm_config_fetch_retries: "5",
-    npm_config_fetch_retry_maxtimeout: "120000",
-    npm_config_fetch_retry_mintimeout: "10000",
-    npm_config_fetch_timeout: String(UPDATE_NETWORK_TIMEOUT_MS),
-  })) {
-    if (
-      !Object.entries(nextEnv).some(
-        ([name, value]) => name.toLowerCase() === key && value !== undefined,
-      )
-    ) {
-      nextEnv[key] = fallback;
-    }
-  }
+  applyNpmFetchTimeoutEnv(nextEnv);
   const installEnv: NodeJS.ProcessEnv = {
     ...nextEnv,
     npm_config_dry_run: "false",
@@ -378,12 +379,12 @@ export function applyPosixNpmScriptShellEnv(env: NodeJS.ProcessEnv): void {
   ) {
     return;
   }
-  if (fsSync.existsSync("/bin/sh")) {
-    env.NPM_CONFIG_SCRIPT_SHELL = "/bin/sh";
-  } else {
-    const shell = env.SHELL?.trim();
-    if (shell && path.isAbsolute(shell) && fsSync.existsSync(shell)) {
-      env.NPM_CONFIG_SCRIPT_SHELL = shell;
-    }
+  const configuredShell = env.SHELL?.trim();
+  const shell = [
+    "/bin/sh",
+    configuredShell && path.isAbsolute(configuredShell) ? configuredShell : "",
+  ].find((candidate) => candidate && fsSync.existsSync(candidate));
+  if (shell) {
+    env.NPM_CONFIG_SCRIPT_SHELL = shell;
   }
 }

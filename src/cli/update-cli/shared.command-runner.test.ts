@@ -743,4 +743,22 @@ describe("update CLI shared helpers", () => {
       fs.stat(path.join(checkoutDir, recoveryDirs[0]!, "repository", ".git")),
     ).resolves.toBeDefined();
   });
+
+  it("enables process-tree termination and forwards abort signals in runUpdateStep", async () => {
+    const controller = new AbortController();
+    await runUpdateStep({
+      name: "package-install",
+      argv: ["npm", "i", "-g", "openclaw@latest"],
+      cwd: base,
+      signal: controller.signal,
+    });
+    expect(runCommandWithTimeout).toHaveBeenCalledWith(
+      ["npm", "i", "-g", "openclaw@latest"],
+      expect.objectContaining({
+        cwd: base,
+        killProcessTree: true,
+        signal: controller.signal,
+      }),
+    );
+  });
 });

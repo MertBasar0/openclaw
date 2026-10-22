@@ -220,6 +220,7 @@ export async function runUpdateStep(params: {
   argv: string[];
   cwd?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
   progress?: UpdateStepProgress;
   env?: NodeJS.ProcessEnv;
   input?: string;
@@ -229,7 +230,9 @@ export async function runUpdateStep(params: {
   return await runStep({
     ...params,
     cwd: params.cwd ?? process.cwd(),
-    runCommand: params.runCommand ?? runCommandWithTimeout,
+    runCommand:
+      params.runCommand ??
+      ((argv, options) => runCommandWithTimeout(argv, { ...options, killProcessTree: true })),
     stepIndex: 0,
     totalSteps: 0,
   });
