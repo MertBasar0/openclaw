@@ -8,7 +8,6 @@ import {
   withinTest,
 } from "../../../../test/helpers/promise.js";
 import { getRuntimeConfig } from "../../../config/config.js";
-import { loadExactSessionEntryReadOnly } from "../../../config/sessions/session-accessor.js";
 import { reactivateCompletedSubagentSession } from "../../../gateway/session-subagent-reactivation.js";
 import * as controllerLifecycle from "../../../sessions/session-controller.lifecycle.js";
 import {
@@ -41,8 +40,7 @@ import {
 import * as nativeControl from "./subagent-control.js";
 import { killAllControlledSubagentRuns, killSubagentRunAdmin } from "./subagent-control.js";
 import { subagentRuns } from "./subagent-registry-memory.js";
-import { markSubagentRunTerminated, registerSubagentRun } from "./subagent-registry.js";
-import { writeSubagentSessionEntry } from "./subagent-registry.persistence.test-support.js";
+import { markSubagentRunTerminated } from "./subagent-registry.js";
 import { finalizeInterruptedSubagentRun } from "./subagent-registry.test-helpers.js";
 import { resolveSubagentSessionStatus } from "./subagent-session-metrics.js";
 
@@ -150,7 +148,7 @@ it.each(["before interruption", "after interruption", "after abort"] as const)(
         admission.release();
       }
     });
-    const admission = await admit(storePath, sessionKey, sessionId, onInterrupt);
+    const admission = await admit(storePath, sessionKey, sessionId, onInterrupt, runId);
     const blocker = await block(revocation === "before interruption", storePath, [
       sessionKey,
       sessionId,
@@ -213,14 +211,20 @@ it.each([
     const handle = createEmbeddedRunHandle({ runId, abort: () => controller.abort() });
     attachActiveEmbeddedRun(sessionId, handle, sessionKey);
     const interrupted = createDeferred();
-    const admission = await admit(storePath, sessionKey, sessionId, () => {
-      controller.abort();
-      interrupted.resolve();
-      if (phase === "queued") {
-        admission.release();
-      }
-      return { runId };
-    });
+    const admission = await admit(
+      storePath,
+      sessionKey,
+      sessionId,
+      () => {
+        controller.abort();
+        interrupted.resolve();
+        if (phase === "queued") {
+          admission.release();
+        }
+        return { runId };
+      },
+      runId,
+    );
     const blocker = await block(phase === "queued", storePath, [sessionKey, sessionId]);
     const mutationQueued = createDeferred();
     if (phase === "queued") {
@@ -330,6 +334,7 @@ it.for(["admin", "bulk"] as const)(
       storePath = await writeSession(id, `${id}-revision`);
       await register(id, storePath, {
         requesterSessionKey: id === "root" ? requesterKey : owner,
+        requesterTurnRunId: id === "root" ? undefined : "root",
         requesterDisplayKey: requesterKey,
         collect: true,
         queued: queued.includes(id),
@@ -362,15 +367,21 @@ it.for(["admin", "bulk"] as const)(
     for (const { runId, handle } of activeRuns) {
       attachActiveEmbeddedRun(`${runId}-session`, handle, key(runId));
       leases.push(
-        await admit(storePath, key(runId), `${runId}-session`, () => {
-          interrupted.push(runId);
-          if (interrupted.length === running.length) {
-            allInterrupted.resolve();
-          }
-          // Cancellation releases real scheduler capacity while these admissions
-          // remain held. Selected queued children must still never dispatch.
-          expect(releaseSwarmRun(runId)).toBe(true);
-        }),
+        await admit(
+          storePath,
+          key(runId),
+          `${runId}-session`,
+          () => {
+            interrupted.push(runId);
+            if (interrupted.length === running.length) {
+              allInterrupted.resolve();
+            }
+            // Cancellation releases real scheduler capacity while these admissions
+            // remain held. Selected queued children must still never dispatch.
+            expect(releaseSwarmRun(runId)).toBe(true);
+          },
+          runId,
+        ),
       );
     }
     const cfg = getRuntimeConfig();
@@ -539,28 +550,11 @@ it.for(["before capacity release", "after interrupt"] as const)(
 );
 
 it("full child Stop preserves later and foreign sources while joining captured queue cleanup", async () => {
-  const sessionKey = "agent:main:subagent:captured-queue";
-  const sessionId = "captured-queue-session";
-  const runId = "captured-queue-run";
-  const storePath = await writeSubagentSessionEntry({
-    stateDir: fixture.stateDir,
-    agentId: "main",
-    sessionKey,
-    defaultSessionId: sessionId,
-    lifecycleRevision: "captured-queue-revision",
-  });
-  await registerSubagentRun({
-    runId,
-    childSessionKey: sessionKey,
-    childAgentId: "main",
-    sessionEntry: loadExactSessionEntryReadOnly({ agentId: "main", storePath, sessionKey })?.entry,
-    requesterSessionKey: "agent:main:main",
-    requesterAgentId: "main",
-    requesterDisplayKey: "main",
-    task: "captured queue",
-    cleanup: "keep",
-    expectsCompletionMessage: false,
-  });
+  const { sessionKey, sessionId, storePath } = await seed(
+    "captured-queue",
+    { runId: "captured-queue-run", requesterDisplayKey: "main", task: "captured queue" },
+    "captured-queue-revision",
+  );
   const target = captureSessionTarget({
     storeScope: storePath,
     sessionKey,
@@ -593,7 +587,6 @@ it("full child Stop preserves later and foreign sources while joining captured q
   const pending = killSubagentRunAdmin({
     cfg: getRuntimeConfig(),
     sessionKey,
-    expectedRunId: runId,
   }).finally(() => {
     completed = true;
   });

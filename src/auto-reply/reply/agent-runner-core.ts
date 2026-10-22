@@ -76,20 +76,14 @@ export function scheduleFollowupDrainAfterReplyOperationClear(params: {
 }): void {
   runAfterReplyOperationClear(params.operation, (admissionSessionId) => {
     const completedSessionId = params.operation.sessionId;
-    const runFollowupAfterClear =
-      admissionSessionId === completedSessionId
-        ? params.runFollowup
-        : (queued: FollowupRun) =>
-            params.runFollowup(
-              queued.run.sessionId === completedSessionId
-                ? { ...queued, admissionSessionId }
-                : queued,
-            );
     // Same-key sessions in other physical stores may retain their own dedupe mailbox.
     scheduleFollowupDrain(
       params.queueKey,
-      runFollowupAfterClear,
+      params.runFollowup,
       getSessionControllerEntryForOperation(params.operation),
+      admissionSessionId === completedSessionId
+        ? undefined
+        : { from: completedSessionId, to: admissionSessionId },
     );
   });
 }
@@ -439,6 +433,7 @@ export async function handleReplyAgentRunError(
 export async function cleanupReplyAgentRun(context: {
   blockReplyPipeline: BlockReplyPipeline | null;
   clearRestartRecoveryDeliveryClaim: () => Promise<void>;
+  releaseSourceAdmission?: () => Promise<void>;
   isHeartbeat: boolean;
   providedReplyOperation: ReplyOperation | undefined;
   queueKey: string;
@@ -451,6 +446,7 @@ export async function cleanupReplyAgentRun(context: {
   const {
     blockReplyPipeline,
     clearRestartRecoveryDeliveryClaim,
+    releaseSourceAdmission,
     isHeartbeat,
     providedReplyOperation,
     queueKey,
@@ -462,7 +458,11 @@ export async function cleanupReplyAgentRun(context: {
   } = context;
 
   try {
-    await clearRestartRecoveryDeliveryClaim();
+    try {
+      await clearRestartRecoveryDeliveryClaim();
+    } finally {
+      await releaseSourceAdmission?.();
+    }
   } catch (error) {
     logVerbose(
       `failed to clear restart recovery delivery context for ${sessionKey ?? "unknown"}: ${String(

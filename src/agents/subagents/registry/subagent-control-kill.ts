@@ -1,11 +1,14 @@
 import { resolveSubagentLabel } from "../../../auto-reply/reply/subagents-utils.js";
 import { prepareSessionGenerationFacts } from "../../../config/sessions/session-delivery-generation.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+import { getActiveAgentRunDelegatedAuthority } from "../../../infra/agent-run-registry.js";
 import { formatErrorMessage } from "../../../infra/errors.js";
 import { hasSqliteWorkerOutcomeUnknown } from "../../../infra/sqlite-worker-contract.js";
 import { getGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
 import { getRpcSourceForGateway } from "../../../sessions/session-controller.rpc-sources.js";
 import type { SessionControllerStopCapture } from "../../../sessions/session-controller.stop.js";
+import { retireAcceptedSessionSpawnCompletionForRun } from "../../accepted-session-spawn.js";
+import { getGatewayToolCallerIdentity } from "../../tools/gateway-caller-context.js";
 import { resolveSubagentChildAuthority } from "./subagent-child-owner-match.js";
 import { captureSubagentCommands } from "./subagent-control-commands.js";
 import { mutateSubagentRunForKill } from "./subagent-control-kill-runtime.js";
@@ -26,7 +29,6 @@ import {
 } from "./subagent-control-session.js";
 import type {
   KillScope,
-  KillPublicationPreparation,
   ResolvedSubagentController,
   SubagentAdminKillParams,
   SubagentAdminKillResult,
@@ -116,6 +118,7 @@ async function settleSubagentKill(
 async function killLatestSubagentRun(params: {
   tree: KillTree;
   scope: KillScope;
+  exactRunSelection?: boolean;
   suppressTaskDelivery?: boolean;
   beforeSessionKill?: () => boolean | Promise<boolean>;
   requiredSessionId?: string;
@@ -257,6 +260,7 @@ function collectKillErrors(trees: KillTree[], unlabeledRoot?: KillTree) {
 
 type KillTraversal = {
   scope: KillScope;
+  exactRunSelection?: boolean;
   /** A requester-wide Stop or reset cancels the tree; that requester needs no report. */
   suppressTaskDelivery?: boolean;
   stopRequestCommands?: boolean;
@@ -421,6 +425,7 @@ async function killSubagentRoot(params: Parameters<typeof killLatestSubagentRun>
     if (!stopped.result.superseded && !stopped.result.declined && params.tree.canTraverse()) {
       // Exact admin constraints belong only to its selected root, not each descendant.
       cascade = await killSubagentRunTree({
+        exactRunSelection: params.exactRunSelection,
         suppressTaskDelivery: params.suppressTaskDelivery,
         suppressCompletedWakes: !stopped.result.error && !stopped.result.completedCleanupError,
         scope: params.scope,
@@ -585,7 +590,7 @@ export async function killSubagentRunAdmin(
     prepareRead?: () => Promise<void> | undefined;
     beforeSessionKill?: () => boolean | Promise<boolean>;
     requiredSessionId?: string;
-    preparePublication?: KillPublicationPreparation<SubagentAdminKillResult>;
+    onSnapshot?: (result: SubagentAdminKillResult) => void;
   },
 ): Promise<SubagentAdminKillResult> {
   const publish = (result: SubagentAdminKillResult): SubagentAdminKillResult => {
@@ -599,13 +604,13 @@ export async function killSubagentRunAdmin(
     return publish({ found: false as const, killed: false as const });
   }
   const expectedRunId = params.expectedRunId?.trim();
+  const exactRunSelection = Boolean(expectedRunId) && !control?.beforeSessionKill;
   const selected = expectedRunId ? subagentRuns.get(expectedRunId) : undefined;
-  const entry =
-    selected &&
-    selected.childSessionKey === targetSessionKey &&
-    resolveSubagentChildAuthority(selected).status !== "verified"
+  const entry = expectedRunId
+    ? selected?.childSessionKey === targetSessionKey
       ? selected
-      : getLatestOwnedSubagentRun(targetSessionKey, params.agentId, params.cfg);
+      : undefined
+    : getLatestOwnedSubagentRun(targetSessionKey, params.agentId, params.cfg);
   if (!entry) {
     return publish({ found: false as const, killed: false as const });
   }
@@ -637,10 +642,11 @@ export async function killSubagentRunAdmin(
     {
       cfg: params.cfg,
       runs: [entry],
+      exactRunSelection,
       assertCurrent: control?.assertCurrent,
       prepareRead: control?.prepareRead,
       ownsRoot:
-        params.expectedGeneration === undefined
+        params.expectedGeneration === undefined || exactRunSelection
           ? undefined
           : (candidate) => {
               const current = getLatestOwnedSubagentRun(
@@ -658,6 +664,7 @@ export async function killSubagentRunAdmin(
       const stopped = await killSubagentRoot({
         tree,
         scope,
+        exactRunSelection,
         beforeSessionKill: control?.beforeSessionKill,
         requiredSessionId: control?.requiredSessionId,
         expectedGeneration: params.expectedGeneration,
@@ -707,13 +714,33 @@ export async function killSubagentRunAdmin(
       }
       const targetState = ownsOutcome ? resolveSubagentKillTargetState(tree.entry) : undefined;
       const { errors } = collectKillErrors([tree], tree);
+      const caller = getGatewayToolCallerIdentity();
+      const instance = caller?.operationalRunInstance;
+      if (
+        errors.length === 0 &&
+        targetState?.state === "terminal" &&
+        targetState.task.status === "cancelled" &&
+        caller &&
+        instance &&
+        instance.runId === tree.entry.requesterTurnRunId &&
+        caller.sessionKey === tree.entry.requesterSessionKey &&
+        caller.agentId === authority.requesterAgentId &&
+        getActiveAgentRunDelegatedAuthority(instance)?.operationalRunInstance === instance
+      ) {
+        // Reconcile only the final acknowledged cancellation, after native cleanup
+        // and outcome ownership checks, before its registry witness is released.
+        retireAcceptedSessionSpawnCompletionForRun(instance, {
+          runId: tree.entry.taskRunId ?? tree.entry.runId,
+          childSessionKey: tree.entry.childSessionKey,
+        });
+      }
       return {
         ...result,
         ...(targetState ? { targetState } : {}),
         ...(errors.length > 0 ? { error: errors.join("; ") } : {}),
       };
     },
-    control?.preparePublication,
+    control?.onSnapshot,
     publish,
   );
 }

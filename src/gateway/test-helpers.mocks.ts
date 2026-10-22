@@ -277,7 +277,8 @@ vi.mock("/src/agents/embedded-agent-runner/runs.js", async () => {
 });
 
 // mock-isolation: Gateway fixtures must not collect real channel or session state.
-vi.mock("./health/collector.js", () => ({
+vi.mock("./health/collector.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./health/collector.js")>()),
   collectGatewayHealthSnapshot: vi
     .fn<typeof import("./health/collector.js").collectGatewayHealthSnapshot>()
     .mockImplementation(async () => ({
@@ -292,8 +293,10 @@ vi.mock("./health/collector.js", () => ({
       sessions: { path: "/test/gateway/sessions", count: 0, recent: [] },
     })),
 }));
+// mock-isolation: Gateway fixtures own their status response and must not collect local state.
 vi.mock("../status/summary.js", () => ({
   getStatusSummary: vi.fn().mockResolvedValue({ ok: true }),
+  prepareStatusSummary: vi.fn().mockResolvedValue({ publish: () => ({ summary: { ok: true } }) }),
 }));
 vi.mock("../commands/agent.js", () => ({
   agentCommand: agentCommandMock,

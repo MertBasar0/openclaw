@@ -4,6 +4,7 @@ import {
   createDeferred,
   withinTest,
 } from "../../../test/helpers/promise.js";
+import { createAdmittedRunOperatorAuthority } from "../../agents/admitted-run-context.js";
 import { createNativeSessionBindingAuthority } from "../../agents/harness/native-session/binding-authority.js";
 import { setRuntimeConfigSnapshot } from "../../config/runtime-snapshot.js";
 import { beginRestartRecoveryTerminalDelivery } from "../../config/sessions/restart-recovery-receipt.js";
@@ -20,13 +21,13 @@ import {
   attachSteerBackend,
   createSteerParams,
 } from "./agent-runner-steer-adoption.test-support.js";
-import { createQueueTestRun } from "./queue.test-helpers.js";
 import { clearSessionQueues } from "./queue/cleanup.js";
 import { getExistingFollowupQueue } from "./queue/state.js";
 import type { FollowupRun } from "./queue/types.js";
 import type { ReplyOperationRunState } from "./reply-operation-run-state.js";
 import { createTestReplyOperation } from "./reply-run-registry.test-helpers.js";
 import { prepareReplyToolAuthority } from "./reply-tool-authority.js";
+import { createQueueTestRun } from "./reply-tool-authority.test-support.js";
 import { admitReplyTurn } from "./reply-turn-admission.js";
 import * as steeringDelivery from "./steering-delivery-preparation.js";
 
@@ -41,6 +42,31 @@ async function prepareOperation(run: FollowupRun) {
   await operation.bindToolAuthoritySnapshotAsync(prepareReplyToolAuthority(run));
   const fingerprint = await operation.bindToolAuthorityRouteAsync(run.run);
   return { operation, fingerprint };
+}
+
+function steeringRequester() {
+  return createAdmittedRunOperatorAuthority({
+    profileId: "steering-requester",
+    scopes: ["operator.read", "operator.write"],
+    source: {},
+    assertCurrent() {},
+  });
+}
+
+function preparedDelivery(
+  delivered: string[],
+): Pick<Parameters<typeof attachSteerBackend>[2], "queueMessage" | "queueMessageAsync"> {
+  return {
+    async queueMessage() {
+      throw new Error("Expected awaited steering");
+    },
+    async queueMessageAsync(text, options, preparation) {
+      await preparation.prepareCurrent();
+      preparation.assertCurrent();
+      delivered.push(text);
+      options?.onQueueAccepted?.(true);
+    },
+  };
 }
 
 it("adopts active steering through prepared policy without caller-thread SQL", async () => {
@@ -61,6 +87,7 @@ it("adopts active steering through prepared policy without caller-thread SQL", a
       messageId: "incoming-steer",
       originatingChannel: "webchat",
     });
+    run.operatorAuthority = steeringRequester();
     Object.assign(run.run, {
       agentId: "main",
       sessionKey: key,
@@ -72,15 +99,7 @@ it("adopts active steering through prepared policy without caller-thread SQL", a
     const delivered: string[] = [];
     attachSteerBackend(operation, fingerprint, {
       cancel() {},
-      async queueMessage() {
-        throw new Error("Expected awaited steering preparation");
-      },
-      async queueMessageAsync(text, options, preparation) {
-        await preparation.prepareCurrent();
-        preparation.assertCurrent();
-        delivered.push(text);
-        options?.onQueueAccepted?.(true);
-      },
+      ...preparedDelivery(delivered),
     });
     const resultState: ReplyOperationRunState = {};
     const followup = vi.fn(async () => {});
@@ -136,6 +155,7 @@ it.for(
         messageId,
         originatingChannel: "webchat",
       });
+      run.operatorAuthority = steeringRequester();
       Object.assign(run.run, {
         agentId: "main",
         sessionId,
@@ -263,6 +283,7 @@ it.for(
         expect(resultState.admission).toEqual({
           status: "accepted",
           mode: steered ? "steer" : "followup",
+          ...(!steered ? { reason: "steering-unavailable" } : {}),
         });
         expect([...retained]).toEqual(steered ? [] : [run]);
         if (!steered) {
@@ -278,6 +299,80 @@ it.for(
         clearSessionQueues([key], getSessionControllerEntryForOperation(operation).target);
         operation.complete();
         await Promise.allSettled(pendingFollowups);
+      }
+    });
+  },
+);
+
+it.for([
+  { key: "agent:main:main", incoming: "requester-c", steered: true },
+  { key: "agent:main:main", incoming: "requester-d", steered: false },
+  { key: "agent:main:dashboard:collaboration", incoming: "requester-d", steered: true },
+])(
+  "keeps request credit with its tools during steering: $key / $incoming",
+  async ({ key, incoming, steered }, { signal }) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      const config: OpenClawConfig = { agents: { entries: { main: {} } } };
+      setRuntimeConfigSnapshot(config);
+      const original = createQueueTestRun({
+        prompt: "original task",
+        messageId: "original-request",
+        originatingChannel: "discord",
+      });
+      Object.assign(original.run, {
+        agentId: "main",
+        sessionKey: key,
+        senderIsOwner: false,
+        gitContributorProfileId: "requester-c",
+        config,
+      });
+      await upsertSessionEntryCore(
+        { agentId: "main", sessionKey: key },
+        { sessionId: original.run.sessionId, updatedAt: 1 },
+      );
+      const { operation, fingerprint } = await prepareOperation(original);
+      const delivered: string[] = [];
+      attachSteerBackend(operation, fingerprint, preparedDelivery(delivered));
+      const run = createQueueTestRun({
+        prompt: "make the requested PR",
+        messageId: "incoming-request",
+        originatingChannel: "discord",
+      });
+      run.run = { ...original.run, gitContributorProfileId: incoming };
+      const resultState: ReplyOperationRunState = {};
+      const followupDelivered = createDeferred<FollowupRun>();
+      const followup = vi.fn(async (value: FollowupRun) => {
+        followupDelivered.resolve(value);
+      });
+      try {
+        await expect(
+          runActiveReplySteer(
+            createSteerParams(key, run, operation, {
+              opts: { runId: "incoming-request" },
+              replyOperationRunState: resultState,
+              runFollowup: followup,
+            }),
+          ),
+        ).resolves.toBe("handled");
+        expect(delivered).toEqual(steered ? [run.prompt] : []);
+        expect(resultState.admission).toEqual({
+          status: "accepted",
+          mode: steered ? "steer" : "followup",
+          ...(!steered ? { reason: "steering-unavailable" } : {}),
+        });
+        expect(original.run.gitContributorProfileId).toBe("requester-c");
+        if (!steered) {
+          const queue = getExistingFollowupQueue(key);
+          expect(new Set([...(queue?.items ?? []), ...(queue?.inFlight ?? [])])).toContain(run);
+          operation.complete();
+          expect(
+            (await withinTest(followupDelivered.promise, signal)).run.gitContributorProfileId,
+          ).toBe("requester-d");
+          expect(followup).toHaveBeenCalledOnce();
+        }
+      } finally {
+        clearSessionQueues([key], getSessionControllerEntryForOperation(operation).target);
+        operation.complete();
       }
     });
   },
