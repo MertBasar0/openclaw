@@ -28,7 +28,6 @@ export async function runAgentMemorySchemaHealth(ctx: DoctorHealthFlowContext): 
 export async function runCodexSessionRouteHealth(ctx: DoctorHealthFlowContext): Promise<void> {
   const { maybeRepairCodexSessionRoutes } =
     await import("../commands/doctor/shared/codex-route-warnings.js");
-  const { note } = await import("../../packages/terminal-core/src/note.js");
   const result = await maybeRepairCodexSessionRoutes({
     cfg: ctx.cfg,
     ...(ctx.configResult.retiredModelRefConfig
@@ -49,7 +48,7 @@ export async function runCodexSessionRouteHealth(ctx: DoctorHealthFlowContext): 
         }
       : {}),
   });
-  noteDoctorRepairResult(result, note);
+  noteDoctorRepairResult(result);
 }
 
 export async function runSessionTranscriptsHealth(ctx: DoctorHealthFlowContext): Promise<void> {
@@ -89,7 +88,6 @@ export async function runLegacyCronHealth(ctx: DoctorHealthFlowContext): Promise
     env: ctx.env,
     shouldRepair: ctx.prompter.shouldRepair,
   });
-  const { note } = await import("../../packages/terminal-core/src/note.js");
-  noteDoctorRepairResult(inference, note);
+  noteDoctorRepairResult(inference);
   recordDoctorHealthWarnings(ctx, [], inference.warnings);
 }

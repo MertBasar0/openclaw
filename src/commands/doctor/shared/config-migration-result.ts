@@ -118,6 +118,18 @@ export function prepareDoctorConfigMigrationResult(
         postSession = undefined;
       }
     }
+    const preflightLegacyStateSettled =
+      Boolean(planBound) &&
+      !params.pluginInventoryChanged &&
+      !params.shouldWriteConfig &&
+      !preflight.deferredPluginMigrations?.length &&
+      isDeepStrictEqual(preflight.baseConfig, params.cfg) &&
+      receipts?.some((r) => r.id === "migration-detection") &&
+      receipts.every(
+        (r) =>
+          r.id === "plugin-doctor-post-session-state" ||
+          ((r.outcome === "completed" || r.outcome === "skipped") && r.warnings.length === 0),
+      );
     return {
       ...(sourceLastTouchedVersion ? { sourceLastTouchedVersion } : {}),
       ...(modelBillingRouteWarnings.length > 0 ? { modelBillingRouteWarnings } : {}),
@@ -125,6 +137,7 @@ export function prepareDoctorConfigMigrationResult(
       ...(receipts ? { stateMigrationStepReceipts: receipts } : {}),
       ...(postSession ? { postSessionPluginMigration: postSession } : {}),
       ...(planBound ? { postSessionPluginMigrationPlanBound: true } : {}),
+      ...(preflightLegacyStateSettled ? { preflightLegacyStateSettled: true } : {}),
     };
   };
 }
