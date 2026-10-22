@@ -21,8 +21,11 @@ const HOST_SHELL_WRAPPER_ALLOWED_OVERRIDE_ENV_KEYS = new Set([
 const HOST_DANGEROUS_ENV_KEYS = new Set(HOST_ENV_SECURITY_POLICY.blockedKeys);
 const HOST_DANGEROUS_INHERITED_ENV_KEYS = new Set(HOST_ENV_SECURITY_POLICY.blockedInheritedKeys);
 const HOST_DANGEROUS_OVERRIDE_ENV_KEYS = new Set(HOST_ENV_SECURITY_POLICY.blockedOverrideKeys);
+// The profile is not a service selector: child CLIs keep the node's profile.
 const NODE_SERVICE_ENV_KEYS = new Set([
-  ...Object.keys(resolveNodeServiceIdentityEnvironment()),
+  ...Object.keys(resolveNodeServiceIdentityEnvironment()).filter(
+    (key) => key !== "OPENCLAW_PROFILE",
+  ),
   "OPENCLAW_GATEWAY_SERVICE_PID",
 ]);
 const CARGO_TARGET_EXECUTABLE_OVERRIDE_ENV_KEY = /^CARGO_TARGET_[A-Z0-9_]+_(?:LINKER|RUNNER)$/;
