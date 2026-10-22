@@ -63,6 +63,7 @@ export type GatewayServiceInstallArgs = {
 };
 
 export type GatewayServiceManageArgs = {
+  beforeMutation?: () => Promise<void>;
   env: GatewayServiceEnv;
   stdout: NodeJS.WritableStream;
 };

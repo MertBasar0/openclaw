@@ -1,4 +1,9 @@
-import { resolveNodeServiceIdentityEnvironment } from "./constants.js";
+import {
+  NODE_SERVICE_KIND,
+  resolveGatewayProfileSuffix,
+  resolveNodeServiceIdentityEnvironment,
+} from "./constants.js";
+import type { GatewayServiceEnv } from "./service-types.js";
 import type { GatewayService, GatewayServiceInstallArgs } from "./service.js";
 import { resolveGatewayService } from "./service.js";
 
@@ -25,14 +30,35 @@ function withNodeInstallEnv(args: GatewayServiceInstallArgs): GatewayServiceInst
 export function resolveNodeService(): GatewayService {
   const base = resolveGatewayService("node");
   const { hasInstalledDefinition, isAbsent, readDefinitionMutationCapability } = base;
+  // A profile node name can equal another profile's legacy Gateway name (profile
+  // work's openclaw-node-work.service is profile node-work's legacy unit). Under
+  // the mutation lock and before native effects, refuse a readable definition
+  // that is not marked as a node. Unmarked default-profile definitions and
+  // unreadable ones keep their existing behavior and native inspection.
+  const owned = <TArgs extends { env: GatewayServiceEnv; beforeMutation?: () => Promise<void> }>(
+    args: TArgs,
+  ): TArgs => ({
+    ...args,
+    beforeMutation: async () => {
+      await args.beforeMutation?.();
+      const command = await base.readCommand(args.env).catch(() => null);
+      const kind = command?.environment?.OPENCLAW_SERVICE_KIND?.trim();
+      const profiled = Boolean(resolveGatewayProfileSuffix(args.env.OPENCLAW_PROFILE));
+      if (command && kind !== NODE_SERVICE_KIND && (kind || profiled)) {
+        throw new Error(
+          `${command.sourcePath ?? "The selected service"} is not an OpenClaw node service, so node commands left it unchanged. It may be another profile's legacy Gateway; move or remove it before managing this profile's node.`,
+        );
+      }
+    },
+  });
   return {
     ...base,
-    stage: (args) => base.stage(withNodeInstallEnv(args)),
-    install: (args) => base.install(withNodeInstallEnv(args)),
-    uninstall: (args) => base.uninstall({ ...args, env: withNodeServiceEnv(args.env) }),
-    start: (args) => base.start({ ...args, env: withNodeServiceEnv(args.env ?? {}) }),
-    stop: (args) => base.stop({ ...args, env: withNodeServiceEnv(args.env ?? {}) }),
-    restart: (args) => base.restart({ ...args, env: withNodeServiceEnv(args.env ?? {}) }),
+    stage: (args) => base.stage(owned(withNodeInstallEnv(args))),
+    install: (args) => base.install(owned(withNodeInstallEnv(args))),
+    uninstall: (args) => base.uninstall(owned({ ...args, env: withNodeServiceEnv(args.env) })),
+    start: (args) => base.start(owned({ ...args, env: withNodeServiceEnv(args.env ?? {}) })),
+    stop: (args) => base.stop(owned({ ...args, env: withNodeServiceEnv(args.env ?? {}) })),
+    restart: (args) => base.restart(owned({ ...args, env: withNodeServiceEnv(args.env ?? {}) })),
     isLoaded: (args) => {
       // Preserve the status read deadline so node probes fail soft under a
       // wedged service manager instead of hanging the whole status command.

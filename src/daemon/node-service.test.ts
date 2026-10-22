@@ -10,11 +10,23 @@ import { withMockedPlatform } from "../test-utils/vitest-spies.js";
 import { decodeLaunchAgentPlistFixture } from "./launchd-plist.test-support.js";
 import { resolveNodeService } from "./node-service.js";
 import { withDaemonRuntimePinMigration } from "./runtime-pin-state.js";
+import * as systemd from "./systemd.js";
 
 vi.mock("./launchd-system.js", async (original) => ({
   ...(await original<typeof import("./launchd-system.js")>()),
   assertNoSystemLaunchDaemonOwnership: async () => {},
 }));
+vi.mock("./systemd.js", async (original) => {
+  const actual = await original<typeof import("./systemd.js")>();
+  const native = ["stage", "install", "uninstall", "start", "stop", "restart"] as const;
+  return {
+    ...actual,
+    readSystemdServiceExecStart: vi.fn(async () => null),
+    ...Object.fromEntries(
+      native.map((action) => [`${action}SystemdService`, vi.fn(async () => undefined)]),
+    ),
+  };
+});
 vi.mock("./launchd-exec.js", async (original) => ({
   ...(await original<typeof import("./launchd-exec.js")>()),
   execLaunchctl: async () => ({
@@ -69,6 +81,64 @@ it("stages and reads separate node definitions for two profiles beside the defau
         });
         expect(command?.environment?.OPENCLAW_PROFILE).toBe(profile);
       }
+    });
+  });
+});
+
+it("leaves another profile's legacy Gateway unit untouched by node mutations", async () => {
+  const home = dirs.make("openclaw-node-legacy-gateway-");
+  const isolatedEnv = createPathResolutionEnv(home, {
+    OPENCLAW_STATE_DIR: path.join(home, "state"),
+    OPENCLAW_PROFILE: undefined,
+  });
+  await withEnvAsync(isolatedEnv, async () => {
+    await withDaemonRuntimePinMigration(process.env, () => undefined);
+    await withMockedPlatform("linux", async () => {
+      const unitPath = path.join(home, ".config/systemd/user/openclaw-node-work.service");
+      const read = vi.mocked(systemd.readSystemdServiceExecStart);
+      // Profile node-work's legacy Gateway owns the name profile work's node derives.
+      read.mockResolvedValue({
+        programArguments: ["/usr/bin/node", "/opt/openclaw/openclaw.mjs", "gateway"],
+        sourcePath: unitPath,
+        environment: {
+          OPENCLAW_PROFILE: "node-work",
+          OPENCLAW_SERVICE_MARKER: "openclaw",
+          OPENCLAW_SERVICE_KIND: "gateway",
+        },
+      });
+      const service = resolveNodeService();
+      const args = {
+        env: { ...process.env, OPENCLAW_PROFILE: "work" },
+        stdout: new PassThrough(),
+        programArguments: ["/usr/bin/node", "/opt/openclaw/openclaw.mjs", "node", "run"],
+      };
+      const native = {
+        stage: systemd.stageSystemdService,
+        install: systemd.installSystemdService,
+        uninstall: systemd.uninstallSystemdService,
+        start: systemd.startSystemdService,
+        stop: systemd.stopSystemdService,
+        restart: systemd.restartSystemdService,
+      };
+      for (const action of Object.keys(native) as (keyof typeof native)[]) {
+        await expect(service[action](args)).rejects.toThrow(
+          `${unitPath} is not an OpenClaw node service`,
+        );
+      }
+      expect(read).toHaveBeenCalledWith(
+        expect.objectContaining({ OPENCLAW_SYSTEMD_UNIT: "openclaw-node-work" }),
+      );
+      for (const effect of Object.values(native)) {
+        expect(effect).not.toHaveBeenCalled();
+      }
+
+      read.mockResolvedValue({
+        programArguments: args.programArguments,
+        sourcePath: unitPath,
+        environment: { OPENCLAW_PROFILE: "work", OPENCLAW_SERVICE_KIND: "node" },
+      });
+      await service.stop(args);
+      expect(native.stop).toHaveBeenCalledTimes(1);
     });
   });
 });
