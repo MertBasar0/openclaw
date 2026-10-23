@@ -11,7 +11,7 @@ import { cleanupSolid, mountSolid } from "../../test-helpers/mount-solid.ts";
 import { createSolidApplicationContextProvider } from "../../test-helpers/solid-application-context.tsx";
 import { flush } from "../../test-helpers/solid-settle.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
-import { page as usageRoute } from "./route.ts";
+import { page as usageRoute } from "./route.tsx";
 import type { UsageRouteData, UsageSessionEntry } from "./types.ts";
 import { createUsagePage } from "./usage-page-state.ts";
 import { buildAggregatesFromSessions } from "./view.test-support.ts";
@@ -86,7 +86,7 @@ export function changeUsageControl(control: HTMLInputElement | HTMLSelectElement
 
 export function usageButton(page: TestUsagePage, label: string, selector = "button") {
   const button = [...page.querySelectorAll<HTMLButtonElement>(selector)].find(
-    (entry) => entry.textContent?.trim() === label,
+    (entry) => (entry.getAttribute("aria-label") ?? entry.textContent?.trim()) === label,
   );
   expect(button).toBeDefined();
   return button!;
@@ -396,6 +396,13 @@ export async function preloadUsage(page: TestUsagePage): Promise<void> {
     cause: "navigation",
   } satisfies RouteLoaderOptions;
   page.routeData = (await usageRoute.loader!(page.context, options)) as UsageRouteData;
+  await page.updateComplete;
+}
+
+/** Tests written against the recent-first session order opt back into it; the page sorts by cost. */
+export async function showRecentSessions(page: TestUsagePage): Promise<void> {
+  page.read().callbacks.display.onChange({ sessionSort: "recent" });
+  await vi.waitFor(() => expect(page.usageLoading).toBe(false));
   await page.updateComplete;
 }
 

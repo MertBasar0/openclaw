@@ -20,7 +20,7 @@ import type {
 } from "./app-sidebar-session-types.ts";
 import { requestCloudWorkerStop } from "./cloud-worker-stop.runtime.ts";
 import { showConfirmDialog, type ConfirmDialogSkipPreference } from "./confirm-dialog.ts";
-import { showInputDialog } from "./input-dialog.ts";
+import { showInputDialog } from "./input-dialog.tsx";
 import type { SessionMenuAction } from "./session-menu-solid.tsx";
 import { archiveSessionsWithUndo } from "./session-organizer-archive.runtime.ts";
 import {
@@ -409,7 +409,6 @@ export async function assignSessionCategory(
   session: SessionActionRow,
   category: string | null,
   scope: SidebarSessionMutationScope,
-  patch: { pinned?: boolean } = {},
   options: { resolveSession?: () => SessionActionRow | null } = {},
 ): Promise<SidebarSessionMutationResult> {
   if (!deps.sessionData.isSessionMutationScopeCurrent(scope)) {
@@ -429,17 +428,13 @@ export async function assignSessionCategory(
     });
     return "failed";
   }
-  if (
-    (currentSession.category ?? null) === category &&
-    patch.pinned === undefined &&
-    !needsGroupPromotion(currentSession)
-  ) {
+  if ((currentSession.category ?? null) === category && !needsGroupPromotion(currentSession)) {
     return "completed";
   }
   return patchSession(
     deps,
     currentSession,
-    { category, ...patch, ...(needsGroupPromotion(currentSession) ? { sidebarRoot: true } : {}) },
+    { category, ...(needsGroupPromotion(currentSession) ? { sidebarRoot: true } : {}) },
     scope,
   );
 }

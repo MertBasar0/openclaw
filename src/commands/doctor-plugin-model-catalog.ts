@@ -1,25 +1,27 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
+import { safeParseJsonRecord } from "@openclaw/normalization-core/json-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { note } from "../../packages/terminal-core/src/note.js";
 import { listAgentIds, resolveAgentDir, resolveDefaultAgentDir } from "../agents/agent-scope.js";
 import { parseModelCatalogJson } from "../agents/model-catalog-json.js";
 import { repairPluginModelCatalogTransportMetadata } from "../agents/plugin-model-catalog-repair.js";
 import {
-  reviewRootProviderCopies,
-  type RootProviderCopyReview,
-} from "../agents/plugin-model-catalog-root-copies.js";
-import {
   inspectLegacyPluginModelCatalogs,
+  isGeneratedPluginModelCatalog,
   loadPersistedPluginModelCatalogsReadOnly,
   migrateLegacyPluginModelCatalogs,
   repairPersistedPluginModelCatalogs,
+  resolvePluginModelCatalogOwnerPluginId,
+  type PersistedPluginModelCatalog,
   type PluginModelCatalogMigrationIssue,
 } from "../agents/plugin-model-catalog.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { HealthFinding } from "../flows/health-checks.js";
 import { privateFileStore } from "../infra/private-file-store.js";
+import { decodeUtf8Input, Utf8InputError } from "../infra/utf8-input.js";
 import { resolvePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { shortenHomePath } from "../utils.js";
@@ -46,6 +48,56 @@ function catalogMigrationFinding(issue: PluginModelCatalogMigrationIssue): Healt
   };
 }
 
+/**
+ * Finds generated plugin catalog blocks that older writers copied into the author-owned root
+ * models.json.
+ *
+ * Discovery copies a plugin's provider under its hook aliases (`claude-cli` received the
+ * `anthropic` catalog). When the owner lookup failed, the writer sent that copy to the root file,
+ * and the merge kept it forever. Its frozen prices, including zero placeholders for unpriced
+ * models, then outranked the live catalog. Only exact copies of a generated block qualify;
+ * anything a user could have edited stays. Generated blocks carry exactly these keys;
+ * credentials or request overrides mean authorship.
+ */
+const GENERATED_PROVIDER_KEYS = ["api", "baseUrl", "models"];
+
+type RootProviderCopy = Readonly<{
+  providerId: string;
+  /** Plugin whose generated catalog holds the identical block. */
+  pluginId: string;
+  /** Provider key of the identical block inside that catalog. */
+  catalogProviderId: string;
+}>;
+
+type RootProviderCopyReview = Readonly<{
+  copies: RootProviderCopy[];
+  /** Plugin-owned root ids left in place because they differ from every generated block. */
+  keptPluginOwnedIds: string[];
+}>;
+
+type GeneratedBlock = Readonly<{ pluginId: string; providerId: string; block: unknown }>;
+
+function readGeneratedBlocks(catalogs: readonly PersistedPluginModelCatalog[]): GeneratedBlock[] {
+  return catalogs.flatMap(({ pluginId, contents }) => {
+    const catalog = safeParseJsonRecord(contents);
+    if (!isGeneratedPluginModelCatalog(catalog) || !isRecord(catalog.providers)) {
+      return [];
+    }
+    return Object.entries(catalog.providers).map(([providerId, block]) => ({
+      pluginId,
+      providerId,
+      block,
+    }));
+  });
+}
+
+function hasOnlyGeneratedProviderKeys(block: Record<string, unknown>): boolean {
+  return (
+    isDeepStrictEqual(Object.keys(block).toSorted(), GENERATED_PROVIDER_KEYS) &&
+    Array.isArray(block.models)
+  );
+}
+
 function resolveMigrationAgentDirs(params: {
   cfg: OpenClawConfig;
   env?: NodeJS.ProcessEnv;
@@ -69,19 +121,18 @@ type RootModelsFile = Readonly<{
   providers: Record<string, unknown>;
 }>;
 
-function readRootModelsFile(agentDir: string): RootModelsFile | undefined {
-  let raw: string;
+function readRootModelsFile(agentDir: string, runtime: RuntimeEnv): RootModelsFile | undefined {
+  const pathname = path.join(agentDir, "models.json");
   try {
-    raw = fs.readFileSync(path.join(agentDir, "models.json"), "utf8");
-  } catch {
-    return undefined;
-  }
-  try {
+    const raw = decodeUtf8Input(fs.readFileSync(pathname), `Model catalog ${pathname}`);
     const root = parseModelCatalogJson(raw);
     return isRecord(root) && isRecord(root.providers)
       ? { raw, root, providers: root.providers }
       : undefined;
-  } catch {
+  } catch (error) {
+    if (error instanceof Utf8InputError) {
+      runtime.error(`${error.message} Left source unchanged.`);
+    }
     return undefined;
   }
 }
@@ -154,7 +205,7 @@ export async function maybeMigrateLegacyPluginModelCatalogs(params: {
   let pluginMetadataSnapshot: ReturnType<typeof resolvePluginMetadataSnapshot> | undefined;
   const reviewRootFile = (
     file: RootModelsFile | undefined,
-    catalogs: Parameters<typeof reviewRootProviderCopies>[0]["catalogs"],
+    catalogs: readonly PersistedPluginModelCatalog[],
   ): RootProviderCopyReview => {
     if (!file || catalogs.length === 0) {
       return { copies: [], keptPluginOwnedIds: [] };
@@ -163,12 +214,34 @@ export async function maybeMigrateLegacyPluginModelCatalogs(params: {
       config: params.cfg,
       env: params.env ?? process.env,
     });
-    return reviewRootProviderCopies({
-      rootProviders: file.providers,
-      explicitProviderIds,
-      catalogs,
-      pluginMetadataSnapshot,
-    });
+    // A root block is a copy only when config does not declare its id, it carries nothing but
+    // generated keys, no other plugin owns the id, and it deep-equals a generated catalog block.
+    const generated = readGeneratedBlocks(catalogs);
+    const copies: RootProviderCopy[] = [];
+    const keptPluginOwnedIds: string[] = [];
+    for (const [providerId, block] of Object.entries(file.providers)) {
+      if (explicitProviderIds.has(normalizeProviderId(providerId))) {
+        continue;
+      }
+      const owner = resolvePluginModelCatalogOwnerPluginId({
+        providerId,
+        pluginMetadataSnapshot,
+      });
+      const match =
+        isRecord(block) && hasOnlyGeneratedProviderKeys(block)
+          ? generated.find(
+              (candidate) =>
+                (owner === undefined || owner === candidate.pluginId) &&
+                isDeepStrictEqual(candidate.block, block),
+            )
+          : undefined;
+      if (match) {
+        copies.push({ providerId, pluginId: match.pluginId, catalogProviderId: match.providerId });
+      } else if (owner !== undefined) {
+        keptPluginOwnedIds.push(providerId);
+      }
+    }
+    return { copies, keptPluginOwnedIds };
   };
   for (const agentDir of resolveMigrationAgentDirs(params)) {
     const inspected = inspectLegacyPluginModelCatalogs(agentDir);
@@ -180,7 +253,10 @@ export async function maybeMigrateLegacyPluginModelCatalogs(params: {
         return repairPluginModelCatalogTransportMetadata(contents).contents !== contents;
       })
       .map(({ pluginId }) => pluginId);
-    const rootCopies = reviewRootFile(readRootModelsFile(agentDir), [...persisted, ...migrations]);
+    const rootCopies = reviewRootFile(readRootModelsFile(agentDir, params.runtime), [
+      ...persisted,
+      ...migrations,
+    ]);
     agents.push({
       agentDir,
       migrations,
@@ -320,7 +396,7 @@ export async function maybeMigrateLegacyPluginModelCatalogs(params: {
       continue;
     }
     // Compare against the catalogs as they stand after migration, from the bytes being replaced.
-    const file = readRootModelsFile(agent.agentDir);
+    const file = readRootModelsFile(agent.agentDir, params.runtime);
     const review = reviewRootFile(file, loadPersistedPluginModelCatalogsReadOnly(agent.agentDir));
     if (!file || review.copies.length === 0) {
       continue;

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, onSettled } from "solid-js";
+import { createEffect, createSignal, onSettled } from "solid-js";
 import type { PluginsUninstallResult } from "../../../../packages/gateway-protocol/src/schema/plugins.js";
 import {
   pathForRoute,
@@ -21,7 +21,7 @@ import {
 } from "../../lib/plugins/index.ts";
 import { t } from "../../lib/reactive/i18n.ts";
 import { listen } from "../../lib/reactive/listener.ts";
-import type { PluginCredentialEditorProps } from "./credential-editor.tsx";
+import { createCredentialPresentation } from "./credential-presentation.ts";
 import { installedPluginDetailTabFromHash } from "./detail-tabs.ts";
 import { createPluginDiscovery } from "./plugin-discovery.ts";
 import { createPluginHelp } from "./plugin-help.ts";
@@ -29,8 +29,8 @@ import { createPluginMcpLogin } from "./plugin-mcp-login.ts";
 import { createPluginPageTargets } from "./plugin-removal-focus.ts";
 import { pluginRowKey, type PluginRowMessage } from "./plugin-row-message.tsx";
 import { pluginMutationWarnings, createPluginsConsent } from "./plugins-consent.ts";
-import { loadInstalledPluginDetail, loadPluginCatalogDetail } from "./plugins-detail-loader.ts";
-import type { PluginsHubTab } from "./plugins-hub.ts";
+import { createPluginDetailReads } from "./plugins-detail-reads.ts";
+import { createPluginsMutationPresentation } from "./plugins-mutation-presentation.ts";
 import { createPluginsPageIcons } from "./plugins-page-icons.ts";
 import {
   createPluginsPageState,
@@ -40,7 +40,7 @@ import {
   type PluginMutationAction,
 } from "./plugins-page-model.ts";
 import type { PluginsRouteData } from "./route-data.ts";
-import type { PluginSettingsField } from "./settings-editor.tsx";
+import type { PluginSettingsEditorProps } from "./settings-editor.tsx";
 import type { PluginSettingsTab } from "./settings-view.tsx";
 import { createPluginPreview } from "./skill-preview.tsx";
 
@@ -60,6 +60,18 @@ export function createPluginsPage(options: {
   const [settingsTab, setSettingsTab] = createSignal<PluginSettingsTab>("installed");
 
   const state = createPluginsPageState();
+  const credentialPresentation = createCredentialPresentation(context.router);
+  const details = createPluginDetailReads({
+    state,
+    setState,
+    context,
+    gateway: () => gateway,
+    surface: () => surface,
+    routeData: () => routeData,
+    uninstalling: uninstallingSelection,
+    selectInstalled: (pluginId) => mcpLogin.select(pluginId),
+  });
+  const { showDetails, showCatalogDetail } = details;
 
   function read() {
     revision();
@@ -75,6 +87,12 @@ export function createPluginsPage(options: {
   function setState(patch: Partial<typeof state>) {
     if (!active) {
       return;
+    }
+    if (patch.detail === null) {
+      details.inspection.reset();
+    }
+    if (patch.catalogDetail === null) {
+      details.catalog.reset();
     }
     Object.assign(state, patch);
     publish();
@@ -141,9 +159,7 @@ export function createPluginsPage(options: {
     return true;
   };
 
-  const resolveCredential = (
-    field: PluginSettingsField,
-  ): PluginCredentialEditorProps | undefined => {
+  const resolveCredential: PluginSettingsEditorProps["resolveCredential"] = (field) => {
     const detail = state.detail;
     const descriptor = detail?.inspection?.credentials?.find(
       (entry) =>
@@ -161,6 +177,7 @@ export function createPluginsPage(options: {
         baseHash: runtime.state.configSnapshot?.hash ?? null,
         gateway,
         canInspect: hasOperatorAdminAccess(context.gateway.snapshot.hello?.auth ?? null),
+        getPresentationLifetime: () => credentialPresentation.lifetime,
         // Awaited writes and discards can settle before the presentation catches up.
         get saveError() {
           return runtime.state.lastError;
@@ -177,6 +194,17 @@ export function createPluginsPage(options: {
     };
   };
 
+  const canMutate = () => state.result?.mutationAllowed === true && accessBlockedReason() === null;
+
+  const mutationPresentation = createPluginsMutationPresentation({
+    gateway,
+    read,
+    isActive: () => active,
+    lifetime: () => credentialPresentation.lifetime,
+    catalog,
+    setMessage,
+  });
+
   const consent = createPluginsConsent({
     gateway,
     getContext: () => context,
@@ -190,6 +218,7 @@ export function createPluginsPage(options: {
     closeDetails: skillPreview.close,
     applyMutationResult,
     refreshCatalogAfterMutation: refreshCatalog,
+    presentMutation: mutationPresentation.present,
     onChange: publish,
   });
   const catalogTask = createPageRequest(publish, {
@@ -203,8 +232,6 @@ export function createPluginsPage(options: {
     },
     onError: (error) => setState({ error: formatUiError(error) }),
   });
-  onCleanup(catalogTask.cancel);
-
   onSettled(() => {
     let configAutoSaveStatus = runtime.state.configAutoSaveStatus;
     // Preserve saving-to-saved receipts so plugin edits refresh the catalog even within one render turn.
@@ -229,6 +256,7 @@ export function createPluginsPage(options: {
       surface = nextSurface;
       gateway.refresh();
       if (previous !== routeData) {
+        credentialPresentation.retire();
         skillPreview.close();
         if (previous?.location.pathname !== routeData?.location.pathname) {
           installRequestGeneration += 1;
@@ -259,6 +287,9 @@ export function createPluginsPage(options: {
     return () => {
       stopKeydown();
       active = false;
+      catalogTask.cancel();
+      details.inspection.release();
+      details.catalog.release();
       icons.reset();
       gateway.dispose();
     };
@@ -419,6 +450,9 @@ export function createPluginsPage(options: {
   }
 
   function invalidateRequests(invalidateCatalog: boolean, retirePresentation = true) {
+    credentialPresentation.retire();
+    details.inspection.reset();
+    details.catalog.reset();
     mcpLogin.reset();
     if (invalidateCatalog) {
       void setCatalog(null);
@@ -464,9 +498,7 @@ export function createPluginsPage(options: {
     }
   }
 
-  function loading(): boolean {
-    return gateway.connected && (!routeDataConsumed || catalogTask.pending);
-  }
+  const loading = () => gateway.connected && (!routeDataConsumed || catalogTask.pending);
 
   function activeRoutePluginId(): string | null {
     const pathname = routeData?.location.pathname ?? "";
@@ -530,12 +562,6 @@ export function createPluginsPage(options: {
     return catalogId ? showCatalogDetail(catalogId) : discovery.refresh();
   }
 
-  function selectHubTab(tab: PluginsHubTab) {
-    if (tab !== "plugins" || surface !== "discovery") {
-      context.navigate(tab);
-    }
-  }
-
   function accessBlockedReason(
     mutationAllowed?: boolean,
     connected = gateway.connected,
@@ -545,10 +571,6 @@ export function createPluginsPage(options: {
       hasAdminAccess: hasOperatorAdminAccess(context.gateway.snapshot.hello?.auth ?? null),
       mutationAllowed,
     });
-  }
-
-  function canMutate(): boolean {
-    return state.result?.mutationAllowed === true && accessBlockedReason() === null;
   }
 
   function canEditConfig(): boolean {
@@ -591,37 +613,6 @@ export function createPluginsPage(options: {
   function applyMutationResult(result: PluginMutationResult) {
     icons.installed.invalidate(result.plugin.id);
     replaceResult(mergePluginCatalogItem(state.result, result.plugin));
-  }
-
-  function showDetails(pluginId: string | null) {
-    mcpLogin.select(pluginId);
-    return loadInstalledPluginDetail({
-      pluginId,
-      plugin: state.result?.plugins.find((entry) => entry.id === pluginId),
-      catalog: state.catalogDetail?.result,
-      gateway,
-      canInspect: !pluginId || state.busy[pluginRowKey(pluginId)] !== "uninstall",
-      getDetail: () => state.detail,
-      onChange: (detail) => setState({ detail }),
-    });
-  }
-
-  async function showCatalogDetail(id: string | null) {
-    if (surface !== "discovery") {
-      setState({ catalogDetail: null });
-      return;
-    }
-    return loadPluginCatalogDetail({
-      id,
-      gateway,
-      context,
-      location: routeData?.location,
-      inventory: state.result,
-      uninstalling: uninstallingSelection(),
-      getDetail: () => state.catalogDetail,
-      onChange: (detail) => setState({ catalogDetail: detail }),
-      showInstalled: showDetails,
-    });
   }
 
   async function installCatalogEntry(id: string): Promise<void> {
@@ -691,7 +682,12 @@ export function createPluginsPage(options: {
           }
         }
         await refreshCatalog(client);
-        if (isLatest()) {
+        const detailRead = surface === "discovery" && details.catalog.receipt();
+        if (detailRead) {
+          // The inventory refresh starts a separate catalog read. Its heading must exist first.
+          await detailRead.result.catch(() => {});
+        }
+        if (isLatest() && (!detailRead || details.catalog.receipt() === detailRead)) {
           onSettled(() => targets.focusAfterRemoval(trigger));
         }
       },
@@ -709,6 +705,8 @@ export function createPluginsPage(options: {
   }
   return {
     read,
+    presentedEnabled: mutationPresentation.enabled,
+    mutationSaving: mutationPresentation.saving,
     get state() {
       return read();
     },
@@ -738,9 +736,10 @@ export function createPluginsPage(options: {
     },
     routeLoading: () => gateway.connected && !routeDataConsumed,
     catalogRead: catalog,
+    inspectionRead: details.inspection,
+    detailRead: details.catalog,
     setState,
     refreshCatalog,
-    selectHubTab,
     accessBlockedReason,
     canMutate,
     canEditConfig,

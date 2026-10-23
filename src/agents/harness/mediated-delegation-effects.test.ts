@@ -76,7 +76,7 @@ beforeAll(async () => {
     { agentId: "intake", sessionKey: requester },
     { sessionId: "intake", updatedAt: 1 },
   );
-  await ensureMcpLoopbackServer(0);
+  await ensureMcpLoopbackServer();
 });
 beforeEach(() => setRuntimeConfigSnapshot(config));
 afterEach(() => {
@@ -174,8 +174,8 @@ async function createCaller(
       agentId: "coder",
       modelProvider: "fixture",
       modelId: "fixture",
-      toolsAllow: policy.runtimeToolsAllowPolicy ?? ["read", "write", "exec"],
     });
+    context.toolsAllow = policy.runtimeToolsAllowPolicy ?? ["read", "write", "exec"];
     const projected = await resolveMcpLoopbackPolicyTools({
       cfg: currentConfig,
       context,

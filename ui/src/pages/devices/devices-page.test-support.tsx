@@ -20,8 +20,8 @@ import { waitForSolid } from "../../test-helpers/solid-settle.ts";
 import { DevicesPage } from "./devices-page.tsx";
 import type { DevicesRouteData } from "./view.types.ts";
 
-export const gatewayPresence: PresenceEntry = { mode: "gateway", host: "Gateway host", ts: 1_000 };
-export const pairedDevice = {
+const gatewayPresence: PresenceEntry = { mode: "gateway", host: "Gateway host", ts: 1_000 };
+const pairedDevice = {
   deviceId: "device-1",
   displayName: "MacBook Pro",
   tokens: [{ role: "operator", scopes: [] }],
@@ -127,6 +127,8 @@ export function mountPage(
   };
   const [currentGateway, setGateway] = createSignal(fixture.source);
   const [presentation, setPresentation] = createSignal({ routeData });
+  const configListeners = new Set<() => void>();
+  const reloadConfig = vi.fn(async () => undefined);
   const router = createRouter({
     routes: [
       definePage({ id: "devices", path: "/devices", component: () => ({}) }),
@@ -141,7 +143,11 @@ export function mountPage(
     router,
     runtimeConfig: runtimeConfig ?? {
       state: { configSnapshot: {}, configForm: {}, configLoading: false, configFormMode: "form" },
-      subscribe: () => () => undefined,
+      subscribe: (listener: () => void) => {
+        configListeners.add(listener);
+        return () => configListeners.delete(listener);
+      },
+      discardDraft: reloadConfig,
     },
   } as unknown as ApplicationContext;
   const container = document.createElement("div");
@@ -170,6 +176,8 @@ export function mountPage(
   return {
     container,
     config: context.runtimeConfig.state,
+    reloadConfig,
+    publishConfig: () => configListeners.forEach((listener) => listener()),
     router,
     dispose,
     leaveRoute() {
@@ -235,6 +243,7 @@ export async function selectEntryAction(
   action: string,
   name = "MacBook Pro",
 ) {
+  // Let initial native readiness settle before keeping an interactive row reference.
   await waitForSolid(() => expect(container.textContent).toContain(name));
   const row = [...container.querySelectorAll(".device-entry")].find(
     (entry) => entry.querySelector(".settings-row__title")?.textContent === name,

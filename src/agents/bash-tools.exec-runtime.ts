@@ -46,6 +46,7 @@ import type { ProcessSession } from "./bash-process-registry.js";
 import {
   addSession,
   appendOutput,
+  createProcessSession,
   isProcessSessionIdTaken,
   markCancellationRequested,
   resolveProcessCleanupMs,
@@ -336,8 +337,6 @@ export async function runExecProcess({
   /** Start-time routing policy for detached exec system events. */
   eventRouting?: EventSessionRoutingPolicy;
   notifyDeliveryContext?: DeliveryContext;
-  /** The command was started by a conversation turn, not heartbeat or automation work. */
-  notifyFromConversationTurn?: boolean;
   timeoutSec: number | null;
   /** Whether exec may return a supervised session for later continuation. */
   processContinuationAvailable?: boolean;
@@ -373,37 +372,35 @@ export async function runExecProcess({
     OPENCLAW_SHELL: "exec",
   };
 
-  const session: ProcessSession = withExecRequestOwners(
-    {
-      id: sessionId,
-      command: opts.command,
-      scopeKey: opts.scopeKey,
-      sessionKey: opts.sessionKey,
-      cleanupMs: resolveProcessCleanupMs(opts.cleanupMs),
-      agentId: opts.agentId,
-      eventRouting: opts.eventRouting,
-      notifyDeliveryContext: normalizeDeliveryContext(opts.notifyDeliveryContext),
-      notifyFromConversationTurn: opts.notifyFromConversationTurn === true,
-      notifyOnExit: opts.notifyOnExit,
-      notifyOnExitEmptySuccess: opts.notifyOnExitEmptySuccess === true,
-      exitNotified: false,
-      startedAt,
-      cwd: opts.workdir,
-      maxOutputChars: opts.maxOutput,
-      pendingMaxOutputChars: opts.pendingMaxOutput,
-      totalOutputChars: 0,
-      pendingOutput: [],
-      pendingStdoutChars: 0,
-      pendingStderrChars: 0,
-      pendingOutputDropped: false,
-      aggregated: "",
-      tail: "",
-      exited: false,
-      truncated: false,
-      backgrounded: false,
-      cursorKeyMode: opts.usePty ? "unknown" : "normal",
-    },
-    opts.requestOwners,
+  const session: ProcessSession = createProcessSession(
+    withExecRequestOwners(
+      {
+        id: sessionId,
+        command: opts.command,
+        scopeKey: opts.scopeKey,
+        sessionKey: opts.sessionKey,
+        cleanupMs: resolveProcessCleanupMs(opts.cleanupMs),
+        agentId: opts.agentId,
+        eventRouting: opts.eventRouting,
+        notifyDeliveryContext: normalizeDeliveryContext(opts.notifyDeliveryContext),
+        notifyOnExit: opts.notifyOnExit,
+        notifyOnExitEmptySuccess: opts.notifyOnExitEmptySuccess === true,
+        exitNotified: false,
+        startedAt,
+        cwd: opts.workdir,
+        maxOutputChars: opts.maxOutput,
+        pendingMaxOutputChars: opts.pendingMaxOutput,
+        totalOutputChars: 0,
+        pendingStdoutChars: 0,
+        pendingStderrChars: 0,
+        pendingOutputDropped: false,
+        exited: false,
+        truncated: false,
+        backgrounded: false,
+        cursorKeyMode: opts.usePty ? "unknown" : "normal",
+      },
+      opts.requestOwners,
+    ),
   );
   withoutGatewayToolCallerIdentity(() => addSession(session));
   if (opts.requestOwners?.length) {
@@ -426,10 +423,16 @@ export async function runExecProcess({
     if (!onUpdate || session.backgrounded || session.exited) {
       return;
     }
-    const tailText = session.tail || session.aggregated;
+    const tailText = session.tail;
     onUpdate({
       content: [
-        { type: "text", text: renderExecUpdateText({ tailText, warnings: opts.warnings }) },
+        {
+          type: "text",
+          text: renderExecUpdateText({
+            tailText: tailText || session.aggregated,
+            warnings: opts.warnings,
+          }),
+        },
       ],
       details: {
         status: "running",
@@ -437,7 +440,7 @@ export async function runExecProcess({
         pid: session.pid ?? undefined,
         startedAt,
         cwd: session.cwd,
-        tail: session.tail,
+        tail: tailText,
       },
     });
   };

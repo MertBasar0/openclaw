@@ -21,13 +21,12 @@ const HOST_SHELL_WRAPPER_ALLOWED_OVERRIDE_ENV_KEYS = new Set([
 const HOST_DANGEROUS_ENV_KEYS = new Set(HOST_ENV_SECURITY_POLICY.blockedKeys);
 const HOST_DANGEROUS_INHERITED_ENV_KEYS = new Set(HOST_ENV_SECURITY_POLICY.blockedInheritedKeys);
 const HOST_DANGEROUS_OVERRIDE_ENV_KEYS = new Set(HOST_ENV_SECURITY_POLICY.blockedOverrideKeys);
-// The profile is not a service selector: child CLIs keep the node's profile.
 const NODE_SERVICE_ENV_KEYS = new Set([
-  ...Object.keys(resolveNodeServiceIdentityEnvironment()).filter(
-    (key) => key !== "OPENCLAW_PROFILE",
-  ),
+  ...Object.keys(resolveNodeServiceIdentityEnvironment()),
   "OPENCLAW_GATEWAY_SERVICE_PID",
 ]);
+// The profile selects child CLI config and state too; it is not node daemon identity.
+NODE_SERVICE_ENV_KEYS.delete("OPENCLAW_PROFILE");
 const CARGO_TARGET_EXECUTABLE_OVERRIDE_ENV_KEY = /^CARGO_TARGET_[A-Z0-9_]+_(?:LINKER|RUNNER)$/;
 const GIT_ALLOW_PROTOCOL_ENV_KEY = "GIT_ALLOW_PROTOCOL";
 const GIT_PROTOCOL_FROM_USER_ENV_KEY = "GIT_PROTOCOL_FROM_USER";
