@@ -29,7 +29,6 @@ export type PackageUpdateStepRunner = (params: {
   argv: string[];
   cwd?: string;
   timeoutMs?: number;
-  signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;
   input?: string;
 }) => Promise<UpdateStepResult>;
@@ -115,12 +114,6 @@ export async function prepareStagedPackageInstall(
   | { stagedInstall: null; failedStep: UpdateStepResult }
 > {
   const startedAt = Date.now();
-  const targetLayout =
-    installTarget.manager === "npm"
-      ? resolveNpmGlobalPrefixLayoutFromGlobalRoot(installTarget.globalRoot, {
-          allowDirectNodeModulesRoot: installTarget.directNodeModulesRoot === true,
-        })
-      : null;
   try {
     let native: StagedPackageInstall["native"];
     let prefix: string;
@@ -138,6 +131,9 @@ export async function prepareStagedPackageInstall(
       prefix = native.projectRoot;
       layout = { prefix, globalRoot: native.globalRoot, binDir: native.binDir };
     } else {
+      const targetLayout = resolveNpmGlobalPrefixLayoutFromGlobalRoot(installTarget.globalRoot, {
+        allowDirectNodeModulesRoot: installTarget.directNodeModulesRoot === true,
+      });
       if (!targetLayout) {
         throw new Error(
           `The ${installTarget.manager} global install layout cannot prepare the update. Reinstall with ${installTarget.manager} into its default global layout, then retry the update.`,
@@ -165,6 +161,12 @@ export async function prepareStagedPackageInstall(
       failedStep: null,
     };
   } catch (err) {
+    const targetLayout =
+      installTarget.manager === "npm"
+        ? resolveNpmGlobalPrefixLayoutFromGlobalRoot(installTarget.globalRoot, {
+            allowDirectNodeModulesRoot: installTarget.directNodeModulesRoot === true,
+          })
+        : null;
     return {
       stagedInstall: null,
       failedStep: await classifyPackageUpdatePermissionFailure(

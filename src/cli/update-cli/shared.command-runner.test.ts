@@ -777,7 +777,7 @@ describe("update CLI shared helpers", () => {
         argv: [process.execPath, "-e", parentSource],
         cwd: base,
         signal: controller.signal,
-        timeoutMs: 15_000,
+        timeoutMs: 1_500,
       });
       const readyDeadline = Date.now() + 10_000;
       while (Date.now() < readyDeadline) {
@@ -803,10 +803,10 @@ describe("update CLI shared helpers", () => {
       controller.abort();
       const step = await stepPromise;
 
-      expect(step.exitCode).not.toBe(0);
-      expect(step.termination).toBe("signal");
       await expect(waitForPidToExit(parentPid!)).resolves.toBe(true);
       await expect(waitForPidToExit(descendantPid!)).resolves.toBe(true);
+      expect(step.exitCode).not.toBe(0);
+      expect(step.termination).toBe("signal");
     } finally {
       killPidIfAlive(descendantPid);
       killPidIfAlive(parentPid);

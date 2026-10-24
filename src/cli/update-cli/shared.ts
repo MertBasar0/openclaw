@@ -193,7 +193,10 @@ export function resolveGitInstallDir(): string {
     return path.resolve(override);
   }
   const home = resolveRequiredHomeDir(process.env, os.homedir);
-  return (home.startsWith("/") ? path.posix : path).join(home, "openclaw");
+  if (home.startsWith("/")) {
+    return path.posix.join(home, "openclaw");
+  }
+  return path.join(home, "openclaw");
 }
 
 export async function resolveUpdateRoot(context?: { root: string }): Promise<string> {
@@ -212,18 +215,12 @@ export async function resolveUpdateRoot(context?: { root: string }): Promise<str
   );
 }
 
-export async function runUpdateStep(params: {
-  name: string;
-  argv: string[];
-  cwd?: string;
-  timeoutMs?: number;
-  signal?: AbortSignal;
-  progress?: UpdateStepProgress;
-  env?: NodeJS.ProcessEnv;
-  input?: string;
-  runCommand?: Parameters<typeof runStep>[0]["runCommand"];
-  results?: UpdateStepResult[];
-}): Promise<UpdateStepResult> {
+export async function runUpdateStep(
+  params: Omit<Parameters<typeof runStep>[0], "cwd" | "runCommand" | "stepIndex" | "totalSteps"> & {
+    cwd?: string;
+    runCommand?: Parameters<typeof runStep>[0]["runCommand"];
+  },
+): Promise<UpdateStepResult> {
   return await runStep({
     ...params,
     cwd: params.cwd ?? process.cwd(),
