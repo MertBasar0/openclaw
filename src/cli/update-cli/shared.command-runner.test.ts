@@ -8,6 +8,8 @@ import {
   CommandProcessCleanupError,
   hasCommandProcessCleanupError,
 } from "../../process/exec-result.js";
+import { isPidAlive } from "../../shared/pid-alive.js";
+import { killPidIfAlive, waitForPidToExit } from "../../test-utils/process-tree.js";
 import { withMockedPlatform } from "../../test-utils/vitest-spies.js";
 import {
   ensureGitCheckout,
@@ -744,21 +746,70 @@ describe("update CLI shared helpers", () => {
     ).resolves.toBeDefined();
   });
 
-  it("enables process-tree termination and forwards abort signals in runUpdateStep", async () => {
-    const controller = new AbortController();
-    await runUpdateStep({
-      name: "package-install",
-      argv: ["npm", "i", "-g", "openclaw@latest"],
-      cwd: base,
-      signal: controller.signal,
-    });
-    expect(runCommandWithTimeout).toHaveBeenCalledWith(
-      ["npm", "i", "-g", "openclaw@latest"],
-      expect.objectContaining({
-        cwd: base,
-        killProcessTree: true,
-        signal: controller.signal,
-      }),
+  it("terminates SIGTERM-ignoring child and descendant processes when runUpdateStep is aborted", async () => {
+    const actualExec =
+      await vi.importActual<typeof import("../../process/exec.js")>("../../process/exec.js");
+    runCommandWithTimeout.mockImplementationOnce((argv, options) =>
+      actualExec.runCommandWithTimeout(argv, options),
     );
+    const pidFile = path.join(base, "pids.json");
+    const tmpPidFile = `${pidFile}.tmp`;
+    const controller = new AbortController();
+    let parentPid: number | undefined;
+    let descendantPid: number | undefined;
+    const childSource =
+      'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.send("ready");';
+    const parentSource = [
+      'const { spawn } = require("node:child_process");',
+      'const fs = require("node:fs");',
+      'process.on("SIGTERM", () => {});',
+      `const child = spawn(process.execPath, ["-e", ${JSON.stringify(childSource)}], { stdio: ["ignore", "ignore", "ignore", "ipc"] });`,
+      'child.once("message", () => {',
+      `  fs.writeFileSync(${JSON.stringify(tmpPidFile)}, JSON.stringify({ parentPid: process.pid, descendantPid: child.pid }));`,
+      `  fs.renameSync(${JSON.stringify(tmpPidFile)}, ${JSON.stringify(pidFile)});`,
+      "});",
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+
+    try {
+      const stepPromise = runUpdateStep({
+        name: "package-install",
+        argv: [process.execPath, "-e", parentSource],
+        cwd: base,
+        signal: controller.signal,
+        timeoutMs: 15_000,
+      });
+      const readyDeadline = Date.now() + 10_000;
+      while (Date.now() < readyDeadline) {
+        try {
+          const parsed = JSON.parse(await fs.readFile(pidFile, "utf8")) as {
+            parentPid: number;
+            descendantPid: number;
+          };
+          parentPid = parsed.parentPid;
+          descendantPid = parsed.descendantPid;
+          break;
+        } catch {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, 25);
+          });
+        }
+      }
+      expect(parentPid).toEqual(expect.any(Number));
+      expect(descendantPid).toEqual(expect.any(Number));
+      expect(isPidAlive(parentPid!)).toBe(true);
+      expect(isPidAlive(descendantPid!)).toBe(true);
+
+      controller.abort();
+      const step = await stepPromise;
+
+      expect(step.exitCode).not.toBe(0);
+      expect(step.termination).toBe("signal");
+      await expect(waitForPidToExit(parentPid!)).resolves.toBe(true);
+      await expect(waitForPidToExit(descendantPid!)).resolves.toBe(true);
+    } finally {
+      killPidIfAlive(descendantPid);
+      killPidIfAlive(parentPid);
+    }
   });
 });

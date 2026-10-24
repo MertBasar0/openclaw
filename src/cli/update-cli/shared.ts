@@ -193,10 +193,7 @@ export function resolveGitInstallDir(): string {
     return path.resolve(override);
   }
   const home = resolveRequiredHomeDir(process.env, os.homedir);
-  if (home.startsWith("/")) {
-    return path.posix.join(home, "openclaw");
-  }
-  return path.join(home, "openclaw");
+  return (home.startsWith("/") ? path.posix : path).join(home, "openclaw");
 }
 
 export async function resolveUpdateRoot(context?: { root: string }): Promise<string> {

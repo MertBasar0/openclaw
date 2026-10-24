@@ -1,10 +1,6 @@
 import path from "node:path";
 import { pathExists } from "../utils.js";
-import {
-  applyNpmFetchTimeoutEnv,
-  applyNpmFreshnessBypassEnv,
-  applyPosixNpmScriptShellEnv,
-} from "./npm-install-env.js";
+import { applyNpmFreshnessBypassEnv, applyPosixNpmScriptShellEnv } from "./npm-install-env.js";
 import { applyPathPrepend } from "./path-prepend.js";
 import { resolvePnpmHome } from "./update-native-package-owner.js";
 
@@ -62,7 +58,6 @@ export async function createGlobalInstallEnv(
   }
   // Npm freshness policy probes npm itself; Bun installs neither need nor may spawn it.
   if (options.manager !== "bun") {
-    applyNpmFetchTimeoutEnv(merged);
     applyNpmFreshnessBypassEnv(merged);
   }
   applyPosixNpmScriptShellEnv(merged);

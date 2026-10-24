@@ -18,7 +18,6 @@ import {
   discardPackageUpdateStage,
   runPackageUpdateLifecycle,
   verifyUnchangedPackageUpdateRecovery,
-  withStageActivityWatchdog,
 } from "./package-update-lifecycle.js";
 import {
   checkGlobalPackageUpdateAdmission,
@@ -141,8 +140,8 @@ export async function runGlobalPackageUpdateSteps(params: {
   };
   const packageUpdateFailure = async (
     failedStep: UpdateStepResult,
+    failedSteps = [failedStep],
   ): Promise<PackageUpdateStepsResult> => {
-    const failedSteps = steps.includes(failedStep) ? steps : [...steps, failedStep];
     const cleanupFailure = await cleanupStage();
     const finalFailedStep = cleanupFailure ?? failedStep;
     const finalFailedSteps = cleanupFailure ? [...failedSteps, cleanupFailure] : failedSteps;
@@ -289,6 +288,8 @@ export async function runGlobalPackageUpdateSteps(params: {
       return await packageUpdateFailure(preparedInstall.failedStep);
     }
     stagedInstall = preparedInstall.stagedInstall;
+    const commandEnv = stagedInstall.native?.env ?? effectiveInstallEnv;
+    const installEnv = commandEnv === undefined ? {} : { env: commandEnv };
 
     if (params.installTarget.manager === "pnpm" && stagedInstall.native) {
       const stage = stagedInstall.native;
@@ -311,16 +312,15 @@ export async function runGlobalPackageUpdateSteps(params: {
           !reportedPath ||
           (await resolveCanonicalPath(reportedPath)) !== (await resolveCanonicalPath(expectedPath))
         ) {
-          return await packageUpdateFailure(
-            probe.failedStep ?? {
-              name: "pnpm-staging-preflight",
-              command: [params.installTarget.command, ...args].join(" "),
-              cwd: stage.projectRoot,
-              durationMs: 0,
-              exitCode: 1,
-              stderrTail: `pnpm ${probeName} selected ${reportedPath || "an unknown path"}, expected staged destination ${expectedPath}. The live installation was left unchanged.`,
-            },
-          );
+          const failedStep = probe.failedStep ?? {
+            name: "pnpm-staging-preflight",
+            command: [params.installTarget.command, ...args].join(" "),
+            cwd: stage.projectRoot,
+            durationMs: 0,
+            exitCode: 1,
+            stderrTail: `pnpm ${probeName} selected ${reportedPath || "an unknown path"}, expected staged destination ${expectedPath}. The live installation was left unchanged.`,
+          };
+          return await packageUpdateFailure(failedStep, [...steps, failedStep]);
         }
       }
     }
@@ -338,11 +338,12 @@ export async function runGlobalPackageUpdateSteps(params: {
     packedInstallDir = preparedSpec.packDir;
     steps.push(...preparedSpec.steps);
     if (preparedSpec.failedStep) {
-      return await packageUpdateFailure(preparedSpec.failedStep);
+      return await packageUpdateFailure(preparedSpec.failedStep, steps);
     }
 
     // Native managers select their project from cwd; resolve local specs against
     // the original caller before installing inside the private project.
+    const updateCwd = stagedInstall.native?.projectRoot ?? preparedSpec.installCwd;
     const updateInstallSpec =
       installCommandTarget.manager !== "npm"
         ? resolveNativeInstallSpecFromCwd(
@@ -355,39 +356,36 @@ export async function runGlobalPackageUpdateSteps(params: {
     const runInstallStep = async (
       stage: StagedPackageInstall,
       name: string,
+      options: Pick<Parameters<PackageUpdateStepRunner>[0], "cwd" | "env" | "input">,
       extraArgs: string[] = [],
-    ) => {
-      const cwd = stage.native?.projectRoot ?? preparedSpec.installCwd;
-      const env = stage.native?.env ?? effectiveInstallEnv;
-      return classifyPackageUpdatePermissionFailure(
-        await withStageActivityWatchdog(stage.prefix, workTimeoutMs, (signal) =>
-          params.runStep({
-            name,
-            argv: [
-              ...globalInstallArgs(
-                stage.installTarget,
-                updateInstallSpec,
-                undefined,
-                stage.prefix,
-                preparedSpec.installCwd,
-                npmPreflight.policy ?? undefined,
-              ),
-              ...(stage.native?.configArgs ?? []),
-              ...extraArgs,
-            ],
-            ...(cwd ? { cwd } : {}),
-            ...(env === undefined ? {} : { env }),
-            // Output is captured, so EOF keeps pnpm noninteractive without approving scripts.
-            ...(installCommandTarget.manager === "pnpm" ? { input: "" } : {}),
-            ...(signal ? { signal } : {}),
-            timeoutMs: workTimeoutMs,
-          }),
-        ),
+    ) =>
+      classifyPackageUpdatePermissionFailure(
+        await params.runStep({
+          name,
+          argv: [
+            ...globalInstallArgs(
+              stage.installTarget,
+              updateInstallSpec,
+              undefined,
+              stage.prefix,
+              preparedSpec.installCwd,
+              npmPreflight.policy ?? undefined,
+            ),
+            ...(stage.native?.configArgs ?? []),
+            ...extraArgs,
+          ],
+          ...options,
+          timeoutMs: workTimeoutMs,
+        }),
         params.installTarget,
         params.env,
       );
-    };
-    const updateStep = await runInstallStep(stagedInstall, "package-install");
+    const updateStep = await runInstallStep(stagedInstall, "package-install", {
+      ...(updateCwd ? { cwd: updateCwd } : {}),
+      ...installEnv,
+      // Output is captured, so EOF keeps pnpm noninteractive without approving scripts.
+      ...(installCommandTarget.manager === "pnpm" ? { input: "" } : {}),
+    });
 
     steps.push(updateStep);
     let finalInstallStep = updateStep;
@@ -398,11 +396,11 @@ export async function runGlobalPackageUpdateSteps(params: {
           output?.includes("[update-schema-bump-unfenced]"),
         )
       ) {
-        return await packageUpdateFailure(updateStep);
+        return await packageUpdateFailure(updateStep, steps);
       }
       const cleanupFailure = await cleanupStage();
       if (cleanupFailure) {
-        return await packageUpdateFailure(cleanupFailure);
+        return await packageUpdateFailure(cleanupFailure, [...steps, cleanupFailure]);
       }
       const npm = updateStep.failureFacts?.find((fact) => fact.npmErrorCode);
       const resolutionFailure =
@@ -414,7 +412,7 @@ export async function runGlobalPackageUpdateSteps(params: {
         (resolutionFailure && !dependency) ||
         (installCommandTarget.manager === "bun" && !resolutionFailure)
       ) {
-        return await packageUpdateFailure(updateStep);
+        return await packageUpdateFailure(updateStep, steps);
       }
       const preferOnline = Boolean(resolutionFailure && dependency);
       const preparedFallbackInstall = await prepareStagedPackageInstall(
@@ -423,12 +421,17 @@ export async function runGlobalPackageUpdateSteps(params: {
         nativeOptions,
       );
       if (preparedFallbackInstall.failedStep) {
-        return await packageUpdateFailure(preparedFallbackInstall.failedStep);
+        steps.push(preparedFallbackInstall.failedStep);
+        return await packageUpdateFailure(preparedFallbackInstall.failedStep, steps);
       }
       stagedInstall = preparedFallbackInstall.stagedInstall;
       const fallbackStep = await runInstallStep(
         stagedInstall,
         preferOnline ? "package-install-prefer-online" : "package-install-omit-optional",
+        {
+          cwd: stagedInstall.native?.projectRoot ?? preparedSpec.installCwd ?? undefined,
+          env: stagedInstall.native?.env ?? commandEnv,
+        },
         preferOnline
           ? installCommandTarget.manager === "bun"
             ? ["--no-cache"]
@@ -446,7 +449,7 @@ export async function runGlobalPackageUpdateSteps(params: {
     }
 
     if (isFailedUpdateStep(finalInstallStep)) {
-      return await packageUpdateFailure(finalInstallStep);
+      return await packageUpdateFailure(finalInstallStep, steps);
     }
 
     if (stagedInstall.native && params.installTarget.pnpmIsolated) {
@@ -456,14 +459,15 @@ export async function runGlobalPackageUpdateSteps(params: {
       });
       const candidate = activePackages.length === 1 ? activePackages[0] : undefined;
       if (!candidate) {
-        return await packageUpdateFailure({
+        const failedStep: UpdateStepResult = {
           name: "package-verify",
           command: "resolve staged pnpm replacement",
           cwd: stagedInstall.native.projectRoot,
           durationMs: 0,
           exitCode: 1,
           stderrTail: "could not identify a unique active staged pnpm replacement package",
-        });
+        };
+        return await packageUpdateFailure(failedStep, [...steps, failedStep]);
       }
       stagedInstall.packageRoot = candidate.packageRoot;
     }
@@ -478,7 +482,7 @@ export async function runGlobalPackageUpdateSteps(params: {
       stagedInstall.layout.binDir,
     );
     if (publicationAdmission) {
-      return await packageUpdateFailure(publicationAdmission);
+      return await packageUpdateFailure(publicationAdmission, [...steps, publicationAdmission]);
     }
     await params.beforeVerifyCandidate?.(verificationPackageRoot);
     if (packageRoot && params.beforeVerifyCandidate) {
@@ -523,7 +527,7 @@ export async function runGlobalPackageUpdateSteps(params: {
     ) {
       const cleanupFailure = await cleanupStage();
       if (cleanupFailure) {
-        return await packageUpdateFailure(cleanupFailure);
+        return await packageUpdateFailure(cleanupFailure, [...steps, cleanupFailure]);
       }
       return {
         reason: "already-current",
@@ -547,7 +551,7 @@ export async function runGlobalPackageUpdateSteps(params: {
         manager: params.installTarget.manager,
         timeoutMs: params.timeoutMs,
         workTimeoutMs: params.workTimeoutMs,
-        env: stagedInstall.native?.env ?? effectiveInstallEnv,
+        env: commandEnv,
         runStep: params.runStep,
         steps,
         verifyCompleted: async () => {
@@ -564,7 +568,7 @@ export async function runGlobalPackageUpdateSteps(params: {
           // the previous runtime while the finalizer preserves this stage.
           uncertainLifecycleStage = stagedInstall;
         }
-        return await packageUpdateFailure(lifecycle.step);
+        return await packageUpdateFailure(lifecycle.step, steps);
       }
     }
     if (!params.expectedGitCheckout && verificationErrors.length === 0) {
@@ -587,7 +591,7 @@ export async function runGlobalPackageUpdateSteps(params: {
       steps.push(...validation);
       const rejectedCandidate = validation.find(isFailedUpdateStep);
       if (rejectedCandidate) {
-        return await packageUpdateFailure(rejectedCandidate);
+        return await packageUpdateFailure(rejectedCandidate, steps);
       }
       if (params.activateGitRoot) {
         if (
@@ -672,11 +676,11 @@ export async function runGlobalPackageUpdateSteps(params: {
       steps.find((step) => step !== updateStep && isFailedUpdateStep(step)) ?? null;
 
     if (failedStep) {
-      return await packageUpdateFailure(failedStep);
+      return await packageUpdateFailure(failedStep, steps);
     }
     const cleanupFailure = await cleanupStage();
     if (cleanupFailure) {
-      return await packageUpdateFailure(cleanupFailure);
+      return await packageUpdateFailure(cleanupFailure, [...steps, cleanupFailure]);
     }
     return {
       localOverrides,
@@ -699,21 +703,21 @@ export async function runGlobalPackageUpdateSteps(params: {
     if (error instanceof SystemPackageOwnershipError) {
       throw error;
     }
-    return await packageUpdateFailure(
-      await classifyPackageUpdatePermissionFailure(
-        {
-          name: "package-update",
-          command: "update installed package",
-          cwd: activePackageRoot ?? params.installCwd ?? process.cwd(),
-          durationMs: 0,
-          exitCode: 1,
-          stderrTail: formatErrorMessage(error),
-        },
-        params.installTarget,
-        params.env,
-        error,
-      ),
+    const failedStep = await classifyPackageUpdatePermissionFailure(
+      {
+        name: "package-update",
+        command: "update installed package",
+        cwd: activePackageRoot ?? params.installCwd ?? process.cwd(),
+
+        durationMs: 0,
+        exitCode: 1,
+        stderrTail: formatErrorMessage(error),
+      },
+      params.installTarget,
+      params.env,
+      error,
     );
+    return await packageUpdateFailure(failedStep, [...steps, failedStep]);
   } finally {
     if (!cleanupUncertain) {
       // Normal returns already disposed or retained their exact stage. Exceptional

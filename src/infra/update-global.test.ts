@@ -238,29 +238,18 @@ describe("update global helpers", () => {
     expect(calls).not.toContainEqual(["npm", "--version"]);
   });
 
-  it("defaults corepack download prompts and npm fetch timeouts for global install env", async () => {
-    await withMockedPlatform("linux", async () => {
-      const defaultEnv = await createGlobalInstallEnv({});
-      expect(defaultEnv).toMatchObject({
-        COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
-        NPM_CONFIG_BEFORE: "",
-        npm_config_before: "",
-        npm_config_fetch_retries: "5",
-        npm_config_fetch_retry_maxtimeout: "120000",
-        npm_config_fetch_retry_mintimeout: "10000",
-        npm_config_fetch_timeout: "300000",
-        "npm_config_min-release-age": "",
-        npm_config_min_release_age: "0",
-      });
-
-      const explicitEnv = await createGlobalInstallEnv({
-        COREPACK_ENABLE_DOWNLOAD_PROMPT: "1",
-        NPM_CONFIG_FETCH_TIMEOUT: "45000",
-      });
-      expect(explicitEnv?.COREPACK_ENABLE_DOWNLOAD_PROMPT).toBe("1");
-      expect(explicitEnv?.NPM_CONFIG_FETCH_TIMEOUT).toBe("45000");
-      expect(explicitEnv?.npm_config_fetch_timeout).toBeUndefined();
+  it("defaults corepack download prompts off for global install env", async () => {
+    const defaultEnv = await createGlobalInstallEnv({});
+    expect(defaultEnv).toMatchObject({
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
+      NPM_CONFIG_BEFORE: "",
+      npm_config_before: "",
+      "npm_config_min-release-age": "",
+      npm_config_min_release_age: "0",
     });
+
+    const explicitEnv = await createGlobalInstallEnv({ COREPACK_ENABLE_DOWNLOAD_PROMPT: "1" });
+    expect(explicitEnv?.COREPACK_ENABLE_DOWNLOAD_PROMPT).toBe("1");
   });
 
   it("sets the package launcher under Bun", async () => {

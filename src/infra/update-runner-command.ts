@@ -161,10 +161,7 @@ export async function runStep(opts: RunStepOptions): Promise<UpdateStepResult> {
     termination: result.termination,
     ...(failureFacts ? { failureFacts } : {}),
   };
-  const stepResult: UpdateStepResult = {
-    ...completion,
-    cwd,
-  };
+  const stepResult: UpdateStepResult = { ...completion, cwd };
   opts.results?.push(stepResult);
   await reportUpdateStepCompletion(progress, { ...stepInfo, ...completion }, commandError);
   if (commandError) {
