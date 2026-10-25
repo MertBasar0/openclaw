@@ -10,6 +10,14 @@ import { loadBundledPluginFacade } from "../../../test-utils/bundled-plugin-publ
 import { rawDataToString } from "../../ws.js";
 import { startProxy, stopProxy } from "./proxy-lifecycle.js";
 
+// Vitest aliases bare ws to the installed package, hiding Bun's production adapter.
+// Resolve the runtime's actual package entry so this regression covers that boundary.
+vi.mock("ws", async () => {
+  const { createRequire } = await import("node:module");
+  const ws: typeof import("ws") = createRequire(import.meta.url)("ws");
+  return { ...ws, default: ws };
+});
+
 const { buildOpenAIRealtimeVoiceProvider } = await loadBundledPluginFacade<{
   buildOpenAIRealtimeVoiceProvider: () => RealtimeVoiceProviderPlugin;
 }>({ pluginId: "openai", artifactBasename: "api.js" });
