@@ -48,6 +48,7 @@ import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { requireNativeSqliteDatabase } from "../../test-utils/native-sqlite.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { normalizeMessagesForLlmBoundary } from "../embedded-agent-runner/run/attempt-llm-boundary.js";
+import { createEnteredGate } from "../entered-gate.test-support.js";
 import { convertToLlm } from "../sessions/messages.js";
 import { withGatewayToolCallerIdentity } from "../tools/gateway-caller-context.js";
 import type { ContextEngineLogicalTurnLease } from "./context-engine-logical-turn.js";
@@ -55,6 +56,7 @@ import {
   drainPendingContextEngineTurnsBeforeRun,
   finalizeAcceptedContextEngineTurn,
 } from "./context-engine-turn-attempt.js";
+import { createTurnLease } from "./context-engine-turn.test-support.js";
 import { createAgentHarnessHostCapabilities } from "./host-capability.js";
 import { createAdmittedHostCapabilityTestFixture } from "./host-capability.test-support.js";
 
@@ -205,19 +207,15 @@ async function prepareAdmission(
 }
 
 async function holdTranscriptWriter(target: Parameters<typeof resolveSqliteTranscriptScope>[0]) {
-  const entered = createDeferred();
-  const release = createDeferred();
+  const writerGate = createEnteredGate();
   const locked = runExclusiveSqliteSessionWrite(
     resolveSqliteTranscriptScope(target),
-    async () => {
-      entered.resolve();
-      await release.promise;
-    },
+    writerGate.wait,
     "session.transcript.batch",
   );
-  await entered.promise;
+  await writerGate.entered;
   return async () => {
-    release.resolve();
+    writerGate.release();
     await locked;
   };
 }
@@ -437,16 +435,8 @@ describe("host-owned current admission annotation", () => {
           commitTurn,
         };
         const lease: ContextEngineLogicalTurnLease = {
-          engine,
-          effectiveEngine: engine,
+          ...createTurnLease(engine),
           effectiveEngineId: "annotation",
-          degraded: false,
-          disposed: false,
-          selectForHost: vi.fn(),
-          degradeBeforeStart: vi.fn(),
-          begin: vi.fn(),
-          deferDisposalUntil: vi.fn(),
-          onDispose: vi.fn(),
           dispose: async () => {},
         };
         const warn = vi.fn();
@@ -758,8 +748,26 @@ describe("host-owned current admission annotation", () => {
   it("refuses conflicting native provenance without rewriting again", async () => {
     await withAdmission(async (f) => {
       await f.annotate();
-      await f.expectRefused({ ...nativeAnnotation(), mirrorIdentity: "conflict" });
+      await f.expectRefused({ ...nativeAnnotation(), mirrorOrigin: "other-harness" });
     });
+  });
+
+  it("refuses a native annotation recorded for another run", async () => {
+    await withAdmission(
+      async (f) => {
+        await f.expectRefused(undefined, "recorded provenance");
+      },
+      {
+        beforeMessageWrite: ({ message }) => ({
+          ...message,
+          __openclaw: {
+            ...asOptionalRecord(Reflect.get(message, "__openclaw")),
+            ...nativeAnnotation(),
+            runId: "another-run",
+          },
+        }),
+      },
+    );
   });
 
   it("does not rerun admission hooks or bless their content edits", async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { modelDefinition } from "../agents/model-auth.fixtures.test-support.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import {
   getConfigValueAtPath,
@@ -126,6 +127,16 @@ describe("accessGroups config", () => {
 
     expect(result.success).toBe(false);
   });
+});
+
+it.each([
+  [0, true],
+  [120_000, true],
+  [-1, false],
+  [1.5, false],
+  ["60000", false],
+])("validates provider usage cache lifetime %s", (cacheTtlMs, valid) => {
+  expect(accepts({ models: { usage: { cacheTtlMs } } })).toBe(valid);
 });
 
 describe("models.catalogRefresh", () => {
@@ -339,20 +350,11 @@ describe("config identity/materialization regressions", () => {
             apiKey: "",
             api: "anthropic-messages",
             models: [
-              {
-                id: "MiniMax-M2.7",
+              modelDefinition("MiniMax-M2.7", {
                 name: "MiniMax M2.7",
                 reasoning: false,
-                input: ["text"],
-                cost: {
-                  input: 0,
-                  output: 0,
-                  cacheRead: 0,
-                  cacheWrite: 0,
-                },
                 contextWindow: 200000,
-                maxTokens: 8192,
-              },
+              }),
             ],
           },
         },

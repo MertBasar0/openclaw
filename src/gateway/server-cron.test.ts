@@ -136,13 +136,6 @@ vi.mock("../infra/system-events.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../infra/heartbeat-runner.js", () => ({
-  // Heartbeat monitor convergence enumerates agents at cron start; keep it
-  // inert so these tests exercise cron wiring, not heartbeat enrollment.
-  resolveHeartbeatAgents: () => [],
-  resolveHeartbeatSchedulerSeed: () => "test-seed",
-}));
-
 vi.mock("../infra/restart-coordinator.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../infra/restart-coordinator.js")>()),
   scheduleSafeGatewayRestart: mocks.restart,
@@ -212,6 +205,7 @@ vi.mock("../cron/trigger-script.js", () => ({
   createCronScriptRuntime: mocks.scriptRuntime,
 }));
 
+import { listenLoopback } from "../../test/helpers/gateway-integration-fixtures.js";
 import {
   abortActiveCronTaskRuns,
   registerActiveCronTaskRun,
@@ -655,7 +649,7 @@ describe("buildGatewayCronService", () => {
         consecutiveErrors: 0,
       });
       expect(state.cron.getJob(job.id)?.state.lastError).toBeUndefined();
-      expectIsolatedRunFields({ agentId: "main" });
+      expectIsolatedRunFields({ agentId: "main", cronStorePath: state.storePath });
     } finally {
       state.cron.stop();
       vi.useRealTimers();
@@ -2136,14 +2130,7 @@ describe("buildGatewayCronService", () => {
       req.resume();
       res.writeHead(204).end();
     });
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    const address = server.address();
-    if (!address || typeof address === "string") {
-      throw new Error("expected loopback webhook listener address");
-    }
+    const origin = await listenLoopback(server);
 
     const cfg = createCronConfig(`server-cron-ssrf-${expectedDeliveryStatus}`);
     if (ssrfPolicy) {
@@ -2163,7 +2150,7 @@ describe("buildGatewayCronService", () => {
         sessionTarget: "main",
         delivery: {
           mode: "webhook",
-          to: `http://127.0.0.1:${address.port}/cron-finished`,
+          to: `${origin}/cron-finished`,
         },
       });
 

@@ -1,6 +1,7 @@
 import { EventEmitter, once } from "node:events";
 import { createServer, type Server, type Socket } from "node:net";
 import { authenticate } from "mailauth";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { OpenClawPluginServiceContextV2 } from "openclaw/plugin-sdk/plugin-entry";
 import {
   createGatewaySchedulerClock,
@@ -19,7 +20,7 @@ vi.mock("mailauth", async (importOriginal) => {
   return { ...actual, authenticate: vi.fn(actual.authenticate) };
 });
 
-type MailFixture = { uid: number; raw: string };
+type MailFixture = { uid: number; raw: string; reportedSize?: number };
 
 export class ScriptedImapServer {
   readonly sockets = new Set<Socket>();
@@ -173,7 +174,7 @@ export class ScriptedImapServer {
                 .replace(" GMT", " +0000");
               socket.write(
                 wantsBody
-                  ? `* ${mail.sequence} FETCH (UID ${mail.uid} INTERNALDATE "${date}" RFC822.SIZE ${Buffer.byteLength(mail.raw)} BODY[]<0> {${Buffer.byteLength(mail.raw)}}\r\n${mail.raw})\r\n`
+                  ? `* ${mail.sequence} FETCH (UID ${mail.uid} INTERNALDATE "${date}" RFC822.SIZE ${mail.reportedSize ?? Buffer.byteLength(mail.raw)} BODY[]<0> {${Buffer.byteLength(mail.raw)}}\r\n${mail.raw})\r\n`
                   : `* ${mail.sequence} FETCH (UID ${!usesUid && this.sequenceUidOverride !== undefined ? this.sequenceUidOverride : mail.uid})\r\n`,
               );
             }
@@ -270,14 +271,8 @@ export async function startWatcher(
     withTimeout(waitForAccountCursor("inbox", { uidValidity, lastSeenUid }), timeoutMs, {
       message: `IMAP inbox cursor did not reach UIDVALIDITY ${uidValidity}, UID ${lastSeenUid}`,
     });
-  let resolveStartup!: () => void;
-  const startup = new Promise<void>((resolve) => {
-    resolveStartup = resolve;
-  });
-  let resolveFailure!: (error: unknown) => void;
-  const connectionFailure = new Promise<unknown>((resolve) => {
-    resolveFailure = resolve;
-  });
+  const { promise: startup, resolve: resolveStartup } = createDeferred<void>();
+  const { promise: connectionFailure, resolve: resolveFailure } = createDeferred<unknown>();
   const context: OpenClawPluginServiceContextV2 = {
     scheduler: createTestPluginServiceScheduler(
       options.clock ? createTestGatewayScheduler(options.clock.clock) : undefined,
