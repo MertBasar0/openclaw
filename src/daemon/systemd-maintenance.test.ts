@@ -14,11 +14,10 @@ import {
   withGatewayServiceUpdateAuthority,
   type GatewayServiceNativeCommand,
 } from "./service-update-authority.js";
-import {
-  prepareSystemdGatewayMaintenance,
-  readSystemdGatewayStopTimeout,
-} from "./systemd-maintenance.js";
+import { nativeExit } from "./systemd-exec.test-support.js";
+import { prepareSystemdGatewayMaintenance } from "./systemd-maintenance.js";
 import * as systemdScope from "./systemd-scope.js";
+import { readSystemdGatewayStopTimeout } from "./systemd-stop-policy.js";
 import { buildSystemdUnit } from "./systemd-unit.js";
 
 vi.mock("./service-layout.js", async (original) => ({
@@ -62,12 +61,11 @@ function installedState(f: Awaited<ReturnType<typeof policyFixture>>, running = 
 }
 type PolicyFixture = Awaited<ReturnType<typeof policyFixture>>;
 function nativeResult(stopSeconds: number, code = 0) {
-  return {
+  return nativeExit(
+    `LoadState=loaded\nAfter=network-online.target\nWants=network-online.target\nRestartUSec=5s\nKillMode=mixed\nTimeoutStopUSec=${stopSeconds}s\n`,
+    "",
     code,
-    termination: "exit" as const,
-    stderr: "",
-    stdout: `LoadState=loaded\nAfter=network-online.target\nWants=network-online.target\nRestartUSec=5s\nKillMode=mixed\nTimeoutStopUSec=${stopSeconds}s\n`,
-  };
+  );
 }
 function prepare(
   f: PolicyFixture,

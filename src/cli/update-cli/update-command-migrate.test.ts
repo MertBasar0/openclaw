@@ -6,6 +6,7 @@ import * as terminalNote from "../../../packages/terminal-core/src/note.js";
 import * as doctorUi from "../../commands/doctor-ui.js";
 import * as doctor from "../../flows/doctor-health.js";
 import * as jsonFiles from "../../infra/json-files.js";
+import { listUpdateRuns } from "../../infra/update-run-reader.js";
 import { closeOpenClawAgentDatabasesAsync } from "../../state/openclaw-agent-db-lifecycle.js";
 import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "../../state/openclaw-state-db-contract.js";
@@ -23,6 +24,54 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 const readText = (file: string) => fs.readFile(file, "utf8");
+
+it("migrates the Claws preference through candidate Doctor with a rollback original", async () => {
+  await withOpenClawTestState(
+    {
+      scenario: "minimal",
+      env: { OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1", OPENCLAW_SUPERVISOR_MODE: "external" },
+    },
+    async (state) => {
+      vi.spyOn(doctorUi, "maybeRepairUiProtocolFreshness").mockResolvedValue();
+      await state.writeConfig({
+        plugins: { enabled: false },
+        gateway: {
+          mode: "local",
+          auth: { mode: "none" },
+          controlUi: {
+            enabled: false,
+            experimental: { customPlugins: true, chatBubbles: true, claws: true },
+          },
+        },
+      });
+      const original = await readText(state.configPath);
+      const backupRoot = state.path("templates-recovery", "native");
+      const progress = vi.spyOn(process.stderr, "write");
+      await updateMigrateCommand(backupRoot);
+      expect(
+        progress.mock.calls
+          .map(([line]) => String(line))
+          .filter((line) => /^Doctor: Update (migration [\w ]+|schema admission)\n$/.test(line)),
+      ).toEqual([
+        "Doctor: Update migration config admission\n",
+        "Doctor: Update migration schema preflight\n",
+        "Doctor: Update migration database backup\n",
+        "Doctor: Update schema admission\n",
+        "Doctor: Update migration schema verification\n",
+      ]);
+      const receipt = JSON.parse(await readText(`${backupRoot}.receipt.json`));
+      expect(receipt.status).toBe("migrated");
+      expect(receipt.configFiles).toContainEqual(
+        expect.objectContaining({ path: state.configPath, raw: original }),
+      );
+      expect(JSON.parse(await readText(state.configPath)).gateway.controlUi.experimental).toEqual({
+        customPlugins: true,
+        chatBubbles: true,
+        templates: true,
+      });
+    },
+  );
+});
 
 it("migrates retired heartbeat config with its backed-up state only once", async () => {
   await withOpenClawTestState(
@@ -209,10 +258,25 @@ it.each(["restored", "failed", "finished", "retried", "absent", "symlink", "unch
       expect(runDoctor).toHaveBeenCalledOnce();
       expect((await readReceipt()).status).toBe(fail ? "failed" : "migrated");
       if (outcome === "finished") {
+        // A receipt from an earlier candidate has no start time: it retires unrecorded.
+        const { startedAtMs, ...legacy } = await readReceipt();
+        await fs.writeFile(receiptPath, JSON.stringify(legacy));
         await updateFinishCommand(backupRoot);
         const receipt = await readReceipt();
         expect(receipt).toMatchObject({ status: "finished", configFiles: [] });
         await expect(fs.stat(receipt.backup.directory)).rejects.toMatchObject({ code: "ENOENT" });
+        expect(listUpdateRuns({}, { env: state.env })).toEqual([]);
+        // With it, the run starts at migration, and a retried finish keeps the one record.
+        await fs.writeFile(receiptPath, JSON.stringify({ ...receipt, startedAtMs }));
+        await updateFinishCommand(backupRoot);
+        await updateFinishCommand(backupRoot);
+        expect(listUpdateRuns({}, { env: state.env })).toEqual([
+          expect.objectContaining({
+            runId: receipt.runId,
+            createdAtMs: startedAtMs,
+            status: "succeeded",
+          }),
+        ]);
         await expect(restore()).rejects.toThrow("rollback backup has been retired");
         return;
       }

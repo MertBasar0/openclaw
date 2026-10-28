@@ -27,7 +27,6 @@ type PdfModelConfigContext = {
   agentDir: string;
   workspaceDir?: string;
   authStore?: AuthProfileStore;
-  authProfileStoreSource?: boolean;
 };
 
 function formatProviderModelRef(providerId: string, modelId: string): string {
@@ -77,7 +76,6 @@ function resolveImageCandidateRefs(
         cfg: params.cfg,
         workspaceDir: params.workspaceDir,
         providerId,
-        document: "pdf",
         mode: "image",
       });
       if (documentImageModel === false) {
@@ -88,7 +86,7 @@ function resolveImageCandidateRefs(
         resolveProviderVisionModelFromConfig({
           cfg: params.cfg,
           provider: providerId,
-        })?.split("/")[1] ??
+        }) ??
         resolveDefaultMediaModel({
           cfg: params.cfg,
           workspaceDir: params.workspaceDir,
@@ -123,7 +121,6 @@ export function resolvePdfModelConfigForTool(
       cfg: params.cfg,
       workspaceDir: params.workspaceDir,
       providerId: activeProvider,
-      document: "pdf",
       mode: "image",
     }) !== false &&
     hasProviderAuthForTool({ ...params, provider: activeProvider })
@@ -134,14 +131,14 @@ export function resolvePdfModelConfigForTool(
     cfg: params.cfg,
     provider: primary.provider,
   });
-  const providerDefault =
-    providerVision?.split("/")[1] ??
-    resolveDefaultMediaModel({
-      cfg: params.cfg,
-      workspaceDir: params.workspaceDir,
-      providerId: primary.provider,
-      capability: "image",
-    });
+  const providerDefault = providerVision
+    ? localModelIdForProvider(primary.provider, providerVision)
+    : resolveDefaultMediaModel({
+        cfg: params.cfg,
+        workspaceDir: params.workspaceDir,
+        providerId: primary.provider,
+        capability: "image",
+      });
   const primarySupportsNativePdf = providerSupportsNativePdfDocument({
     cfg: params.cfg,
     workspaceDir: params.workspaceDir,
@@ -175,7 +172,6 @@ export function resolvePdfModelConfigForTool(
       cfg: textExtractionParams.cfg,
       workspaceDir: textExtractionParams.workspaceDir,
       providerId,
-      document: "pdf",
       mode: "textExtraction",
     });
     if (!documentTextModel) {
@@ -185,7 +181,6 @@ export function resolvePdfModelConfigForTool(
       cfg: textExtractionParams.cfg,
       workspaceDir: textExtractionParams.workspaceDir,
       providerId,
-      document: "pdf",
       mode: "image",
     });
     const preferredTextModel =
@@ -231,7 +226,6 @@ export function resolvePdfModelConfigForTool(
             cfg: params.cfg,
             workspaceDir: params.workspaceDir,
             providerId,
-            document: "pdf",
             mode: "image",
           })
         : undefined;
