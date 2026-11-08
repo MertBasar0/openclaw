@@ -1,6 +1,11 @@
 {
-  "base": "5fe1403b94d74f8a933ca50a778e6c9bfdfd7b78",
-  "candidate": "5181fce57a82ec8c01ee5842212e49f08a089814",
-  "tree": "f753f3f9fc288c4aee9cf871914247a13571fff1",
+  "base": "c1e55e24b3cb5729dc62b853af5f8844e42828bf",
+  "candidate": "19b8bfa3823eed877b7e630e57fb9f669a1a5671",
+  "tree": "b62861b68e3a99e598e758b36034d7aa7d06f7eb",
+  "productionPath": "apps/macos/Sources/OpenClaw/StatusMenuSessions.swift",
+  "paths": [
+    "apps/macos/Sources/OpenClaw/StatusMenuSessions.swift",
+    "apps/macos/Tests/OpenClawIPCTests/StatusMenuSummariesTests.swift"
+  ],
   "patchSha256": "a46fd07a5eaf569919e1e1784746bc708945783d1d7fea235f38044cf3fd3701"
 }

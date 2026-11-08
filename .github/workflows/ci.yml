@@ -1,5 +1,7 @@
-name: PR 189892 formatting followup validation
+name: macOS inherited checkmark continuation proof
 on:
+  push:
+    branches: [codex/189892-continuation-proof-20261109]
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,9 +17,10 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v6
         with:
-          repository: openclaw/openclaw
-          ref: 5fe1403b94d74f8a933ca50a778e6c9bfdfd7b78
+          repository: MertBasar0/openclaw
+          ref: 19b8bfa3823eed877b7e630e57fb9f669a1a5671
           path: source
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
@@ -25,19 +28,27 @@ jobs:
       - name: Verify exact candidate and prepare worker
         id: prepare
         shell: bash
-        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" prepare-format "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/continuation.sh" prepare "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+      - name: Baseline regression must fail for the expected checkmarks
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/continuation.sh" baseline "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+      - name: Candidate native app, tests and focused suites
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/continuation.sh" candidate "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
       - name: Required Swift checks
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         shell: bash
-        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" static "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
-      - name: Record and verify final source identity
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/continuation.sh" static "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+      - name: Verify final source identity
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         shell: bash
-        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" receipt "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/continuation.sh" receipt "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: pr189892-format-evidence
+          name: inherited-checkmark-continuation-evidence
           path: evidence
           retention-days: 14
           if-no-files-found: error
