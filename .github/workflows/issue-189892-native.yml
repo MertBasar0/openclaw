@@ -1,0 +1,53 @@
+name: PR 189892 integrated native validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/issue-189892-native-20261108]
+permissions:
+  contents: read
+jobs:
+  native:
+    if: github.repository == 'MertBasar0/openclaw' && github.event.repository.private == false
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: openclaw/openclaw
+          ref: 5fe1403b94d74f8a933ca50a778e6c9bfdfd7b78
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - name: Verify exact candidate and prepare worker
+        id: prepare
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" prepare "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+      - name: Build native app and tests
+        id: build
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" build "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+      - name: Run checkmark and current preview regressions
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" tests "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+      - name: Required Swift checks
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" static "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+      - name: Record and verify final source identity
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" receipt "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: pr189892-integrated-native-evidence
+          path: evidence
+          retention-days: 14
+          if-no-files-found: error
