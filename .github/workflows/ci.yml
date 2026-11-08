@@ -1,4 +1,4 @@
-name: PR 189892 integrated native validation
+name: PR 189892 formatting followup validation
 on:
   workflow_dispatch:
 permissions:
@@ -25,15 +25,7 @@ jobs:
       - name: Verify exact candidate and prepare worker
         id: prepare
         shell: bash
-        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" prepare "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
-      - name: Build native app and tests
-        id: build
-        shell: bash
-        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" build "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
-      - name: Run checkmark and current preview regressions
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        shell: bash
-        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" tests "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
+        run: bash "$GITHUB_WORKSPACE/harness/.proof/189892/run.sh" prepare-format "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence"
       - name: Required Swift checks
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         shell: bash
@@ -45,7 +37,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: pr189892-integrated-native-evidence
+          name: pr189892-format-evidence
           path: evidence
           retention-days: 14
           if-no-files-found: error

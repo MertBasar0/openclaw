@@ -34,7 +34,7 @@ index d74188c5f..e7b9972d0 100644
      }
  
 diff --git a/apps/macos/Tests/OpenClawIPCTests/StatusMenuSummariesTests.swift b/apps/macos/Tests/OpenClawIPCTests/StatusMenuSummariesTests.swift
-index fad5330a9..4269befae 100644
+index fad5330a9..2e0de21f6 100644
 --- a/apps/macos/Tests/OpenClawIPCTests/StatusMenuSummariesTests.swift
 +++ b/apps/macos/Tests/OpenClawIPCTests/StatusMenuSummariesTests.swift
 @@ -126,6 +126,59 @@ struct StatusMenuSummariesTests {
@@ -134,3 +134,12 @@ index fad5330a9..4269befae 100644
                  case "sessions.preview":
                      if previewFails.value {
                          let response = #"""
+@@ -554,7 +615,7 @@ private final class UsageGatewayFixture {
+                         return
+                     }
+                     let text = previewText.value ?? "Gateway \(owner)"
+-                    let encodedText = String(decoding: try JSONEncoder().encode(text), as: UTF8.self)
++                    let encodedText = try String(decoding: JSONEncoder().encode(text), as: UTF8.self)
+                     payload = #"""
+                     {"ts":1800000000000,"previews":[{"key":"main","status":"ok",
+                     "items":[{"role":"assistant","text":\#(encodedText)}]}]}

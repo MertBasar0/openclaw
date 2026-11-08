@@ -21,14 +21,14 @@ run() {
   return "$code"
 }
 case "$phase" in
-  prepare)
+  prepare|prepare-format)
     python3 - "$kit" "$evidence" <<'PY'
 import hashlib,json,pathlib,re,subprocess,sys
 kit,out=map(pathlib.Path,sys.argv[1:])
 m=json.loads((kit/'candidate.json').read_text())
 assert m['base']=='5fe1403b94d74f8a933ca50a778e6c9bfdfd7b78'
-assert m['candidate']=='630a701d85ba0b3ce1b82d6dc6a572d0926e5e1f'
-assert m['tree']=='d4b1aa7b250ae5a4853ac4be8ba9e0583b8ae6a2'
+assert m['candidate']=='5181fce57a82ec8c01ee5842212e49f08a089814'
+assert m['tree']=='f753f3f9fc288c4aee9cf871914247a13571fff1'
 assert re.fullmatch('[0-9a-f]{64}',m['patchSha256']), 'Provide independently verified patch SHA-256'
 p=kit/'CANDIDATE.diff'
 assert hashlib.sha256(p.read_bytes()).hexdigest()==m['patchSha256']
@@ -50,6 +50,7 @@ PY
     require_swift_toolchain
     run tools scripts/install-swift-tools.sh "$RUNNER_TEMP/swift-tools"
     echo "$RUNNER_TEMP/swift-tools" >> "$GITHUB_PATH"
+    if [[ "$phase" == prepare-format ]]; then exit 0; fi
     run corepack corepack enable
     run dependencies pnpm install --frozen-lockfile --prefer-offline --optional --filter '@openclaw/mermaid-renderer...' --filter '@openclaw/gateway-protocol...' --filter 'openclaw...' --config.ignore-scripts=false --config.engine-strict=false --config.enable-pre-post-scripts=true --config.side-effects-cache=true
     run mermaid node scripts/prepare-apple-mermaid.mjs
