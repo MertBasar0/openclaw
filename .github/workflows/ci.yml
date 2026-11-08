@@ -1,8 +1,6 @@
 name: PR 189892 integrated native validation
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/issue-189892-native-20261108]
 permissions:
   contents: read
 jobs:
