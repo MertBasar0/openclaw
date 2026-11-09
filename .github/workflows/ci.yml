@@ -25,11 +25,20 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24.22.1
+      - uses: actions/cache/restore@v5
+        id: builds
+        with:
+          path: |
+            source/apps/macos/.build
+            source/dist
+            source/extensions/*/dist
+          key: real-menu-19b8bfa-macos26-v1
       - name: Verify existing desktop access
         run: bash harness/.proof/189892/desktop-preflight.sh "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence/preflight"
       - name: Prepare real products and external menu driver
         run: bash harness/.proof/189892/real-app-build.sh prepare "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence/build"
       - name: Build original menu behavior
+        id: baseline_build
         run: bash harness/.proof/189892/real-app-build.sh baseline "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence/build"
       - name: Real baseline app and Gateway proof
         run: python3 harness/.proof/189892/real-app-proof.py --source "$GITHUB_WORKSPACE/source" --kit "$GITHUB_WORKSPACE/harness/.proof/189892" --out "$GITHUB_WORKSPACE/evidence/baseline" --variant baseline
@@ -37,6 +46,14 @@ jobs:
         run: bash harness/.proof/189892/real-app-build.sh candidate "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence/build"
       - name: Real candidate app and Gateway proof
         run: python3 harness/.proof/189892/real-app-proof.py --source "$GITHUB_WORKSPACE/source" --kit "$GITHUB_WORKSPACE/harness/.proof/189892" --out "$GITHUB_WORKSPACE/evidence/candidate" --variant candidate
+      - uses: actions/cache/save@v5
+        if: ${{ always() && steps.baseline_build.outcome == 'success' && steps.builds.outputs.cache-hit != 'true' }}
+        with:
+          path: |
+            source/apps/macos/.build
+            source/dist
+            source/extensions/*/dist
+          key: real-menu-19b8bfa-macos26-v1
       - uses: actions/upload-artifact@v6
         if: always()
         with:

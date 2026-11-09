@@ -86,8 +86,15 @@ if (mode === 'prepare') {
   writeJson(paths.gateway.config, {
     gateway: { mode: 'local', bind: 'loopback', port, auth: { mode: 'token', token } },
     agents: {
-      defaults: { workspace: paths.gateway.workspace, thinkingDefault: 'high', verboseDefault: 'on' },
-      entries: { main: { default: true } },
+      defaults: {
+        workspace: paths.gateway.workspace, thinkingDefault: 'high', verboseDefault: 'on',
+        // This catalog model supports both Off and High on the built-in runtime.
+        // No model request is sent; a default without Off cannot serve the explicit-Off control.
+        model: 'openai/gpt-5.4',
+        models: { 'openai/gpt-5.4': { agentRuntime: { id: 'openclaw' } } },
+      },
+      // Sole-agent ownership is inferred. A default boolean is a retired migration input.
+      entries: { main: {} },
     },
     cron: { enabled: false }, discovery: { mdns: { mode: 'off' } },
   }, true);
@@ -99,6 +106,7 @@ if (mode === 'prepare') {
     sourceHead: SOURCE_HEAD, createdAt: paths.createdAt, port, transport: 'loopback',
     authentication: 'private generated token', gatewayMode: 'local', appMode: 'remote/direct',
     configuredDefaults: { thinking: 'high', verbose: 'on' },
+    configuredModel: 'openai/gpt-5.4', configuredRuntime: 'openclaw',
     credentialsPublished: false, inferenceRequested: false,
   }, true);
   console.log(JSON.stringify({ mode, prepared: true, pathsFile, evidence: paths.evidence }));
