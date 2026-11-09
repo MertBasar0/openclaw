@@ -30,6 +30,8 @@ PY
   require_swift_toolchain
   run corepack corepack enable
   run dependencies pnpm install --frozen-lockfile --prefer-offline
+  # Restored root artifacts alone omit workspace-package outputs required at runtime.
+  run gateway-runtime node --import ./scripts/tsx.mjs scripts/build-all.mts qaRuntime
   run mermaid node scripts/prepare-apple-mermaid.mjs
   run mac-cli swift build --package-path apps/macos --build-system native --product openclaw-mac
 else
