@@ -239,6 +239,7 @@ try:
         menu(child,'Inherited proof',pref,expected,'reuse-inherited-'+pref.lower())
     assert_rows(utility('record-state','final-state'),None,None)
     summary['sameAppPIDAcrossOpens']=child.pid
+    summary['functionalStatus']='passed'
     summary['status']='passed'
 except BaseException as e:
     summary['status']='failed'
@@ -261,8 +262,13 @@ finally:
                 except subprocess.TimeoutExpired:
                     os.killpg(child.pid,signal.SIGKILL); child.wait(timeout=10)
             # A child may outlive its group leader. Detect rather than silently claim clean retirement.
-            r=subprocess.run(['pgrep','-g',str(child.pid)],text=True,capture_output=True)
-            if r.returncode==0: raise RuntimeError('Owned group still has members: '+r.stdout.strip())
+            deadline=time.monotonic()+20
+            while True:
+                r=subprocess.run(['pgrep','-g',str(child.pid)],text=True,capture_output=True)
+                if r.returncode==1: break
+                if r.returncode!=0: raise RuntimeError('Cannot verify owned process group retirement: '+r.stderr)
+                if time.monotonic()>=deadline: raise RuntimeError('Owned group still has members: '+r.stdout.strip())
+                time.sleep(0.2)
             entry['status']='retired'
         except Exception as e:
             entry['status']='unverified'; entry['error']=str(e)

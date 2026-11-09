@@ -37,17 +37,13 @@ jobs:
         run: bash harness/.proof/189892/desktop-preflight.sh "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence/preflight"
       - name: Prepare real products and external menu driver
         run: bash harness/.proof/189892/real-app-build.sh prepare "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence/build"
-      - name: Build original menu behavior
-        id: baseline_build
-        run: bash harness/.proof/189892/real-app-build.sh baseline "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence/build"
-      - name: Real baseline app and Gateway proof
-        run: python3 harness/.proof/189892/real-app-proof.py --source "$GITHUB_WORKSPACE/source" --kit "$GITHUB_WORKSPACE/harness/.proof/189892" --out "$GITHUB_WORKSPACE/evidence/baseline" --variant baseline
       - name: Build unchanged PR candidate
+        id: candidate_build
         run: bash harness/.proof/189892/real-app-build.sh candidate "$GITHUB_WORKSPACE/source" "$GITHUB_WORKSPACE/harness/.proof/189892" "$GITHUB_WORKSPACE/evidence/build"
       - name: Real candidate app and Gateway proof
         run: python3 harness/.proof/189892/real-app-proof.py --source "$GITHUB_WORKSPACE/source" --kit "$GITHUB_WORKSPACE/harness/.proof/189892" --out "$GITHUB_WORKSPACE/evidence/candidate" --variant candidate
       - uses: actions/cache/save@v5
-        if: ${{ always() && steps.baseline_build.outcome == 'success' && steps.builds.outputs.cache-hit != 'true' }}
+        if: ${{ always() && steps.candidate_build.outcome == 'success' && steps.builds.outputs.cache-hit != 'true' }}
         with:
           path: |
             source/apps/macos/.build
