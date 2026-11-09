@@ -12,6 +12,7 @@ import signal
 import subprocess
 import sys
 import time
+import threading
 
 p = argparse.ArgumentParser()
 p.add_argument('--source', required=True)
@@ -54,8 +55,19 @@ def write(name, value):
     (out/name).write_text(json.dumps(value, indent=2, sort_keys=True)+'\n')
 
 def run(cmd, env=None, timeout=120, label=None, check=True):
-    r = subprocess.run([str(x) for x in cmd], cwd=source, env=env or clean_env(),
-                       text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+    if label: print('START '+label, flush=True)
+    args=[str(x) for x in cmd]
+    child=subprocess.Popen(args,cwd=source,env=env or clean_env(),text=True,
+                           stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+    try:
+        stdout,stderr=child.communicate(timeout=timeout)
+    except BaseException:
+        if child.poll() is None and os.getpgid(child.pid)==child.pid:
+            os.killpg(child.pid,signal.SIGKILL)
+        stdout,stderr=child.communicate(timeout=5)
+        if label: (out/(label+'.interrupted.log')).write_text(safe(stdout+'\n'+stderr))
+        raise
+    r=subprocess.CompletedProcess(args,child.returncode,stdout,stderr)
     if label:
         (out/(label+'.log')).write_text(safe(r.stdout+'\n'+r.stderr))
         write(label+'.receipt.json', {'command':[str(x) for x in cmd], 'exit':r.returncode})
@@ -65,7 +77,9 @@ def run(cmd, env=None, timeout=120, label=None, check=True):
 
 def utility(mode, label):
     run(['node',kit/'real-gateway-setup.mjs',mode,'--root',root,'--label',label],timeout=180)
-    return json.loads((Path(paths['evidence'])/(label+'.json')).read_text())
+    data=(Path(paths['evidence'])/(label+'.json')).read_text()
+    (out/('rpc-'+label+'.json')).write_text(safe(data))
+    return json.loads(data)
 
 def launch(name, cmd, env):
     log = root/(name+'.log')
@@ -98,9 +112,11 @@ def wait_gateway(child, env):
 
 def wait_app(cli, child, env):
     last=None
-    for attempt in range(45):
+    for attempt in range(18):
         alive(child)
-        last=run([cli,'--profile',profile,'status','--no-launch','--json'],env,timeout=20,check=False)
+        last=run([cli,'--profile',profile,'status','--no-launch','--timeout','3000','--json'],env,timeout=8,label=f'app-status-{attempt+1:02d}',check=False)
+        (out/'app-status-last.log').write_text(safe(last.stdout+'\n'+last.stderr))
+        print('App status attempt '+str(attempt+1)+' exit '+str(last.returncode),flush=True)
         if last.returncode == 0:
             state=json.loads(last.stdout)
             if state.get('primary',{}).get('connection',{}).get('state') == 'connected':
@@ -116,6 +132,17 @@ def menu(child, label, pref, expected, name, selection=None):
          '--session-label',label,'--preference',pref,'--expected',expected,'--out',out/name]
     if selection: cmd += ['--select',selection]
     run(cmd,timeout=90,label=name+'-driver')
+
+def export_logs():
+    for name,log in list(private_logs):
+        if log.exists(): (out/(name+'.log')).write_text(safe(log.read_text(errors='replace')))
+
+stop_logs=threading.Event()
+def log_pump():
+    while not stop_logs.wait(5):
+        try: export_logs()
+        except OSError: pass
+threading.Thread(target=log_pump,daemon=True).start()
 
 def assert_rows(receipt, thinking, verbose):
     rows={x['name']:x for x in receipt['state']['rows']}
@@ -156,7 +183,8 @@ try:
                 'swabbleEnabled','voicePushToTalkEnabled','talkEnabled','cookieSyncEnabled',
                 'quickChatEnabled','activeComputerPresenceEnabled']:
         run(['/usr/bin/defaults','write','ai.openclaw.mac.profile.'+profile,'openclaw.'+key,'-bool','false'],app_env)
-    child=launch('app',[app,'--attach-only','--background-only'],app_env)
+    child=launch('app',[app,'--attach-only','--background-only','--no-activate'],app_env)
+    run(['/usr/sbin/screencapture','-x','-m',out/'app-startup.png'],label='startup-screen')
     wait_app(cli,child,app_env)
     expected='off' if a.variant=='baseline' else 'none'
     for pref in ['Thinking','Verbose']:
@@ -187,11 +215,16 @@ try:
     assert_rows(utility('record-state','final-state'),None,None)
     summary['sameAppPIDAcrossOpens']=child.pid
     summary['status']='passed'
-except Exception as e:
+except BaseException as e:
     summary['status']='failed'
     summary['error']=safe(str(e))
-    print(summary['error'],file=sys.stderr)
+    print(summary['error'],file=sys.stderr,flush=True)
+    try:
+        run(['/usr/sbin/screencapture','-x','-m',out/'failure-screen.png'],timeout=10,check=False)
+        run(['/usr/bin/log','show','--style','compact','--last','3m','--predicate','process == \"OpenClaw\"'],timeout=20,label='app-system',check=False)
+    except Exception: pass
 finally:
+    stop_logs.set()
     for name,child,identity in reversed(owned):
         entry={'name':name,'pid':child.pid,'originalStart':identity}
         try:
