@@ -32,6 +32,9 @@ owned = []
 private_logs = []
 secret = ''
 paths = None
+keychain = None
+keychain_env = None
+keychain_created = False
 summary = {'variant': a.variant, 'startedUTC': started, 'candidate': manifest['candidate'],
            'baseline': manifest['base'], 'launch': 'real unbundled SwiftPM development app',
            'input': 'external CGEvent through normal status menu; AX readback',
@@ -174,6 +177,28 @@ try:
     assert len(os.fsencode(control_socket)) <= 103, 'macOS control socket path exceeds sockaddr_un limit'
     app_env=clean_env({**paths['app']['env'],'CFFIXED_USER_HOME':paths['app']['home'],
                        'OPENCLAW_PROFILE':profile})
+    # Match scripts/test-macos-native.mts: the fresh HOME needs its own unlocked
+    # user-domain Keychain before real catalog migration attempts SecItemAdd.
+    keychain=Path(paths['app']['home'])/'Library/Keychains/real-menu.keychain-db'
+    keychain_env=app_env
+    keychain.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    (Path(paths['app']['home'])/'Library/Preferences').mkdir(parents=True,exist_ok=True,mode=0o700)
+    assert not keychain.exists(), 'Refusing to replace a pre-existing test Keychain'
+    summary['keychain']={'path':safe(str(keychain)),'preparation':'started','cleanup':'pending'}
+    run(['/usr/bin/security','create-keychain','-p','',keychain],app_env,timeout=30,label='keychain-create')
+    keychain_created=True
+    for label,args in [
+        ('unlock',['unlock-keychain','-p','',keychain]),
+        ('settings',['set-keychain-settings',keychain]),
+        ('search-list',['list-keychains','-d','user','-s',keychain]),
+        ('default',['default-keychain','-d','user','-s',keychain]),
+    ]:
+        run(['/usr/bin/security',*args],app_env,timeout=30,label='keychain-'+label)
+    selected=run(['/usr/bin/security','default-keychain','-d','user'],app_env,
+                 timeout=30,label='keychain-default-readback').stdout.strip().strip('"')
+    assert Path(selected).resolve()==keychain.resolve(), 'Test Keychain was not selected as user default'
+    run(['/usr/bin/security','list-keychains','-d','user'],app_env,timeout=30,label='keychain-search-list-readback')
+    summary['keychain']['preparation']='verified'
     tokenfile=root/'private-token'
     tokenfile.write_text(secret); tokenfile.chmod(0o600)
     run([cli,'configure-remote','--profile',profile,'--direct-url',paths['url'],
@@ -243,6 +268,22 @@ finally:
             entry['status']='unverified'; entry['error']=str(e)
             summary['status']='failed'
         summary['cleanup'].append(entry)
+    if keychain is not None and 'keychain' in summary:
+        if keychain_created and all(entry['status']=='retired' for entry in summary['cleanup']):
+            try:
+                run(['/usr/bin/security','delete-keychain',keychain],keychain_env,
+                    timeout=30,label='keychain-delete')
+                if keychain.exists(): raise RuntimeError('Test Keychain file remains after deletion')
+                summary['keychain']['cleanup']='deleted-after-owned-process-retirement'
+            except Exception as e:
+                summary['keychain']['cleanup']='unverified-retained'
+                summary['keychain']['error']=safe(str(e))
+                summary['status']='failed'
+        elif keychain_created or keychain.exists():
+            summary['keychain']['cleanup']='retained-unverified-creation-or-process-retirement'
+            summary['status']='failed'
+        else:
+            summary['keychain']['cleanup']='not-created'
     for name,log in private_logs:
         if log.exists(): (out/(name+'.log')).write_text(safe(log.read_text(errors='replace')))
     if paths:
